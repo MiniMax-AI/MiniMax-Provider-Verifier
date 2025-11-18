@@ -1,0 +1,7 @@
+jsonschema>=4.25.1
+loguru>=0.7.3
+megfile>=4.2.5
+numpy>=2.3.4
+openai>=2.7.1
+tqdm>=4.67.1
+

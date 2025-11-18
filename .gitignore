@@ -1,0 +1,35 @@
+# OS files
+.DS_Store
+.vscode
+.idea
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Project output
+output/
+batch_results/
+results.jsonl
+summary.json
+*_results.jsonl
+*_summary.json
+batch_report.json
+toolcall_similarity_results.json
+
+# Sensitive data
+provider.json
+*.key
+.env

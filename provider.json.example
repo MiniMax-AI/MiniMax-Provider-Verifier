@@ -1,0 +1,22 @@
+[
+  {
+    "name": "provider1",
+    "model": "model-name",
+    "base_url": "https://api.example.com/v1",
+    "api_key": "your-api-key-here"
+  },
+  {
+    "name": "openrouter-minimax",
+    "model": "minimax/minimax-m2",
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key": "your-api-key-here",
+    "extra_body": {
+      "provider": {
+        "only": [
+          "minimax"
+        ],
+        "allow_fallbacks": false
+      }
+    }
+  }
+]
