@@ -101,7 +101,7 @@ class ToolCallsValidator(BaseValidator):
             validate(instance=args, schema=schema)
             return True
         except (json.JSONDecodeError, ValidationError) as e:
-            print("Schema validation failed: {e}")
+            print(f"Schema validation failed: {e}")
             return False
         except Exception as e:
             print(f"Unexpected validation error: {e}")
