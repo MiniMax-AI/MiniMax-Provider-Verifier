@@ -38,6 +38,33 @@ The primary metrics are:
 
 The evaluation results below are computed using our initial release of test prompts, each executed 10 times per provider, with all metrics reported as the mean over the 10-run distribution. As a baseline, `minimax` represents the performance of our [official MiniMax Open Platform](https://platform.minimax.io/ ) deployment, providing a reference point for interpreting other providers' results.
 
+
+| minimax | 100% | 82% | - | 98.54% | 100% | 40% |
+| minimax-vllm | 100% | 82.1% | 99.39% | 97.93% | 100% | 50% |
+| minimax-sglang | 100% | 82.2% | 99.39% | 98.42% | 100% | - |
+| openrouter-atlas-cloud | 90.7% | 76.6% | 98.78% | 98.83% | 99.7% | 50% |
+| openrouter-fireworks | 96.37% | 77.4% | 98.78% | 98.19% | 98.4% | 50% |
+| openrouter-minimax | 97.36% | 77.9% | 98.78% | 98.59% | 99.6% | - |
+| openrouter-siliconflow | 85.59% | 62.9% | 93.67% | 93.8% | 93.4% | 40% |
+
+
+### MiniMax-M2 Model – Dec 2025 Data
+
+| Metric | Query-Success-Rate | Finish-ToolCalls-Rate | ToolCalls-Trigger Similarity | ToolCalls-Accuracy | Response Success Rate - Not Only Reasoning | Language-Following-Success-Rate |
+|--------|--------------------|-----------------------|------------------------------|--------------------|--------------------------------------------|----------------------------------|
+| minimax-m2.1 | 100% | 83.33% | - | 96.61% | 100% | 90.00% |
+| minimax-m2.1-vllm(without topk) | 99.90% | 81.84% | 98.78% | 96.42% | 100% | 60.00% |
+| minimax-m2.1-vllm | 100% | 82.83% | 98.90% | 93.91% | 100% | 90% |
+| minimax-m2.1-sglang | 100% | 83.03% | 99.15% | 95.01% | 100% | 90% |
+| openRouter-minimax/fp8 | 100% | 83.23% | 99.03% | 96.11% | 100% | 90% |
+| openRouter-minimax/lightning | 99.90% | 83.15% | 98.97% | 96.48% | 100% | 80% |
+| openRouter-gmicloud/fp8 | 83.72% | 55.5% | 81.37% | 84.58% | 100% | 70% |
+| OpenRouter-novita/fp8 | 99.32% | 83.07% | 99.21% | 96.03% | 100% | 90% |
+| fireworks | 100% | 81.1% | 97.77% | 94.29% | 100% | 60% |
+
+
+### MiniMax-M2.1 Model – Jan 2026 Data
+
 | Metric | Query-Success-Rate | Finish-ToolCalls-Rate | ToolCalls-Trigger Similarity | ToolCalls-Accuracy | Response Success Rate - Not Only Reasoning | Language-Following-Success-Rate |
 |--------|--------------------|-----------------------|------------------------------|--------------------|--------------------------------------------|----------------------------------|
 | minimax | 100% | 82% | - | 98.54% | 100% | 40% |
