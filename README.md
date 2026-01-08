@@ -48,6 +48,18 @@ The evaluation results below are computed using our initial release of test prom
 | openrouter-siliconflow | 85.59% | 62.9% | 93.67% | 93.8% | 93.4% | 40% |
 
 
+### MiniMax-M2.1 Model – Jan 2026 Data
+
+| Metric | Query-Success-Rate | Finish-ToolCalls-Rate | ToolCalls-Trigger Similarity | ToolCalls-Accuracy | Response Success Rate - Not Only Reasoning | Language-Following-Success-Rate |
+|--------|--------------------|-----------------------|------------------------------|--------------------|--------------------------------------------|----------------------------------|
+| minimax | 100% | 82% | - | 98.54% | 100% | 40% |
+| minimax-vllm | 100% | 82.1% | 99.39% | 97.93% | 100% | 50% |
+| minimax-sglang | 100% | 82.2% | 99.39% | 98.42% | 100% | - |
+| openrouter-atlas-cloud | 90.7% | 76.6% | 98.78% | 98.83% | 99.7% | 50% |
+| openrouter-fireworks | 96.37% | 77.4% | 98.78% | 98.19% | 98.4% | 50% |
+| openrouter-minimax | 97.36% | 77.9% | 98.78% | 98.59% | 99.6% | - |
+| openrouter-siliconflow | 85.59% | 62.9% | 93.67% | 93.8% | 93.4% | 40% |
+
 ### MiniMax-M2 Model – Dec 2025 Data
 
 | Metric | Query-Success-Rate | Finish-ToolCalls-Rate | ToolCalls-Trigger Similarity | ToolCalls-Accuracy | Response Success Rate - Not Only Reasoning | Language-Following-Success-Rate |
@@ -62,18 +74,6 @@ The evaluation results below are computed using our initial release of test prom
 | OpenRouter-novita/fp8 | 99.32% | 83.07% | 99.21% | 96.03% | 100% | 90% |
 | fireworks | 100% | 81.1% | 97.77% | 94.29% | 100% | 60% |
 
-
-### MiniMax-M2.1 Model – Jan 2026 Data
-
-| Metric | Query-Success-Rate | Finish-ToolCalls-Rate | ToolCalls-Trigger Similarity | ToolCalls-Accuracy | Response Success Rate - Not Only Reasoning | Language-Following-Success-Rate |
-|--------|--------------------|-----------------------|------------------------------|--------------------|--------------------------------------------|----------------------------------|
-| minimax | 100% | 82% | - | 98.54% | 100% | 40% |
-| minimax-vllm | 100% | 82.1% | 99.39% | 97.93% | 100% | 50% |
-| minimax-sglang | 100% | 82.2% | 99.39% | 98.42% | 100% | - |
-| openrouter-atlas-cloud | 90.7% | 76.6% | 98.78% | 98.83% | 99.7% | 50% |
-| openrouter-fireworks | 96.37% | 77.4% | 98.78% | 98.19% | 98.4% | 50% |
-| openrouter-minimax | 97.36% | 77.9% | 98.78% | 98.59% | 99.6% | - |
-| openrouter-siliconflow | 85.59% | 62.9% | 93.67% | 93.8% | 93.4% | 40% |
 
 ## Reference Thresholds
 
