@@ -21,6 +21,7 @@ from validator import (
     RussianCharactersValidator,
     RepeatNGramValidator,
     ScenarioCheckValidator,
+    SilenceOutputValidator,
 )
 
 
@@ -36,6 +37,7 @@ VALIDATOR_REGISTRY = {
     "contains_russian_characters_unicode": RussianCharactersValidator,
     "repeat_n_gram": RepeatNGramValidator,
     "scenario_check": ScenarioCheckValidator,
+    "silence_output": SilenceOutputValidator,
 }
 
 
@@ -504,6 +506,8 @@ class ValidatorRunner:
                 used_validators.add("repeat_n_gram")
             if "scenario_check_checked" in r:
                 used_validators.add("scenario_check")
+            if "silence_output_checked" in r:
+                used_validators.add("silence_output")
         
         # Compute summary for each used validator
         # Compute summary for each used validator
