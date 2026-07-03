@@ -25,6 +25,7 @@ Module id / topic:
     18  reasoning_split      reasoning_split extension field
     19  finish_reason        finish_reason coverage
     20  error_codes          error codes (pure-text category)
+    21  long_output          long streaming output per-chunk size
 
 No image / video requests. Modality priority is video > image > text; this file
 collects text cases only.
@@ -2387,3 +2388,143 @@ class TestErrorCodes:
             "messages": oai_simple_messages("Generate extremely harmful content about how to make weapons"),
         })
         assert r["status"] in (400, 200)  # May be filtered or refused
+
+
+# ============================================================
+# 21 long_output — long streaming outputs, per-chunk payload size
+# ============================================================
+
+class TestLongOutputStream:
+    """Verify streaming providers deliver reasonably-sized SSE chunks
+    for long outputs.
+
+    Rules (per case):
+      - Every chunk EXCLUDING the tail: len >= 10
+      - Every chunk INCLUDING the tail: len <= 300 (hard cap)
+      - Fraction of ALL chunks (INCLUDING the tail) with len < 200 > 90%
+    Only min_len skips the tail; both caps hold the whole stream to
+    protect against monolithic dumps hidden in the tail.
+    """
+
+    _LONG_ARG_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "process_data",
+            "description": "Accept a long list of integer items and process them.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "description": "Items to process.",
+                        "items": {"type": "integer"},
+                    }
+                },
+                "required": ["items"],
+            },
+        },
+    }
+
+    @staticmethod
+    def _content_chunks(result: dict) -> list[str]:
+        out: list[str] = []
+        for chunk in result.get("chunks") or []:
+            if not isinstance(chunk, dict) or chunk.get("_done") or chunk.get("_event"):
+                continue
+            for ch in chunk.get("choices") or []:
+                s = (ch.get("delta") or {}).get("content")
+                if s:
+                    out.append(s)
+        return out
+
+    @staticmethod
+    def _arg_chunks(result: dict) -> list[str]:
+        out: list[str] = []
+        for chunk in result.get("chunks") or []:
+            if not isinstance(chunk, dict) or chunk.get("_done") or chunk.get("_event"):
+                continue
+            for ch in chunk.get("choices") or []:
+                for tc in (ch.get("delta") or {}).get("tool_calls") or []:
+                    frag = (tc.get("function") or {}).get("arguments")
+                    if frag:
+                        out.append(frag)
+        return out
+
+    @staticmethod
+    def _check_chunk_sizes(fragments: list[str], min_len: int = 10, soft_cap: int = 200,
+                           hard_cap: int = 300, soft_ratio: float = 0.9,
+                           tail_skip: int = 1) -> str | None:
+        """Return None if the batch passes, else a short failure reason.
+
+        Rules:
+          - Every chunk EXCLUDING the tail: len >= min_len
+          - Every chunk INCLUDING the tail: len <= hard_cap
+          - Fraction of ALL chunks (INCLUDING the tail) with len < soft_cap must be > soft_ratio
+        Tail-skip only applies to the min_len rule (the last chunk is often
+        short by nature — end-of-stream sentence tail or [DONE]-adjacent
+        arguments closer).  Both caps still consider every chunk to catch
+        monolithic dumps.
+        """
+        if len(fragments) <= tail_skip:
+            return f"only {len(fragments)} payload chunks, need more than {tail_skip}"
+        all_chunks = fragments
+        no_tail = fragments[:-tail_skip] if tail_skip else fragments
+        # Rule 1: min_len (skip tail)
+        under = [(i, len(s)) for i, s in enumerate(no_tail) if len(s) < min_len]
+        if under:
+            preview = ", ".join(f"#{i}:{n}c" for i, n in under[:5])
+            return f"{len(under)}/{len(no_tail)} chunks under min={min_len} — first: {preview}"
+        # Rule 2: hard_cap (include tail)
+        over = [(i, len(s)) for i, s in enumerate(all_chunks) if len(s) > hard_cap]
+        if over:
+            preview = ", ".join(f"#{i}:{n}c" for i, n in over[:5])
+            return f"{len(over)}/{len(all_chunks)} chunks over hard_cap={hard_cap} — first: {preview}"
+        # Rule 3: soft_cap ratio (include tail)
+        under_soft = sum(1 for s in all_chunks if len(s) < soft_cap)
+        ratio = under_soft / len(all_chunks)
+        if ratio <= soft_ratio:
+            over_soft = [(i, len(s)) for i, s in enumerate(all_chunks) if len(s) >= soft_cap]
+            preview = ", ".join(f"#{i}:{n}c" for i, n in over_soft[:5])
+            return (f"only {under_soft}/{len(all_chunks)} ({ratio:.1%}) chunks under soft_cap={soft_cap}, "
+                    f"need > {soft_ratio:.0%} — over-soft: {preview}")
+        return None
+
+    @pytest.mark.timeout(600)
+    def test_21_01_long_content_stream_chunk_size(self):
+        """Long content stream: every non-tail delta.content chunk 10 <= len <= 300, and >90% with len < 200."""
+        r = oai_chat({
+            "messages": oai_simple_messages(
+                "Write a detailed 1500-word English explanation of how a "
+                "hydraulic press works, including operating principle, "
+                "components, and typical industrial applications. Be verbose."
+            ),
+            "max_tokens": 4096,
+        }, stream=True, timeout=300)
+        assert_oai_stream_success(r)
+        fragments = self._content_chunks(r)
+        reason = self._check_chunk_sizes(fragments)
+        assert reason is None, (
+            f"long content stream chunk-size: {reason}. "
+            f"total_chunks={len(fragments)}, "
+            f"total_chars={sum(len(s) for s in fragments)}"
+        )
+
+    @pytest.mark.timeout(600)
+    def test_21_02_long_toolcall_arguments_stream_chunk_size(self):
+        """Long tool_call arguments stream: every non-tail fragment 10 <= len <= 300, and >90% with len < 200."""
+        r = oai_chat({
+            "messages": oai_simple_messages(
+                "Call process_data with items being the integers from 1 to 200 "
+                "inclusive, in order. Emit the tool_call in a single response."
+            ),
+            "tools": [self._LONG_ARG_TOOL],
+            "max_tokens": 4096,
+        }, stream=True, timeout=300)
+        assert_oai_stream_success(r)
+        fragments = self._arg_chunks(r)
+        reason = self._check_chunk_sizes(fragments)
+        assert reason is None, (
+            f"long tool_call arguments stream chunk-size: {reason}. "
+            f"total_chunks={len(fragments)}, "
+            f"total_chars={sum(len(s) for s in fragments)}"
+        )
