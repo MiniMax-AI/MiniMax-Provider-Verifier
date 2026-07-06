@@ -1698,6 +1698,88 @@ class TestToolCallSchema:
         reason = self._oneof_check_calls(calls)
         assert reason is None, f"oneof toplevel stream: {reason}. calls={calls}"
 
+    # ------------- 14_08 object field in tool arguments (stream) -------------
+    # Verify a tool whose parameters declare an `object` field. The prompt
+    # tells the model to pass a concrete JSON object ({"some-key": "some-value"})
+    # into that field. Some provider tool-call parsers stringify the value
+    # (e.g. arguments.object == '{"some-key":"some-value"}' as a str) instead
+    # of preserving it as a JSON object, which breaks downstream consumers.
+
+    _OBJECT_FIELD_TOOL = {
+        "type": "function",
+        "function": {
+            "description": "An example function to validate parameters.",
+            "name": "example",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "string": {"type": "string", "description": "a string field"},
+                    "object": {"type": "object", "description": "an object field"},
+                },
+                "required": ["string", "object"],
+            },
+        },
+    }
+
+    @pytest.mark.timeout(300)
+    def test_14_08_object_field_stream(self):
+        """Stream: `example` tool must be called with string=='some-string' AND
+        object=={'some-key':'some-value'} (both correctly typed).
+
+        Failure surfaces provider bugs where the JSON `object` field arrives
+        stringified (arguments.object is a str containing JSON) or the string
+        field arrives as an object.
+        """
+        r = oai_chat({
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {
+                    "role": "user",
+                    "content": (
+                        'Call the tool `example` with "some-string" for `string` field '
+                        'and `{"some-key": "some-value"}` for `object` field. '
+                        "Don't do anything else, just call the tool and don't consider too much."
+                    ),
+                },
+            ],
+            "tools": [self._OBJECT_FIELD_TOOL],
+            "tool_choice": "auto",
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "max_tokens": 32000,
+            "thinking": {"type": "adaptive"},
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_oai_stream_success(r)
+
+        calls = get_tool_calls(r)
+        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
+        c = calls[0]
+        assert c["name"] == "example", f"expected name='example', got {c['name']!r}"
+        args = c["arguments_obj"]
+        assert isinstance(args, dict), (
+            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
+        )
+
+        # string field
+        s = args.get("string")
+        assert isinstance(s, str), (
+            f"'string' field must be str, got {type(s).__name__}={s!r}"
+        )
+        assert s == "some-string", (
+            f"'string' field expected 'some-string', got {s!r}"
+        )
+
+        # object field — the critical part
+        o = args.get("object")
+        assert isinstance(o, dict), (
+            f"'object' field must be a JSON object (dict), got {type(o).__name__}={o!r}. "
+            f"raw={c['arguments_raw']!r}"
+        )
+        assert o == {"some-key": "some-value"}, (
+            f"'object' field expected {{'some-key':'some-value'}}, got {o!r}"
+        )
+
 
 # ============================================================
 # 15 tool_call_combo — tool call combined with other features
