@@ -2153,6 +2153,69 @@ class TestToolCallEdge:
                     f"model should not invent nonexistent_tool, got {c}"
                 )
 
+    # ------------- 16_15 string param must be able to end with '\n' -------------
+    # Real agents write files whose bodies end with a trailing newline (POSIX
+    # text-file convention). If the model — or the streaming aggregator — strips
+    # trailing whitespace from a string argument, `content` comes back without
+    # its final `\n`, and downstream file writers silently create malformed
+    # files. This case forces the model to call a write_file tool with a
+    # content that MUST end with `\n`, and asserts `arguments_obj["content"]`
+    # ends with `\n` on both stream and non-stream paths.
+    _NEWLINE_TAIL_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write text content to a file at the given path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path"},
+                    "content": {"type": "string", "description": "Full text body"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    }
+    _NEWLINE_TAIL_PROMPT = (
+        "Call write_file exactly once to create '/tmp/hello.txt'. "
+        "The file body MUST be the two lines below and MUST end with a trailing "
+        "newline (`\\n`) — i.e. `content` ends with a `\\n` character:\n"
+        "line 1: hello\n"
+        "line 2: world\n"
+        "So `content` should be exactly `hello\\nworld\\n` (12 chars: h,e,l,l,o,\\n,w,o,r,l,d,\\n)."
+    )
+
+    @pytest.mark.parametrize("stream", [True], ids=["stream"])
+    def test_16_15_tool_arg_string_trailing_newline(self, stream):
+        """Tool string arg must be able to end with `\\n` — no trailing whitespace stripping (stream only)."""
+        r = oai_chat({
+            "messages": oai_simple_messages(self._NEWLINE_TAIL_PROMPT),
+            "tools": [self._NEWLINE_TAIL_TOOL],
+        }, stream=stream)
+        assert r["status"] == 200
+        calls = get_tool_calls(r)
+        assert calls, f"trailing_newline stream={stream}: no tool_call fired"
+        call = calls[0]
+        assert call["name"] == "write_file", (
+            f"trailing_newline stream={stream}: wrong tool "
+            f"name={call['name']!r} raw={call['arguments_raw'][:200]}"
+        )
+        args = call["arguments_obj"]
+        assert args is not None, (
+            f"trailing_newline stream={stream}: arguments not valid JSON "
+            f"raw={call['arguments_raw'][:300]}"
+        )
+        content = args.get("content")
+        assert isinstance(content, str) and content, (
+            f"trailing_newline stream={stream}: content must be non-empty string, "
+            f"got type={type(content).__name__} value={content!r}"
+        )
+        assert content.endswith("\n"), (
+            f"trailing_newline stream={stream}: content must end with '\\n', "
+            f"got tail={content[-20:]!r} full_len={len(content)} "
+            f"raw={call['arguments_raw'][:300]}"
+        )
+
 
 # ============================================================
 # 17 param_stress — param stress (long conversation / long system)
