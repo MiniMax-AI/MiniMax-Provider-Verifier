@@ -219,7 +219,9 @@
 | 17_02 | `test_17_02_long_system_10k` | ~10K tokens 长 system | HTTP 200 |
 | 17_03 | `test_17_03_long_input_512k` | 合成 system,ctx_tokens ∈ {512000, 524288}(覆盖 10 进制 512k 与 2 进制 512×1024 两种解读),max_tokens=16 | HTTP 200(M3 必须兑现宣称的 512k 窗口) |
 | 17_04 | `test_17_04_real_text_512k_xiyouji` | 西游记全文(~553k tokens,超过 512k 边界)作 system,提问主角名;max_tokens=4096 | HTTP 200 ≤ status < 500(禁 5xx);**仅当 200** 时校验 content/reasoning 出现"孙悟空 / 唐僧 / 三藏 / 玄奘"等任一 canonical 名 |
-| 17_05 | `test_17_05_xiyouji_below_524288_tokens` | 西游记前 624,598 chars(≈ 524,011 tokens,刚好低于 512×1024)作 system,提问主角名;max_tokens=4096 | 严格 HTTP 200 + 命中 canonical 主角名 |
+| 17_05 | `test_17_05_xiyouji_below_524288_tokens` | 西游记前 624,000 chars(≈ 523.5K tokens,为 512 tokens 输出预算预留空间)作 system,提问主角名;max_tokens=512 | 严格 HTTP 200 + 命中 canonical 主角名 |
+| 17_06 | `test_17_06_real_text_1m_xiyouji` | 约 1.1M tokens 的西游记长文本,超过 1M 上限;thinking disabled,max_tokens=512 | HTTP 200 或明确 4xx,禁 5xx;200 时命中 canonical 主角名 |
+| 17_07 | `test_17_07_xiyouji_below_1048576_tokens` | 西游记前 1,220,000 chars(官方实测约 1.02M prompt tokens,低于 1,048,576),thinking disabled,max_tokens=512 | 严格 HTTP 200 + 命中 canonical 主角名 |
 
 ## 18 reasoning_split — reasoning_split 扩展字段
 
@@ -249,14 +251,15 @@
 
 ---
 
-## 附录:parametrize 展开后的 140 个 items
+## 附录:parametrize 展开后的 155 个 items
 
 凡函数签名带 `@pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])` 的会展开为 2 个 items;`max_tokens` 的两个 case 各展开为 2 个 items。
 
 | 展开因子 | 涉及 case |
 |:---|:---|
-| `stream ∈ {non_stream, stream}` | 07_01 / 07_02 / 07_03 / 07_04 / 07_05 / 07_06 / 09_03 / 11_01 / 11_02 / 11_03 / 11_04 / 14_06 / 15_01 / 15_02 / 15_03 / 15_04 / 15_05 / 16_02 / 16_03 / 16_05 / 16_06 / 16_08 / 16_09 / 16_10 / 16_11 / 16_12 / 16_13 / 17_01 / 17_02 / 17_03 / 17_04 / 17_05 / 18_01 |
+| `stream ∈ {non_stream, stream}` | 07_01 / 07_02 / 07_03 / 07_04 / 07_05 / 07_06 / 09_03 / 11_01 / 11_02 / 11_03 / 11_04 / 14_06 / 15_01 / 15_02 / 15_03 / 15_04 / 15_05 / 16_02 / 16_03 / 16_05 / 16_06 / 16_08 / 16_09 / 16_10 / 16_11 / 16_12 / 16_13 / 17_01 / 17_02 / 17_04 / 17_05 / 17_06 / 17_07 / 18_01 |
+| `ctx_tokens ∈ {512000, 524288} × stream ∈ {non_stream, stream}` | 17_03 |
 | `mt ∈ {512000, 524288}` | 06_09 |
 | `mt ∈ {524289, 1000000}` | 06_10 |
 
-总 items = 108 函数 - 30 (`stream` parametrize 函数) - 2 (`mt` parametrize 函数) + 30×2 + 2×2 = **140**。
+总 items = 116 函数 - 34 (`stream` 双值函数) - 1 (`ctx_tokens × stream` 函数) - 2 (`mt` 双值函数) + 34×2 + 1×4 + 2×2 = **155**。

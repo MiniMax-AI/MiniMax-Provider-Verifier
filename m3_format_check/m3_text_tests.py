@@ -2353,7 +2353,7 @@ class TestParamStress:
     # ----- token-boundary case at 512*1024 = 524288 -----
     # Character count is calibrated against the official tokenizer
     # (minimax-m3 on api.minimaxi.com) so that:
-    #   17_05: 624,598 chars → prompt_tokens ≈ 524,011 (just below 524288)
+    #   17_05: 624,000 chars → prompt_tokens ≈ 523,528, leaving room for output
     # Other providers' tokenizers differ by ≤0.1%, so the relative ordering
     # vs 524288 stays the same.
 
@@ -2369,8 +2369,8 @@ class TestParamStress:
             f"fixture missing: {fixture}; run prep_xiyouji_fixture.py first"
         )
         with open(fixture, "r", encoding="utf-8") as f:
-            xiyouji_text = f.read()[:624_598]
-        assert len(xiyouji_text) == 624_598, (
+            xiyouji_text = f.read()[:624_000]
+        assert len(xiyouji_text) == 624_000, (
             f"fixture too short ({len(xiyouji_text)} chars); "
             "rerun prep_xiyouji_fixture.py to extend"
         )
@@ -2380,7 +2380,7 @@ class TestParamStress:
                 {"role": "system", "content": xiyouji_text},
                 {"role": "user", "content": "以上是《西游记》的部分原文。请问这部小说的主角叫什么名字?只回答名字,不要其他内容。"},
             ],
-            "max_tokens": 4096,
+            "max_tokens": 512,
         }, stream=stream)
 
         assert r["status"] == 200, (
@@ -2411,6 +2411,91 @@ class TestParamStress:
         assert hit is not None, (
             f"response did not name a protagonist; "
             f"content={content[:200]!r} reasoning={reasoning[:200]!r}"
+        )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_17_06_real_text_1m_xiyouji(self, stream):
+        """Real-text input above the 1M-token context boundary."""
+        fixture = os.path.join(
+            os.path.dirname(__file__), "fixtures", "xiyouji_1m_long_context.txt"
+        )
+        assert os.path.exists(fixture), (
+            f"fixture missing: {fixture}; run prep_xiyouji_1m_fixture.py first"
+        )
+        with open(fixture, "r", encoding="utf-8") as f:
+            xiyouji_text = f.read()
+
+        r = oai_chat({
+            "messages": [
+                {"role": "system", "content": xiyouji_text},
+                {"role": "user", "content": "以上是《西游记》的部分原文。请问这部小说的主角叫什么名字?只回答名字,不要其他内容。"},
+            ],
+            "max_tokens": 512,
+            "thinking": {"type": "disabled"},
+        }, stream=stream)
+        assert r["status"] == 200 or 400 <= r["status"] < 500, (
+            f"expected 200 or explicit 4xx for xiyouji-1m input; got status={r['status']} "
+            f"body={str(r.get('body'))[:500]}"
+        )
+        if r["status"] != 200:
+            return
+        if stream:
+            content = ""
+            for chunk in r.get("chunks") or []:
+                for choice in (chunk.get("choices") or []) if isinstance(chunk, dict) else []:
+                    content += ((choice.get("delta") or {}).get("content") or "")
+        else:
+            body = r.get("body") or {}
+            choices = body.get("choices") or []
+            content = ((choices[0].get("message") if choices else {}) or {}).get("content") or ""
+        canonical = ["孫悟空", "孙悟空", "悟空", "唐僧", "三藏", "玄奘", "唐三藏",
+                     "Wukong", "Sun Wukong", "Tang Sanzang", "Tripitaka"]
+        assert any(name in content for name in canonical), (
+            f"status=200 but response did not name a protagonist; content={content[:200]!r}"
+        )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_17_07_xiyouji_below_1048576_tokens(self, stream):
+        """Real-text input calibrated below 1M tokens must be accepted."""
+        fixture = os.path.join(
+            os.path.dirname(__file__), "fixtures", "xiyouji_1m_long_context.txt"
+        )
+        assert os.path.exists(fixture), (
+            f"fixture missing: {fixture}; run prep_xiyouji_1m_fixture.py first"
+        )
+        with open(fixture, "r", encoding="utf-8") as f:
+            xiyouji_text = f.read()[:1_220_000]
+        assert len(xiyouji_text) == 1_220_000, (
+            f"fixture too short ({len(xiyouji_text)} chars); rerun fixture preparation"
+        )
+
+        r = oai_chat({
+            "messages": [
+                {"role": "system", "content": xiyouji_text},
+                {"role": "user", "content": "以上是《西游记》的部分原文。请问这部小说的主角叫什么名字?只回答名字,不要其他内容。"},
+            ],
+            "max_tokens": 512,
+            "thinking": {"type": "disabled"},
+        }, stream=stream)
+        assert r["status"] == 200, (
+            f"expected 200 for below-1048576 input, got status={r['status']} "
+            f"body={str(r.get('body'))[:500]}"
+        )
+        if stream:
+            content = ""
+            for chunk in r.get("chunks") or []:
+                for choice in (chunk.get("choices") or []) if isinstance(chunk, dict) else []:
+                    content += ((choice.get("delta") or {}).get("content") or "")
+        else:
+            body = r.get("body") or {}
+            choices = body.get("choices") or []
+            content = ((choices[0].get("message") if choices else {}) or {}).get("content") or ""
+        canonical = ["孫悟空", "孙悟空", "悟空", "唐僧", "三藏", "玄奘", "唐三藏",
+                     "Wukong", "Sun Wukong", "Tang Sanzang", "Tripitaka"]
+        assert any(name in content for name in canonical), (
+            f"response did not name a protagonist; content={content[:200]!r}"
         )
 
 
