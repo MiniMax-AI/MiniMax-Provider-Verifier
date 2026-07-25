@@ -220,7 +220,9 @@
 | 17_02 | `test_17_02_long_system_10k` | ~10K tokens long system | HTTP 200 |
 | 17_03 | `test_17_03_long_input_512k` | Synthetic system, ctx_tokens ∈ {512000, 524288} (covers both decimal 512k and binary 512×1024 readings), max_tokens=16 | HTTP 200 (provider must honor advertised 512k window) |
 | 17_04 | `test_17_04_real_text_512k_xiyouji` | Full 西遊記 (~553k tokens, exceeds 512k boundary) as system, ask for protagonist name; max_tokens=4096 | HTTP 200 ≤ status < 500 (no 5xx); **only when 200**, content/reasoning must contain a canonical protagonist name (孙悟空 / 唐僧 / 三藏 / 玄奘 / etc.) |
-| 17_05 | `test_17_05_xiyouji_below_524288_tokens` | First 624,598 chars of 西遊記 (≈ 524,011 tokens, just below 512×1024) as system, ask for protagonist name; max_tokens=4096 | Strict HTTP 200 + canonical protagonist name match |
+| 17_05 | `test_17_05_xiyouji_below_524288_tokens` | First 624,000 chars of 西遊記 (≈523.5K tokens, leaving room for a 512-token completion budget) as system, ask for protagonist name; max_tokens=512 | Strict HTTP 200 + canonical protagonist name match |
+| 17_06 | `test_17_06_real_text_1m_xiyouji` | Journey-to-the-West text around 1.1M tokens, above the 1M boundary; thinking disabled, max_tokens=512 | HTTP 200 or explicit 4xx, never 5xx; on 200, canonical protagonist hit |
+| 17_07 | `test_17_07_xiyouji_below_1048576_tokens` | First 1,220,000 chars (officially measured at about 1.02M prompt tokens, below 1,048,576); thinking disabled, max_tokens=512 | Strict HTTP 200 + canonical protagonist hit |
 
 ## 18 reasoning_split — reasoning_split extension field
 
@@ -250,14 +252,15 @@
 
 ---
 
-## Appendix: 140 items after parametrize expansion
+## Appendix: 155 items after parametrize expansion
 
 Functions decorated with `@pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])` expand to 2 items each; the two `max_tokens` parametrized cases each expand to 2 items.
 
 | Expansion Factor | Cases Involved |
 |:---|:---|
-| `stream ∈ {non_stream, stream}` | 07_01 / 07_02 / 07_03 / 07_04 / 07_05 / 07_06 / 09_03 / 11_01 / 11_02 / 11_03 / 11_04 / 14_06 / 15_01 / 15_02 / 15_03 / 15_04 / 15_05 / 16_02 / 16_03 / 16_05 / 16_06 / 16_08 / 16_09 / 16_10 / 16_11 / 16_12 / 16_13 / 17_01 / 17_02 / 17_03 / 17_04 / 17_05 / 18_01 |
+| `stream ∈ {non_stream, stream}` | 07_01 / 07_02 / 07_03 / 07_04 / 07_05 / 07_06 / 09_03 / 11_01 / 11_02 / 11_03 / 11_04 / 14_06 / 15_01 / 15_02 / 15_03 / 15_04 / 15_05 / 16_02 / 16_03 / 16_05 / 16_06 / 16_08 / 16_09 / 16_10 / 16_11 / 16_12 / 16_13 / 17_01 / 17_02 / 17_04 / 17_05 / 17_06 / 17_07 / 18_01 |
+| `ctx_tokens ∈ {512000, 524288} × stream ∈ {non_stream, stream}` | 17_03 |
 | `mt ∈ {512000, 524288}` | 06_09 |
 | `mt ∈ {524289, 1000000}` | 06_10 |
 
-Total items = 108 functions - 30 (`stream` parametrize functions) - 2 (`mt` parametrize functions) + 30×2 + 2×2 = **140**.
+Total items = 116 functions - 34 two-value `stream` functions - 1 `ctx_tokens × stream` function - 2 two-value `mt` functions + 34×2 + 1×4 + 2×2 = **155**.
