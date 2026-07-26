@@ -2281,13 +2281,13 @@ class TestParamStress:
              context.
           4xx skips the content check (the model never got to answer).
 
-        Fixture file is built once by prep_xiyouji_fixture.py.
+        The fixture file is committed to the repository.
         """
         fixture = os.path.join(
             os.path.dirname(__file__), "fixtures", "xiyouji_long_context.txt"
         )
         assert os.path.exists(fixture), (
-            f"fixture missing: {fixture}; run prep_xiyouji_fixture.py first"
+            f"fixture missing: {fixture}; restore it from the Git repository"
         )
         with open(fixture, "r", encoding="utf-8") as f:
             xiyouji_text = f.read()
@@ -2366,13 +2366,13 @@ class TestParamStress:
             os.path.dirname(__file__), "fixtures", "xiyouji_long_context.txt"
         )
         assert os.path.exists(fixture), (
-            f"fixture missing: {fixture}; run prep_xiyouji_fixture.py first"
+            f"fixture missing: {fixture}; restore it from the Git repository"
         )
         with open(fixture, "r", encoding="utf-8") as f:
             xiyouji_text = f.read()[:624_000]
         assert len(xiyouji_text) == 624_000, (
             f"fixture too short ({len(xiyouji_text)} chars); "
-            "rerun prep_xiyouji_fixture.py to extend"
+            "restore the complete fixture from the Git repository"
         )
 
         r = oai_chat({
@@ -2421,7 +2421,7 @@ class TestParamStress:
             os.path.dirname(__file__), "fixtures", "xiyouji_1m_long_context.txt"
         )
         assert os.path.exists(fixture), (
-            f"fixture missing: {fixture}; run prep_xiyouji_1m_fixture.py first"
+            f"fixture missing: {fixture}; restore it from the Git repository"
         )
         with open(fixture, "r", encoding="utf-8") as f:
             xiyouji_text = f.read()
@@ -2463,7 +2463,7 @@ class TestParamStress:
             os.path.dirname(__file__), "fixtures", "xiyouji_1m_long_context.txt"
         )
         assert os.path.exists(fixture), (
-            f"fixture missing: {fixture}; run prep_xiyouji_1m_fixture.py first"
+            f"fixture missing: {fixture}; restore it from the Git repository"
         )
         with open(fixture, "r", encoding="utf-8") as f:
             xiyouji_text = f.read()[:1_220_000]
