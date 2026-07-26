@@ -34,6 +34,7 @@ import pytest
 
 BASE_URL = os.environ.get("M3_BASE_URL")
 API_KEY = os.environ.get("M3_API_KEY")
+AUTH_TYPE = os.environ.get("M3_AUTH_TYPE", "bearer").strip().lower()
 MODEL = os.environ.get("M3_MODEL", "MiniMax-M3")
 MODEL_MINI = os.environ.get("M3_MODEL_MINI", "MiniMax-M2-mini")
 
@@ -78,12 +79,17 @@ def _is_xdist_controller(config) -> bool:
 
 
 def pytest_configure(config):
-    if not BASE_URL or not API_KEY:
+    if AUTH_TYPE not in ("bearer", "none"):
+        raise pytest.UsageError(
+            f"\n\nUnsupported M3_AUTH_TYPE={AUTH_TYPE!r}; expected 'bearer' or 'none'."
+        )
+    if not BASE_URL or (AUTH_TYPE == "bearer" and not API_KEY):
         raise pytest.UsageError(
             "\n\nMissing required environment variables!\n"
             "Please set before running:\n"
             "  export M3_BASE_URL='https://your-endpoint.example.com'\n"
-            "  export M3_API_KEY='sk-your-api-key'\n"
+            "  export M3_API_KEY='sk-your-api-key'  # required for bearer auth\n"
+            "  export M3_AUTH_TYPE='none'           # for endpoints without auth\n"
         )
 
     # Stash a single timestamp on the controller so workers can share it.
@@ -141,7 +147,7 @@ def model_mini():
 
 @pytest.fixture
 def oai_headers():
-    return {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Content-Type": "application/json"}
+    if AUTH_TYPE == "bearer":
+        headers["Authorization"] = f"Bearer {API_KEY}"
+    return headers
