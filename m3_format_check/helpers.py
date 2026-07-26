@@ -18,12 +18,18 @@ import httpx
 
 BASE_URL = os.environ.get("M3_BASE_URL")
 API_KEY = os.environ.get("M3_API_KEY")
-if not BASE_URL or not API_KEY:
+AUTH_TYPE = os.environ.get("M3_AUTH_TYPE", "bearer").strip().lower()
+if AUTH_TYPE not in ("bearer", "none"):
+    raise EnvironmentError(
+        f"Unsupported M3_AUTH_TYPE={AUTH_TYPE!r}; expected 'bearer' or 'none'."
+    )
+if not BASE_URL or (AUTH_TYPE == "bearer" and not API_KEY):
     raise EnvironmentError(
         "Missing required environment variables.\n"
         "Please set before running tests:\n"
         "  export M3_BASE_URL='https://your-endpoint.example.com'\n"
-        "  export M3_API_KEY='sk-your-api-key'\n"
+        "  export M3_API_KEY='sk-your-api-key'  # required for bearer auth\n"
+        "  export M3_AUTH_TYPE='none'           # for endpoints without auth\n"
         "  export M3_MODEL='your-model-id'        # optional, default: MiniMax-M3\n"
         "  export M3_MODEL_MINI='your-mini-model'  # optional, default: MiniMax-M2-mini"
     )
@@ -34,9 +40,10 @@ TIMEOUT = 1800
 OAI_URL = f"{BASE_URL}/v1/chat/completions"
 
 OAI_HEADERS = {
-    "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json",
 }
+if AUTH_TYPE == "bearer":
+    OAI_HEADERS["Authorization"] = f"Bearer {API_KEY}"
 
 # M3_EXTRA_HEADERS: JSON string, extra request headers injected across links (e.g. X-MM-Text-Provider-Model)
 # Looks like '{"X-MM-Text-Provider-Model": "togetherai-m3:shadow/xxx"}'; ignored on parse failure
