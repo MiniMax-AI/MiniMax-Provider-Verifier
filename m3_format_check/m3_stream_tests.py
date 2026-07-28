@@ -745,6 +745,71 @@ class TestSSEStream:
             result, msg="02_06 text include_usage"
         )
 
+    def test_02_07_content_and_reasoning_content_not_coexist_in_chunk(self):
+        """同一 SSE chunk 的 delta 内 content 和 reasoning_content 不得同时非空。
+
+        M3 流式协议约定:思考阶段只吐 reasoning_content,回答阶段只吐 content,
+        两者在时间上不重叠。若单个 delta 同时携带两者会打乱下游解析(如 TTFT
+        统计、think/answer 分离渲染)。
+
+        用长思考 + 长回答的 prompt 提高覆盖:短响应包少,交界处不容易踩中混合包;
+        长响应包多,思考→回答切换窗口更宽,更能暴露实现里 flush 边界的问题。
+        连续跑 20 次,任意一次出现混合包即判失败。
+        """
+        prompt = (
+            "请分两步完成,思考和回答都要足够详细:\n"
+            "1) 详细推理:一辆车以 60 km/h 匀速行驶 2.5 小时后减速到 45 km/h "
+            "再行驶 1.75 小时,期间中途休息了 20 分钟(不计入行驶),"
+            "全程平均速度是多少?请把每一步的中间量都写出来。\n"
+            "2) 给出最终答案:用一段不少于 300 字的中文说明,"
+            "把结论、单位换算、以及为什么休息时间要单独扣除讲清楚,"
+            "并举一个日常生活中类似的例子帮助理解。"
+        )
+        run_count = 20
+        first_failure = None
+        for run_idx in range(1, run_count + 1):
+            result = oai_chat({
+                "messages": oai_simple_messages(prompt),
+                "max_tokens": 4096,
+                "thinking": {"type": "adaptive"},
+            }, stream=True)
+            assert_oai_stream_success(result)
+
+            offenders = []
+            for idx, chunk in enumerate(result.get("chunks") or []):
+                if not isinstance(chunk, dict):
+                    continue
+                for choice_idx, choice in enumerate(chunk.get("choices") or []):
+                    if not isinstance(choice, dict):
+                        continue
+                    delta = choice.get("delta") or {}
+                    if not isinstance(delta, dict):
+                        continue
+                    content = delta.get("content")
+                    reasoning = delta.get("reasoning_content")
+                    if (isinstance(content, str) and content
+                            and isinstance(reasoning, str) and reasoning):
+                        offenders.append({
+                            "chunk_index": idx,
+                            "choice_index": choice_idx,
+                            "content_preview": content[:80],
+                            "reasoning_preview": reasoning[:80],
+                        })
+
+            if offenders:
+                first_failure = {
+                    "run": run_idx,
+                    "offender_count": len(offenders),
+                    "samples": offenders[:3],
+                }
+                break
+
+        assert first_failure is None, (
+            f"02_07 连续 {run_count} 次中第 {first_failure['run']} 次出现 "
+            f"{first_failure['offender_count']} 个 chunk 同时携带非空 "
+            f"content 与 reasoning_content,示例: {first_failure['samples']}"
+        )
+
 
 class TestContentStreamPacketLengthDistribution:
     """Run pure-content scenarios repeatedly, then aggregate packet statistics."""
