@@ -27,7 +27,49 @@ from helpers import (
 )
 
 
-WRITE_FILE_TOOL = {
+CONTENT_STRING_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "save_content",
+        "description": "Save the complete text content.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Complete UTF-8 text to save.",
+                },
+            },
+            "required": ["content"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+FILENAME_CONTENT_JSON_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "write_file",
+        "description": "Write the complete text content to the specified file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": "Destination file name.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Complete UTF-8 text to write to the file.",
+                },
+            },
+            "required": ["filename", "content"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+PATH_CONTENT_TOOL = {
     "type": "function",
     "function": {
         "name": "write_file",
@@ -136,10 +178,12 @@ class PacketQualityRule:
 
 PACKET_QUALITY_RULES = {
     "content": PacketQualityRule(0.05, 0.95, 0.02, 0.90, 0.10),
-    "essay_500_chars_to_temp_file": PacketQualityRule(
+    "tool_content_string_500_chars": PacketQualityRule(
         0.15, 0.85, 0.00, 0.95, 0.00
     ),
-    "tool_string_500_chars": PacketQualityRule(0.10, 0.90, 0.00, 0.95, 0.00),
+    "tool_json_filename_content_500_chars": PacketQualityRule(
+        0.10, 0.90, 0.00, 0.95, 0.00
+    ),
     "tool_string_10k_chars": PacketQualityRule(0.05, 0.90, 0.10, 0.65, 0.35),
     "tool_nested_object_2k": PacketQualityRule(0.20, 0.75, 0.10, 0.60, 0.40),
     "parallel_5_tool_calls": PacketQualityRule(0.15, 0.85, 0.00, 0.95, 0.00),
@@ -189,24 +233,24 @@ CONTENT_STREAM_SCENARIOS = (
 
 TOOL_CALL_STREAM_SCENARIOS = (
     StreamScenario(
-        name="essay_500_chars_to_temp_file",
+        name="tool_content_string_500_chars",
         prompt=(
             "请以《一次难忘的合作》为题，写一篇约500字的中文作文，并调用 "
-            "write_file 工具把完整作文写入 temp.txt。path 必须精确为 temp.txt，"
-            "content 必须是完整作文正文。不要只在普通回复中输出作文。"
+            "save_content 工具保存完整作文。content 必须是完整作文正文；不要传入其他"
+            "参数，也不要只在普通回复中输出作文。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["essay_500_chars_to_temp_file"],
-        tools=(WRITE_FILE_TOOL,),
-        tool_choice={"type": "function", "function": {"name": "write_file"}},
+        quality_rule=PACKET_QUALITY_RULES["tool_content_string_500_chars"],
+        tools=(CONTENT_STRING_TOOL,),
+        tool_choice={"type": "function", "function": {"name": "save_content"}},
     ),
     StreamScenario(
-        name="tool_string_500_chars",
+        name="tool_json_filename_content_500_chars",
         prompt=(
             "调用 write_file，把一篇约500字的中文产品说明写入 stream_500.txt。"
-            "path 必须精确为 stream_500.txt，content 必须包含完整正文，不要省略。"
+            "filename 必须精确为 stream_500.txt，content 必须包含完整正文，不要省略。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["tool_string_500_chars"],
-        tools=(WRITE_FILE_TOOL,),
+        quality_rule=PACKET_QUALITY_RULES["tool_json_filename_content_500_chars"],
+        tools=(FILENAME_CONTENT_JSON_TOOL,),
         tool_choice={"type": "function", "function": {"name": "write_file"}},
     ),
     StreamScenario(
@@ -218,7 +262,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             f"{LONG_TOOL_PAYLOAD}</PAYLOAD>"
         ),
         quality_rule=PACKET_QUALITY_RULES["tool_string_10k_chars"],
-        tools=(WRITE_FILE_TOOL,),
+        tools=(PATH_CONTENT_TOOL,),
         tool_choice={"type": "function", "function": {"name": "write_file"}},
         payload_overrides={"max_tokens": 16384},
         slow=True,
@@ -255,7 +299,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             "path 必须精确为 reasoning_plan.txt，不要只返回普通文本。"
         ),
         quality_rule=PACKET_QUALITY_RULES["reasoning_then_tool_call"],
-        tools=(WRITE_FILE_TOOL,),
+        tools=(PATH_CONTENT_TOOL,),
         payload_overrides={"max_tokens": 8192},
     ),
 )
