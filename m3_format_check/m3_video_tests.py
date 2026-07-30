@@ -1218,6 +1218,84 @@ class TestVideoExtension:
 
 
 # ============================================================
+# 15 video_in_tool — video returned inside a tool-role message
+# ============================================================
+
+class TestVideoInToolMessage:
+    """Video carried inside a tool-role message content array (tool result returns a video)."""
+
+    # PONY_VIDEO_URL semantic anchors (cartoon pony + Spring Festival scene).
+    _VID_IN_TOOL_ANCHORS = (
+        "horse", "pony", "stallion", "foal", "cartoon", "animated",
+        "lantern", "firecracker", "new year", "spring festival", "festive",
+        "马", "小马", "卡通", "灯笼", "鞭炮", "新年", "春节",
+    )
+
+    def _run_video_in_tool_message(self, stream, cid):
+        """Shared body for 15_01/15_02: video returned INSIDE a tool-role message content array.
+
+        Simulates a tool ("fetch_video") whose result carries a real video (video_url block +
+        text). The model must parse the multimodal tool result and answer what the video shows.
+        Flow: user asks -> assistant tool_call -> tool returns [text + video_url] -> user asks
+        what the video is about. Multimodal content inside a tool message is not universally
+        supported: allow 200/400, forbid 500.
+
+        Uses the real public https URL PONY_VIDEO_URL (Spring Festival cartoon pony) so we can
+        assert on semantic keywords (pony/horse/festival/...) to confirm the tool-message video
+        truly reached the model, not just a non-empty reply.
+        """
+        fetch_video_tool = {
+            "type": "function",
+            "function": {
+                "name": "fetch_video",
+                "description": "Fetch a video by id; returns the video content for the model to watch.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"video_id": {"type": "string", "description": "id of the video to fetch"}},
+                    "required": ["video_id"],
+                },
+            },
+        }
+        r = oai_chat({
+            "messages": [
+                {"role": "user", "content": "Fetch video vid_001 and tell me what happens in it."},
+                {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "type": "function",
+                     "function": {"name": "fetch_video", "arguments": '{"video_id":"vid_001"}'}},
+                ]},
+                {"role": "tool", "tool_call_id": "c1", "content": [
+                    {"type": "text", "text": "Here is video vid_001:"},
+                    {"type": "video_url", "video_url": {"url": PONY_VIDEO_URL}},
+                ]},
+                {"role": "user", "content": "Describe what you see in that video."},
+            ],
+            "tools": [fetch_video_tool],
+            "max_tokens": 512,
+        }, stream=stream)
+        assert r["status"] in (200, 400), (
+            f"{cid} video_in_tool_message unexpected HTTP={r['status']}: "
+            f"{str(r.get('body'))[:300]}"
+        )
+        if r["status"] == 200:
+            content = get_oai_content(r).lower()
+            assert len(content.strip()) > 20, (
+                f"{cid} expected non-empty description, got len={len(content)}: {content!r}"
+            )
+            assert any(a in content for a in self._VID_IN_TOOL_ANCHORS), (
+                f"{cid} model failed to parse video in tool message; "
+                f"expected any of {self._VID_IN_TOOL_ANCHORS} in reply, got: {content[:200]}"
+            )
+
+    def test_15_01_video_in_tool_message_non_stream(self):
+        """15_01 — video inside a tool-role message, non-stream path."""
+        self._run_video_in_tool_message(stream=False, cid="15_01")
+
+    def test_15_02_video_in_tool_message_stream(self):
+        """15_02 — video inside a tool-role message, stream path."""
+        self._run_video_in_tool_message(stream=True, cid="15_02")
+
+
+# ============================================================
 # 14 error_codes — video-related error codes
 # ============================================================
 
