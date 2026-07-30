@@ -489,6 +489,77 @@ class TestImageToolCombo:
             msg=f"06_01 image_tool_combo stream={stream}",
         )
 
+    # ---- 06_02 / 06_03: image inside a tool-role message (split by stream mode) ----
+    _IMG_IN_TOOL_URL = (
+        "https://qa-tool-1315599187.cos.ap-shanghai.myqcloud.com"
+        "/model-release-checker/fixtures/m3_test_images/sx1.jpg"
+    )
+    _IMG_IN_TOOL_ANCHORS = (
+        "woman", "girl", "dress", "sea", "ocean", "beach", "hair", "ribbon", "terrace", "balcony",
+    )
+
+    def _run_image_in_tool_message(self, stream, cid):
+        """Shared body for 06_02/06_03: image returned INSIDE a tool-role message content array.
+
+        Simulates a tool ("fetch_image") whose result carries a real image (image_url block +
+        text). The model must parse the multimodal tool result and describe what the image shows.
+        Flow: user asks -> assistant tool_call -> tool returns [text + image_url] -> user asks to
+        describe -> the model must ground its answer in the actual image.
+
+        Uses a real public https URL (sx1.jpg on COS: a young woman with a red hair ribbon in a
+        cream dress on a seaside terrace); asserts on semantic content keywords to verify the
+        tool-message image truly reached the model.
+        """
+        fetch_image_tool = {
+            "type": "function",
+            "function": {
+                "name": "fetch_image",
+                "description": "Fetch an image by id; returns the image content for the model to look at.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"image_id": {"type": "string", "description": "id of the image to fetch"}},
+                    "required": ["image_id"],
+                },
+            },
+        }
+        r = oai_chat({
+            "messages": [
+                {"role": "user", "content": "Fetch image img_001 and tell me what is in it."},
+                {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "type": "function",
+                     "function": {"name": "fetch_image", "arguments": '{"image_id":"img_001"}'}},
+                ]},
+                {"role": "tool", "tool_call_id": "c1", "content": [
+                    {"type": "text", "text": "Here is image img_001:"},
+                    {"type": "image_url", "image_url": {"url": self._IMG_IN_TOOL_URL}},
+                ]},
+                {"role": "user", "content": "Describe what you see in that image."},
+            ],
+            "tools": [fetch_image_tool],
+            "max_tokens": 512,
+        }, stream=stream)
+        # Multimodal content inside a tool message is not universally supported; allow 400 rejection
+        # but forbid 500. When accepted (200) the model must ground its reply in the actual image.
+        assert r["status"] in (200, 400), (
+            f"{cid} image_in_tool_message unexpected HTTP={r['status']}: "
+            f"{str(r.get('body'))[:300]}"
+        )
+        if r["status"] == 200:
+            content = get_oai_content(r).lower()
+            assert len(content) > 0, f"{cid} expected non-empty content"
+            assert any(a in content for a in self._IMG_IN_TOOL_ANCHORS), (
+                f"{cid} model failed to parse image in tool message; "
+                f"expected any of {self._IMG_IN_TOOL_ANCHORS} in reply, got: {content[:200]}"
+            )
+
+    def test_06_02_image_in_tool_message_non_stream(self):
+        """06_02 — image inside a tool-role message, non-stream path."""
+        self._run_image_in_tool_message(stream=False, cid="06_02")
+
+    def test_06_03_image_in_tool_message_stream(self):
+        """06_03 — image inside a tool-role message, stream path."""
+        self._run_image_in_tool_message(stream=True, cid="06_03")
+
 
 # ============================================================
 # 07 image_thinking_combo — image + thinking combinations
