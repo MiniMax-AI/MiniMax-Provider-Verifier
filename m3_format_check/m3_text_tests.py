@@ -765,14 +765,20 @@ class TestUsageField:
         """10_09 — BILLING GUARD: usage must NOT disappear at max_tokens=1 (non-stream).
 
         We bill customers based on the provider-returned `usage`. Some providers drop the
-        `usage` object (or zero out prompt_tokens) when the generation is truncated at
+        `usage` object (or zero out the token counts) when the generation is truncated at
         max_tokens=1, which silently under-bills. This case enforces that even a 1-token
         truncated response carries a complete, correct usage object.
+
+        Sent WITHOUT a `thinking` field — this reflects the real default client request
+        (thinking is optional / not required). This is important: a provider was observed to
+        return `usage: null` at max_tokens=1 only when `thinking` was omitted (adding
+        thinking:disabled masked the bug), so the guard must run under the default path.
 
         Requirements on HTTP 200:
           - `usage` object present and non-empty;
           - prompt_tokens > 0 (input was billed);
-          - completion_tokens == 1 (exactly the one generated token);
+          - completion_tokens >= 1 (the truncated token is accounted for, whether spent on
+            reasoning or content);
           - total_tokens == prompt_tokens + completion_tokens.
         (Some providers time out on max_tokens=1 — that is a separate known issue covered by
         06_06; here we only assert billing integrity when a 200 is actually returned.)
@@ -780,7 +786,6 @@ class TestUsageField:
         r = oai_chat({
             "messages": oai_simple_messages("Hi"),
             "max_tokens": 1,
-            "thinking": {"type": "disabled"},
         }, timeout=60)
         # max_tokens=1 may time out on some providers (see 06_06); only enforce billing on 200.
         if r["status"] != 200:
@@ -808,14 +813,14 @@ class TestUsageField:
     def test_10_10_usage_present_when_max_tokens_1_stream(self):
         """10_10 — BILLING GUARD: usage must NOT disappear at max_tokens=1 (stream).
 
-        Streaming counterpart of 10_09. With stream_options.include_usage=true, the terminal
-        usage chunk must still be emitted and complete even when generation is truncated at
-        max_tokens=1, otherwise streamed requests get under-billed.
+        Streaming counterpart of 10_09. Sent WITHOUT a `thinking` field (real default path).
+        With stream_options.include_usage=true, the terminal usage chunk must still be emitted
+        and complete even when generation is truncated at max_tokens=1; otherwise streamed
+        requests get under-billed (e.g. completion_tokens reported as 0).
         """
         r = oai_chat({
             "messages": oai_simple_messages("Hi"),
             "max_tokens": 1,
-            "thinking": {"type": "disabled"},
             "stream_options": {"include_usage": True},
         }, stream=True, timeout=60)
         if r["status"] != 200:
