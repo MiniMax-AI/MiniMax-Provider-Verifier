@@ -761,6 +761,90 @@ class TestUsageField:
         assert usage["completion_tokens"] > 0
         assert usage["total_tokens"] > 0
 
+    def test_10_09_usage_present_when_max_tokens_1_non_stream(self):
+        """10_09 — BILLING GUARD: usage must NOT disappear at max_tokens=1 (non-stream).
+
+        We bill customers based on the provider-returned `usage`. Some providers drop the
+        `usage` object (or zero out the token counts) when the generation is truncated at
+        max_tokens=1, which silently under-bills. This case enforces that even a 1-token
+        truncated response carries a complete, correct usage object.
+
+        Sent WITHOUT a `thinking` field — this reflects the real default client request
+        (thinking is optional / not required). This is important: a provider was observed to
+        return `usage: null` at max_tokens=1 only when `thinking` was omitted (adding
+        thinking:disabled masked the bug), so the guard must run under the default path.
+
+        Requirements on HTTP 200:
+          - `usage` object present and non-empty;
+          - prompt_tokens > 0 (input was billed);
+          - completion_tokens == 1 (exactly the one truncated token must be billed);
+          - total_tokens == prompt_tokens + completion_tokens.
+        (Some providers time out on max_tokens=1 — that is a separate known issue covered by
+        06_06; here we only assert billing integrity when a 200 is actually returned.)
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages("Hi"),
+            "max_tokens": 1,
+        }, timeout=60)
+        # max_tokens=1 may time out on some providers (see 06_06); only enforce billing on 200.
+        if r["status"] != 200:
+            pytest.skip(f"10_09 non-200 at max_tokens=1 (status={r['status']}); billing check N/A")
+        body = r["body"] or {}
+        usage = body.get("usage")
+        assert isinstance(usage, dict) and usage, (
+            f"10_09 BILLING BUG: usage missing/empty at max_tokens=1 — would under-bill. "
+            f"body={str(body)[:300]}"
+        )
+        pt = usage.get("prompt_tokens")
+        ct = usage.get("completion_tokens")
+        tt = usage.get("total_tokens")
+        assert isinstance(pt, int) and pt > 0, (
+            f"10_09 BILLING BUG: prompt_tokens missing/zero at max_tokens=1 — input not billed. "
+            f"usage={usage!r}"
+        )
+        assert isinstance(ct, int) and ct == 1, (
+            f"10_09 BILLING BUG: completion_tokens must be exactly 1 at max_tokens=1, "
+            f"got {ct!r}. usage={usage!r}"
+        )
+        assert isinstance(tt, int) and tt == pt + ct, (
+            f"10_09 total_tokens={tt} != prompt({pt})+completion({ct}). usage={usage!r}"
+        )
+
+    def test_10_10_usage_present_when_max_tokens_1_stream(self):
+        """10_10 — BILLING GUARD: usage must NOT disappear at max_tokens=1 (stream).
+
+        Streaming counterpart of 10_09. Sent WITHOUT a `thinking` field (real default path).
+        With stream_options.include_usage=true, the terminal usage chunk must still be emitted
+        and complete even when generation is truncated at max_tokens=1; otherwise streamed
+        requests get under-billed (e.g. completion_tokens reported as 0).
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages("Hi"),
+            "max_tokens": 1,
+            "stream_options": {"include_usage": True},
+        }, stream=True, timeout=60)
+        if r["status"] != 200:
+            pytest.skip(f"10_10 non-200 at max_tokens=1 (status={r['status']}); billing check N/A")
+        usage_chunks = [c for c in (r.get("chunks") or []) if isinstance(c, dict) and c.get("usage")]
+        assert usage_chunks, (
+            "10_10 BILLING BUG: no usage chunk in stream at max_tokens=1 despite "
+            "include_usage=true — streamed request would be under-billed."
+        )
+        usage = usage_chunks[-1]["usage"]
+        pt = usage.get("prompt_tokens")
+        ct = usage.get("completion_tokens")
+        tt = usage.get("total_tokens")
+        assert isinstance(pt, int) and pt > 0, (
+            f"10_10 BILLING BUG: prompt_tokens missing/zero at max_tokens=1 (stream). usage={usage!r}"
+        )
+        assert isinstance(ct, int) and ct == 1, (
+            f"10_10 BILLING BUG: completion_tokens must be exactly 1 at max_tokens=1 (stream), "
+            f"got {ct!r}. usage={usage!r}"
+        )
+        assert isinstance(tt, int) and tt == pt + ct, (
+            f"10_10 total_tokens={tt} != prompt({pt})+completion({ct}) (stream). usage={usage!r}"
+        )
+
 
 # ============================================================
 # 11 role_root — role=root protocol acceptance and identity follow-through
