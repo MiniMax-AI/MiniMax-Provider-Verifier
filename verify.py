@@ -277,84 +277,80 @@ class ValidatorRunner:
 
     async def _handle_stream_request(self, request: dict) -> tuple[str, dict]:
         """Handle streaming request."""
-        try:
-            stream = await self.client.chat.completions.create(**request, extra_body=self.extra_body)
+        stream = await self.client.chat.completions.create(**request, extra_body=self.extra_body)
 
-            request_id = None
-            created = None
-            full_content = []
-            tool_calls: dict[int, dict] = {}
-            finish_reason = None
-            usage = None
-            provider = None
+        request_id = None
+        created = None
+        full_content = []
+        tool_calls: dict[int, dict] = {}
+        finish_reason = None
+        usage = None
+        provider = None
 
-            async for event in stream:
-                if hasattr(event, 'id') and event.id:
-                    request_id = event.id
-                if hasattr(event, 'created') and event.created:
-                    created = event.created
+        async for event in stream:
+            if hasattr(event, 'id') and event.id:
+                request_id = event.id
+            if hasattr(event, 'created') and event.created:
+                created = event.created
 
-                if hasattr(event, 'provider') and event.provider:
-                    provider = event.provider
+            if hasattr(event, 'provider') and event.provider:
+                provider = event.provider
 
-                if not hasattr(event, 'choices') or not event.choices:
-                    logger.warning("Empty choices in stream event")
-                    continue
+            if not hasattr(event, 'choices') or not event.choices:
+                logger.warning("Empty choices in stream event")
+                continue
 
-                choice = event.choices[0]
+            choice = event.choices[0]
 
-                if hasattr(choice, 'delta') and choice.delta:
-                    if hasattr(choice.delta, 'content') and choice.delta.content:
-                        full_content.append(choice.delta.content)
+            if hasattr(choice, 'delta') and choice.delta:
+                if hasattr(choice.delta, 'content') and choice.delta.content:
+                    full_content.append(choice.delta.content)
 
-                    if hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
-                        for tc in choice.delta.tool_calls:
-                            idx = tc.index if tc.index is not None else 0
+                if hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
+                    for tc in choice.delta.tool_calls:
+                        idx = tc.index if tc.index is not None else 0
 
-                            if idx not in tool_calls:
-                                tool_calls[idx] = {
-                                    "id": tc.id,
-                                    "type": tc.type,
-                                    "function": {"name": "", "arguments": ""},
-                                }
+                        if idx not in tool_calls:
+                            tool_calls[idx] = {
+                                "id": tc.id,
+                                "type": tc.type,
+                                "function": {"name": "", "arguments": ""},
+                            }
 
-                            if hasattr(tc, 'function') and tc.function:
-                                if hasattr(tc.function, 'name') and tc.function.name:
-                                    tool_calls[idx]["function"]["name"] = tc.function.name
-                                if hasattr(tc.function, 'arguments') and tc.function.arguments:
-                                    tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                        if hasattr(tc, 'function') and tc.function:
+                            if hasattr(tc.function, 'name') and tc.function.name:
+                                tool_calls[idx]["function"]["name"] = tc.function.name
+                            if hasattr(tc.function, 'arguments') and tc.function.arguments:
+                                tool_calls[idx]["function"]["arguments"] += tc.function.arguments
 
-                if hasattr(choice, 'finish_reason') and choice.finish_reason:
-                    finish_reason = choice.finish_reason
+            if hasattr(choice, 'finish_reason') and choice.finish_reason:
+                finish_reason = choice.finish_reason
 
-                if hasattr(choice, 'usage') and choice.usage:
-                    usage = choice.usage
+            if hasattr(choice, 'usage') and choice.usage:
+                usage = choice.usage
 
-            response = {
-                "id": request_id,
-                "object": "chat.completion",
-                "created": created,
-                "model": request.get("model", ""),
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "".join(full_content),
-                            "tool_calls": (
-                                list(tool_calls.values()) if tool_calls else None
-                            ),
-                        },
-                        "finish_reason": finish_reason or "stop",
-                    }
-                ],
-                "usage": usage,
-                "provider": provider
-            }
-            return "success", response
-        except Exception as e:
-            logger.error(f"Stream request failed: {e}")
-            return "failed", {"error": str(e)}
+        response = {
+            "id": request_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": request.get("model", ""),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "".join(full_content),
+                        "tool_calls": (
+                            list(tool_calls.values()) if tool_calls else None
+                        ),
+                    },
+                    "finish_reason": finish_reason or "stop",
+                }
+            ],
+            "usage": usage,
+            "provider": provider
+        }
+        return "success", response
 
     async def process_request(self, prepared_req: dict, data_index: int) -> dict:
         """Process a single request and run all validators."""
