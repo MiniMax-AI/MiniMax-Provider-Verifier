@@ -1864,6 +1864,110 @@ class TestToolCallSchema:
             f"'object' field expected {{'some-key':'some-value'}}, got {o!r}"
         )
 
+    # ------------- 14_09 list<object> field must not gain extra keys -------------
+    # Verify a tool whose parameters declare an `array` of `object` (list<object>)
+    # where the array `items` is a *schema-less* object (`{"type": "object"}` with
+    # NO `properties`). Some provider tool-call parsers introduce extra keys into
+    # each returned item object that were never declared in the schema nor
+    # mentioned in the prompt, corrupting downstream consumers. This mirrors the
+    # exact `deep_think` payload reported in the bug doc, which is the payload
+    # shape that triggers the parser bug.
+
+    _DEEP_THINK_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "deep_think",
+            "description": (
+                "Manage the dynamic todo list.\n"
+                '- todo_list: items each with "title" (str) and "done" (bool)\n'
+                "- current_step: brief description"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    # Schema-less object items ({"type": "object"} with no
+                    # properties) — this is the payload shape that triggers the
+                    # extra-parameter injection bug.
+                    "todo_list": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                    "current_step": {"type": "string"},
+                },
+                "required": ["todo_list", "current_step"],
+            },
+        },
+    }
+
+    _DEEP_THINK_PROMPT = (
+        "深入思考多种备选结构并权衡利弊后，为「8页AI行业分析PPT（投资人版）」"
+        "调用 deep_think 记录待办清单（8项以上，首项标记已完成）。"
+    )
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    @pytest.mark.timeout(300)
+    def test_14_09_list_object_items_wellformed(self, stream):
+        """list<object> arguments (schema-less object items): each element must be
+        a clean JSON object carrying ONLY the intended fields (title/done) with
+        NO provider-injected extra parameters.
+
+        The tool declares the array items as a schema-less object
+        (`{"type": "object"}` with no properties), which is the payload shape
+        that reproduces the reported bug where returned elements gain keys that
+        were never declared in the schema. The assertion is generic — any
+        undeclared extra key on an element fails.
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages(self._DEEP_THINK_PROMPT),
+            "tools": [self._DEEP_THINK_TOOL],
+            "thinking": {"type": "adaptive"},
+            "max_tokens": 4000,
+        }, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+
+        calls = get_tool_calls(r)
+        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
+        c = calls[0]
+        assert c["name"] == "deep_think", f"expected name='deep_think', got {c['name']!r}"
+        args = c["arguments_obj"]
+        assert isinstance(args, dict), (
+            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
+        )
+
+        todo_list = args.get("todo_list")
+        assert isinstance(todo_list, list), (
+            f"'todo_list' must be a list, got {type(todo_list).__name__}={todo_list!r}"
+        )
+        assert len(todo_list) >= 1, f"expected at least 1 todo item, got {len(todo_list)}: {todo_list!r}"
+
+        # Core check for the reported bug: each element must be a clean object
+        # carrying ONLY the semantically-intended fields (title/done) and NOT any
+        # provider-injected extra key. The assertion is generic so any undeclared
+        # extra key is rejected.
+        allowed = {"title", "done"}
+        for idx, it in enumerate(todo_list):
+            assert isinstance(it, dict), (
+                f"todo_list[{idx}] must be a JSON object, got {type(it).__name__}={it!r}. "
+                f"raw={c['arguments_raw']!r}"
+            )
+            extra = set(it.keys()) - allowed
+            assert not extra, (
+                f"todo_list[{idx}] introduces provider-injected extra key(s) {sorted(extra)}; "
+                f"element should only contain {sorted(allowed)}. item={it!r}. "
+                f"raw={c['arguments_raw']!r}"
+            )
+            # The intended element must expose the real 'title' field as a value.
+            assert "title" in it, (
+                f"todo_list[{idx}] missing expected 'title' field; keys={sorted(it.keys())}. "
+                f"item={it!r}. raw={c['arguments_raw']!r}"
+            )
+            assert isinstance(it.get("title"), str), (
+                f"todo_list[{idx}].title must be a str, got {type(it.get('title')).__name__}={it.get('title')!r}"
+            )
+
 
 # ============================================================
 # 15 tool_call_combo — tool call combined with other features
