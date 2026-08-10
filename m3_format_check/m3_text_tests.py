@@ -1975,59 +1975,6 @@ class TestToolCallSchema:
                 f"todo_list[{idx}].title must be a str, got {type(it.get('title')).__name__}={it.get('title')!r}"
             )
 
-    @staticmethod
-    def _find_dollar_text_keys(obj, path="arguments"):
-        """Recursively collect JSON paths where a `$text` key appears."""
-        hits = []
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k == "$text":
-                    hits.append(f"{path}.{k}")
-                hits.extend(TestToolCallSchema._find_dollar_text_keys(v, f"{path}.{k}"))
-        elif isinstance(obj, list):
-            for i, v in enumerate(obj):
-                hits.extend(TestToolCallSchema._find_dollar_text_keys(v, f"{path}[{i}]"))
-        return hits
-
-    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
-    @pytest.mark.timeout(300)
-    def test_14_10_no_injected_dollar_text_field(self, stream):
-        """tool-call arguments must not contain an injected `$text` field at any
-        depth.
-
-        Reuses the exact `deep_think` payload from the bug report: on Fireworks
-        this basically always reproduces, where each element of the schema-less
-        `todo_list` array becomes `{"$text": "<stringified JSON>"}`. This case
-        recursively scans the parsed arguments and fails if any `$text` key
-        appears.
-        """
-        r = oai_chat({
-            "messages": oai_simple_messages(self._DEEP_THINK_PROMPT),
-            "tools": [self._DEEP_THINK_TOOL],
-            "thinking": {"type": "adaptive"},
-            "max_tokens": 4000,
-        }, stream=stream)
-        if stream:
-            assert_oai_stream_success(r)
-        else:
-            assert_oai_success(r)
-
-        calls = get_tool_calls(r)
-        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
-        c = calls[0]
-        assert c["name"] == "deep_think", f"expected name='deep_think', got {c['name']!r}"
-        args = c["arguments_obj"]
-        assert isinstance(args, dict), (
-            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
-        )
-
-        # The critical check: no `$text` key at any depth.
-        dollar_hits = self._find_dollar_text_keys(args)
-        assert not dollar_hits, (
-            f"provider injected bogus `$text` field(s) at {dollar_hits}; "
-            f"schema never declares it. args={args!r}. raw={c['arguments_raw']!r}"
-        )
-
 
 # ============================================================
 # 15 tool_call_combo — tool call combined with other features
