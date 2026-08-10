@@ -354,7 +354,9 @@ class ValidatorRunner:
             return "success", response
         except Exception as e:
             logger.error(f"Stream request failed: {e}")
-            return "failed", {"error": str(e)}
+            # Re-raise so send_request's retry loop can see the failure. Returning
+            # here would exit the loop after a single attempt.
+            raise
 
     async def process_request(self, prepared_req: dict, data_index: int) -> dict:
         """Process a single request and run all validators."""
