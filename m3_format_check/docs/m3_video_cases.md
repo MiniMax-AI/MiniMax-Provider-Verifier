@@ -17,7 +17,7 @@
 | 07 | detail_param | detail / fps 字段缺省与组合 | 5 | 7 |
 | 08 | resolution_tier | 分辨率档位 / 边界 / 像素上限 | 9 | 9 |
 | 09 | max_long_side_pixel | max_long_side_pixel(28 倍数)契约 | 3 | 8 |
-| 10 | video_size_limit | 视频大小限(≤50MB) | 5 | 5 |
+| 10 | video_size_limit | 视频大小限(≤250MB) | 5 | 5 |
 | 11 | long_video | 长视频(5/10/20/30 min) | 4 | 4 |
 | 12 | media_gradient | 分辨率梯度 / 多视频梯度 | 4 | 6 |
 | 13 | video_extension | reasoning_split 等扩展字段 | 1 | 2 |
@@ -121,15 +121,15 @@
 | 09_02 | `test_09_02_monotonic` | 同视频分别设三档,token 严格单调 504 < 1008 < 2016 | 三档 token 严格单调 |
 | 09_03 | `test_09_03_out_of_range[below_min_28x5\|above_max_28x129\|zero\|negative_28]` | [150, 3584] 范围外(<150 / >3584 / 0 / 负数,均为 28 倍数) | 200/400/413/422 软断言 |
 
-## 10 video_size_limit — 视频大小限(≤50MB)
+## 10 video_size_limit — 视频大小限(≤250MB)
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 10_01 | `test_10_01_url_under_50mb` | URL 方式 ~47.4 MB MP4(<50MB) | `assert_oai_success` 通过 |
-| 10_02 | `test_10_02_url_over_50mb` | URL 方式 ~52 MB MP4(>50MB,服务端下载后拒绝) | HTTP 4xx |
+| 10_02 | `test_10_02_url_over_250mb` | URL 方式 ~254 MB MP4(video_251mb.mp4,1920×1080 货运火车片段,>250MB) | 4xx,或 HTTP 200 + content 命中火车/铁路关键词(train/railway/railroad/freight/cargo/boxcar/track/video/clip 等),证明视频帧真的进了视觉编码,排除 silent-drop fallback 文本 |
 | 10_03 | `test_10_03_base64_under_50mb` | Base64 方式 ~47.4 MB MP4(<50MB) | `assert_oai_success` 通过 |
 | 10_04 | `test_10_04_base64_over_50mb` | Base64 方式 ~52 MB MP4(video_51mb.mp4,1280×720 / 55s 随机像素噪点视频,>50MB) | 4xx,或 HTTP 200 + content 命中视频/噪点关键词(noise/random/static/pixel/frame/video/clip/magenta/green pixel 等),证明视频帧真的进了视觉编码,排除 silent-drop fallback 文本 |
-| 10_05 | `test_10_05_padded_over_50mb_rejected` | real_2s.mp4 + null padding 到 51MB(真实开头 + null 填充) | 400/413/415/422/500 拒绝 |
+| 10_05 | `test_10_05_url_over_250mb_summary` | URL 方式 ~254 MB MP4(video_251mb.mp4,>250MB;总结类 prompt,与 10_02 互补) | 4xx,或 HTTP 200 + content 命中火车/铁路关键词,证明视频帧真的进了视觉编码,排除 silent-drop fallback 文本 |
 
 ## 11 long_video — 长视频(5/10/20/30 min)
 
@@ -215,6 +215,7 @@
 | `fixtures/m3_test_videos/D_1200s.mp4` | ~20MB | 11_03 长视频 20min(可 env 覆盖) |
 | `fixtures/m3_test_videos/D_1800s.mp4` | ~30MB | 11_04 长视频 30min(可 env 覆盖) |
 | `<size_fixture>/video_49mb.mp4` | ~47.4MB | 10_01 / 10_03 大小上限通过侧 |
-| `<size_fixture>/video_51mb.mp4` | ~52MB | 10_02 / 10_04 大小上限拒绝侧 |
+| `<size_fixture>/video_51mb.mp4` | ~52MB | 10_04 大视频侧(base64) |
+| `<size_fixture>/video_251mb.mp4` | ~254MB | 10_02 / 10_05 >250MB 大视频侧(URL,1920×1080 货运火车) |
 | `SAMPLE_VIDEO_URL`(public) | — | 02_01 公网 URL smoke |
 | `PONY_VIDEO_URL`(COS) | — | 02_02 真实素材 OSS URL |

@@ -431,7 +431,8 @@ SIZE_FIXTURE_URLS = {
     "image_11mb.png":  f"{_COS_BASE}/image_11mb.png",  # ~11.1 MB, image >10MB (should reject)
     "image_65mb.png":  f"{_COS_BASE}/image_65mb.png",  # ~67 MB, base64 hits the 64MB request body cap (should reject)
     "video_49mb.mp4":  f"{_COS_BASE}/video_49mb.mp4",  # ~47.4 MB, video ≤50MB (should pass)
-    "video_51mb.mp4":  f"{_COS_BASE}/video_51mb.mp4",  # ~52 MB, video >50MB (should reject)
+    "video_51mb.mp4":  f"{_COS_BASE}/video_51mb.mp4",  # ~52 MB, mid-size video
+    "video_251mb.mp4": f"{_COS_BASE}/video_251mb.mp4", # ~254 MB, video >250MB (URL form only; base64 exceeds request body cap)
 }
 
 
