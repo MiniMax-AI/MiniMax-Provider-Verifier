@@ -49,13 +49,13 @@
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` 文本场景 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | 使用长推理和长回答请求连续执行 20 次，检查每个 `delta` 中非空 `content` 与 `reasoning_content` 不会同时出现 | 独立 SSE 协议校验，不属于分包质量规则 |
-| stream-01 | `essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
-| stream-02 | `tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |
-| stream-03 | `structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
-| stream-04 | `tool_json_filename_content_500_chars` | 调用参数为 `filename: string` 和 `content: string` 的 JSON 工具，写入约 500 字产品说明 | `arguments` 分包 |
-| stream-05 | `tool_string_10k_chars` | 调用 `write_file(path: string, content: string)`，将 10K 字符 ASCII payload 原样写入 `content`；标记为 `slow` | `arguments` 分包 |
-| stream-06 | `tool_nested_object_2k` | 约 2KB 的多层 object/array 参数 | `arguments` 分包 |
-| stream-07 | `parallel_5_tool_calls` | 并行调用 5 个不同工具 | 整体及每个已观察 index 的 `arguments` 分包 |
-| stream-08 | `reasoning_then_tool_call` | adaptive reasoning 后调用 `write_file(path: string, content: string)` 写入不少于 500 字的计划 | `arguments` 分包 |
+| 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
+| 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
+| 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |
+| 01_04 | `01_04_tool_json_filename_content_500_chars` | 调用参数为 `filename: string` 和 `content: string` 的 JSON 工具，写入约 500 字产品说明 | `arguments` 分包 |
+| 01_05 | `01_05_tool_string_10k_chars` | 调用 `write_file(path: string, content: string)`，将 10K 字符 ASCII payload 原样写入 `content`；标记为 `slow` | `arguments` 分包 |
+| 01_06 | `01_06_tool_nested_object_2k` | 约 2KB 的多层 object/array 参数 | `arguments` 分包 |
+| 01_07 | `01_07_parallel_5_tool_calls` | 并行调用 5 个不同工具 | 整体及每个已观察 index 的 `arguments` 分包 |
+| 01_08 | `01_08_reasoning_then_tool_call` | adaptive reasoning 后调用 `write_file(path: string, content: string)` 写入不少于 500 字的计划 | `arguments` 分包 |
 
 JSONL 记录保留逐包字符数、精确长度分布、六档命中次数，以及用于最终判定的三档包数量/字符量占比和每项阈值检查结果。

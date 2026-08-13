@@ -212,7 +212,7 @@ class StreamScenario:
 
 CONTENT_STREAM_SCENARIOS = (
     StreamScenario(
-        name="essay_500_chars",
+        name="01_01_essay_500_chars",
         prompt=(
             "请以《一次难忘的合作》为题，写一篇约500字的中文作文。"
             "直接输出作文正文，不要解释写作过程，不要使用 Markdown 代码块。"
@@ -220,7 +220,7 @@ CONTENT_STREAM_SCENARIOS = (
         quality_rule=PACKET_QUALITY_RULES["content"],
     ),
     StreamScenario(
-        name="structured_json_1k",
+        name="01_02_structured_json_1k",
         prompt=(
             "请只输出一个合法 JSON 对象，包含 title、summary、sections、metadata。"
             "sections 必须包含 8 个对象，每个对象包含 heading 和不少于100字的 "
@@ -233,7 +233,7 @@ CONTENT_STREAM_SCENARIOS = (
 
 TOOL_CALL_STREAM_SCENARIOS = (
     StreamScenario(
-        name="tool_content_string_500_chars",
+        name="01_03_tool_content_string_500_chars",
         prompt=(
             "请以《一次难忘的合作》为题，写一篇约500字的中文作文，并调用 "
             "save_content 工具保存完整作文。content 必须是完整作文正文；不要传入其他"
@@ -244,7 +244,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
         tool_choice={"type": "function", "function": {"name": "save_content"}},
     ),
     StreamScenario(
-        name="tool_json_filename_content_500_chars",
+        name="01_04_tool_json_filename_content_500_chars",
         prompt=(
             "调用 write_file，把一篇约500字的中文产品说明写入 stream_500.txt。"
             "filename 必须精确为 stream_500.txt，content 必须包含完整正文，不要省略。"
@@ -254,7 +254,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
         tool_choice={"type": "function", "function": {"name": "write_file"}},
     ),
     StreamScenario(
-        name="tool_string_10k_chars",
+        name="01_05_tool_string_10k_chars",
         prompt=(
             "调用 write_file 写入 stream_10k.txt。请把 <PAYLOAD> 与 </PAYLOAD> 之间的"
             "10000字符 ASCII 内容逐字符原样复制到 content；不能总结、改写、截断，也不能"
@@ -268,7 +268,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
         slow=True,
     ),
     StreamScenario(
-        name="tool_nested_object_2k",
+        name="01_06_tool_nested_object_2k",
         prompt=(
             "调用 save_report 保存一份详细项目报告。metadata 要完整；sections 至少6节，"
             "每节至少包含2个 paragraph，每个 paragraph 不少于150字；conclusion 不少于200字。"
@@ -280,7 +280,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
         payload_overrides={"max_tokens": 8192},
     ),
     StreamScenario(
-        name="parallel_5_tool_calls",
+        name="01_07_parallel_5_tool_calls",
         prompt=(
             "请并行调用提供的5个工具，每个工具必须恰好调用一次。每个工具的 content 都写"
             "约300字中文，分别描述项目背景、风险、执行计划、衡量指标和最终总结。"
@@ -292,7 +292,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
         validate_each_tool_call=True,
     ),
     StreamScenario(
-        name="reasoning_then_tool_call",
+        name="01_08_reasoning_then_tool_call",
         prompt=(
             "先仔细分析一个跨团队发布计划需要考虑的依赖、风险、回滚、监控和验收标准，"
             "完成推理后调用 write_file，把不少于500字的最终计划写入 reasoning_plan.txt。"

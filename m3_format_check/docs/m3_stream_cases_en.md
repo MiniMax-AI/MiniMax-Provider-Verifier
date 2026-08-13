@@ -49,13 +49,13 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | Text request with `stream_options.include_usage=true` | Independent SSE protocol check; not part of packet-quality rules |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | Run a long-reasoning, long-answer request 20 times and verify that non-empty `content` and `reasoning_content` never coexist in one `delta` | Independent SSE protocol check; not part of packet-quality rules |
-| stream-01 | `essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
-| stream-02 | `tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |
-| stream-03 | `structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
-| stream-04 | `tool_json_filename_content_500_chars` | Write an approximately 500-character product description through a JSON tool with `filename: string` and `content: string` | `arguments` fragments |
-| stream-05 | `tool_string_10k_chars` | Call `write_file(path: string, content: string)` and copy a 10K-character ASCII payload verbatim into `content`; marked `slow` | `arguments` fragments |
-| stream-06 | `tool_nested_object_2k` | Approximately 2KB of nested object/array arguments | `arguments` fragments |
-| stream-07 | `parallel_5_tool_calls` | Five distinct tool calls in parallel | Combined and per-observed-index `arguments` fragments |
-| stream-08 | `reasoning_then_tool_call` | Adaptive reasoning followed by `write_file(path: string, content: string)` with a plan of at least 500 characters | `arguments` fragments |
+| 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
+| 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
+| 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |
+| 01_04 | `01_04_tool_json_filename_content_500_chars` | Write an approximately 500-character product description through a JSON tool with `filename: string` and `content: string` | `arguments` fragments |
+| 01_05 | `01_05_tool_string_10k_chars` | Call `write_file(path: string, content: string)` and copy a 10K-character ASCII payload verbatim into `content`; marked `slow` | `arguments` fragments |
+| 01_06 | `01_06_tool_nested_object_2k` | Approximately 2KB of nested object/array arguments | `arguments` fragments |
+| 01_07 | `01_07_parallel_5_tool_calls` | Five distinct tool calls in parallel | Combined and per-observed-index `arguments` fragments |
+| 01_08 | `01_08_reasoning_then_tool_call` | Adaptive reasoning followed by `write_file(path: string, content: string)` with a plan of at least 500 characters | `arguments` fragments |
 
 Each JSONL record retains per-packet character counts, exact length distributions, the six display buckets, the three decision buckets, packet and character ratios, and every threshold-check result.
