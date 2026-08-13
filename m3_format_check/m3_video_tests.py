@@ -928,19 +928,19 @@ class TestVideoSizeLimit:
         assert_oai_success(r)
 
     def test_10_02_url_large_video(self):
-        """URL form: ~52 MB MP4 within the 250 MB cap.
+        """URL form: ~254 MB MP4 over the 250 MB threshold.
 
         Acceptable:
-          - 4xx (server chooses to reject the large video), OR
-          - 200 with the model actually decoding the video — video_51mb.mp4 is a
-            1280x720 / 55s random-pixel noise clip, so the assistant content must
-            mention noise/random/pixel/frame-like terms to prove the video frames
-            actually went through vision (rules out silent-drop fallback text).
+          - 4xx (server chooses to reject the oversize video), OR
+          - 200 with the model actually decoding the video — video_251mb.mp4 is a
+            1920x1080 freight-train clip, so the assistant content must mention
+            train/railway/cargo-like terms to prove the video frames actually
+            went through vision (rules out silent-drop fallback text).
         """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
-                {"type": "video_url", "video_url": {"url": size_fixture_url("video_51mb.mp4")}},
-                {"type": "text", "text": "What?"},
+                {"type": "video_url", "video_url": {"url": size_fixture_url("video_251mb.mp4")}},
+                {"type": "text", "text": "What is this video? Describe what you see."},
             ]}],
         })
         status = r["status"]
@@ -956,10 +956,10 @@ class TestVideoSizeLimit:
             msg = choices[0].get("message") or {}
             content = (msg.get("content") or "").lower()
         recognized_terms = (
-            "noise", "random", "static", "noisy", "pixel", "snow",
-            "interference", "glitch", "scramble", "chaotic",
+            "train", "railway", "railroad", "rail", "locomotive", "freight",
+            "cargo", "boxcar", "boxcars", "tank car", "wagon", "carriage",
+            "track", "tracks", "vehicle", "vehicles",
             "frame", "frames", "video", "clip", "footage",
-            "magenta", "green pixel", "test pattern",
         )
         assert any(t in content for t in recognized_terms), (
             f"10_02 status=200 but assistant did not recognize the video content; "
@@ -1019,32 +1019,29 @@ class TestVideoSizeLimit:
 
     @pytest.mark.slow
     @pytest.mark.timeout(600)
-    def test_10_05_padded_large_video(self):
-        """real_2s.mp4 + null padding to 51MB (real header + null padding), within the 250 MB cap.
+    def test_10_05_url_large_video_summary(self):
+        """URL form: ~254 MB MP4 over the 250 MB threshold, with a summarization prompt.
 
-        Complements 10_04 (clean 52MB fixture), covering a different form of large
-        video input. Acceptable:
-          - 4xx (server chooses to reject the large/padded video), OR
-          - 200 with the model actually decoding the real MP4 header portion
-            (content mentions cat/cartoon/blink or generic video terms).
+        Complements 10_02 (same oversize URL fixture, different task) to confirm the
+        behavior is stable across prompts. Acceptable:
+          - 4xx (server chooses to reject the oversize video), OR
+          - 200 with the model actually decoding the video — video_251mb.mp4 is a
+            1920x1080 freight-train clip, so the assistant content must mention
+            train/railway/cargo-like terms to prove the video frames actually
+            went through vision (rules out silent-drop fallback text).
         """
-        raw = (Path(__file__).parent / "fixtures" / "m3_test_videos" / "real_2s.mp4").read_bytes()
-        target_size = 51 * 1024 * 1024
-        padded = raw + b"\x00" * (target_size - len(raw))
-        data_uri = "data:video/mp4;base64," + base64.b64encode(padded).decode()
-
         r = oai_chat({
             "messages": [{"role": "user", "content": [
-                {"type": "video_url", "video_url": {"url": data_uri}},
-                {"type": "text", "text": "What is this video?"},
+                {"type": "video_url", "video_url": {"url": size_fixture_url("video_251mb.mp4")}},
+                {"type": "text", "text": "Summarize the main subject moving through this video."},
             ]}],
             "max_tokens": 1024,
         }, timeout=300)
         status = r["status"]
-        if 400 <= status < 500 or status == 500:
+        if 400 <= status < 500:
             return
         assert status == 200, (
-            f"10_05 expected 4xx/500 or 200, got {status}: {str(r.get('body'))[:300]}"
+            f"10_05 expected 4xx or 200, got {status}: {str(r.get('body'))[:300]}"
         )
         body = r.get("body") or {}
         choices = body.get("choices") or []
@@ -1053,8 +1050,9 @@ class TestVideoSizeLimit:
             msg = choices[0].get("message") or {}
             content = (msg.get("content") or "").lower()
         recognized_terms = (
-            "cat", "cartoon", "kitten", "blink", "eyes", "surprised",
-            "animation", "animated", "character",
+            "train", "railway", "railroad", "rail", "locomotive", "freight",
+            "cargo", "boxcar", "boxcars", "tank car", "wagon", "carriage",
+            "track", "tracks", "vehicle", "vehicles",
             "frame", "frames", "video", "clip", "footage",
         )
         assert any(t in content for t in recognized_terms), (
