@@ -927,7 +927,7 @@ class TestVideoSizeLimit:
         })
         assert_oai_success(r)
 
-    def test_10_02_url_large_video(self):
+    def test_10_02_url_over_250mb(self):
         """URL form: ~254 MB MP4 over the 250 MB threshold.
 
         Acceptable:
@@ -1019,7 +1019,7 @@ class TestVideoSizeLimit:
 
     @pytest.mark.slow
     @pytest.mark.timeout(600)
-    def test_10_05_url_large_video_summary(self):
+    def test_10_05_url_over_250mb_summary(self):
         """URL form: ~254 MB MP4 over the 250 MB threshold, with a summarization prompt.
 
         Complements 10_02 (same oversize URL fixture, different task) to confirm the
