@@ -169,6 +169,7 @@
 | 13_10 | `test_13_10_tool_structure` | tool_call 返回结构 | get_weather + Beijing + schema required 字段就位 |
 | 13_11 | `test_13_11_stream_tool_rebuild` | 流式 tool_call delta 重建 | rebuild 后含 get_weather + Beijing |
 | 13_12 | `test_13_12_tool_name_mismatch_prompt` | 用 few-shot 引导:上一轮 assistant 已 tool_call get_weather/Beijing 且 tool 已成功回灌,本轮 user 问上海;tools 只给 read_file | 模型应延续 pattern 输出 tool_call 调 get_weather + location≈Shanghai + finish_reason=tool_calls |
+| 13_13 | `test_13_13_undefined_tool_retry_after_error` | 流式 + adaptive thinking，few-shot 引导:上一轮 assistant 已 tool_call list_skills，tool 回灌“暂不可用，稍后重试”，本轮 user system-reminder 冷却结束重试；请求不带任何 tools 定义，list_skills 仅由上下文建立 | 模型应延续 pattern 重新输出 tool_call 调 list_skills + finish_reason=tool_calls（校验 provider 不依赖 tools 声明即可输出 tool_call，且不重写/丢弃工具名；因请求未声明工具，故不校验 schema） |
 
 ## 14 tool_call_schema — 工具调用 schema 高级校验
 

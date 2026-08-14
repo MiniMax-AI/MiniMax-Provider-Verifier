@@ -170,6 +170,7 @@
 | 13_10 | `test_13_10_tool_structure` | tool_call return structure | get_weather + Beijing + schema required fields present |
 | 13_11 | `test_13_11_stream_tool_rebuild` | Stream tool_call delta rebuild | Rebuilt contains get_weather + Beijing |
 | 13_12 | `test_13_12_tool_name_mismatch_prompt` | Few-shot priming: prior turn assistant already tool_called get_weather/Beijing with a successful tool result; current user asks Shanghai; `tools` only declares `read_file` | Model should follow the pattern and emit tool_call invoking get_weather + location≈Shanghai + finish_reason=tool_calls |
+| 13_13 | `test_13_13_undefined_tool_retry_after_error` | Streaming + adaptive thinking, few-shot priming: prior assistant tool_called `list_skills`, tool result says "unavailable, retry later"; current user system-reminder says cooldown is over, retry; the request declares NO `tools`, `list_skills` is only established by the in-context history | Model should follow the pattern and re-emit tool_call invoking `list_skills` + finish_reason=tool_calls (validates provider does not require a declared tool inventory to emit a tool_call, and does not rewrite/drop the tool name; schema not validated since no tool is declared) |
 
 ## 14 tool_call_schema — Tool call advanced schema validation
 

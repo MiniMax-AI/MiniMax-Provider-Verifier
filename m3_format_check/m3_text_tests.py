@@ -1499,6 +1499,82 @@ class TestToolCallBasic:
             f"{r['body']['choices'][0].get('finish_reason')!r}"
         )
 
+    def test_13_13_undefined_tool_retry_after_error(self):
+        """Format-check: retry an undefined tool after a transient tool error.
+
+        Setup (streaming + adaptive thinking):
+          - messages[0] = user asks to call `list_skills` once, no visible reply.
+          - messages[1] = assistant tool_call invoking `list_skills` (priming:
+            this tool name was "already used" once).
+          - messages[2] = tool result reporting the tool is temporarily
+            unavailable and asking to retry later.
+          - messages[3] = user system-reminder saying the cooldown is over,
+            "try again".
+          - The request declares NO `tools` at all — `list_skills` is only
+            established by the in-context history.
+
+        Expected behavior (format-output level):
+          - The response MUST be a tool_call (finish_reason='tool_calls'),
+            with `name == 'list_skills'`, re-issuing the same call the history
+            established, even though no tool inventory is provided in the
+            request.
+
+        Rationale: validates that the model honors the in-context tool-usage
+        pattern (retry the previously-attempted tool) even when the request
+        carries no `tools` field — i.e. provider plumbing does not require a
+        declared tool inventory to emit a tool_call, and does not rewrite/drop
+        the tool name. Schema is intentionally omitted because no tool is
+        declared in the request.
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": (
+                    "Call the `list_skills` tool once to check what we can do. "
+                    "Just call the tool and don't reply anything in the visible "
+                    "content."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_example_0",
+                        "type": "function",
+                        "function": {
+                            "name": "list_skills",
+                            "arguments": "{}",
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_example_0",
+                "content": "Tool `list_skills` unavailable for now. Please call it later.",
+            },
+            {
+                "role": "user",
+                "content": (
+                    "<system-reminder>\n10min cooldown after the tool calling "
+                    "error. Now try again.\n</system-reminder>"
+                ),
+            },
+        ]
+        r = oai_chat({
+            "messages": messages,
+            "max_tokens": 4096,
+            "thinking": {"type": "adaptive"},
+        }, stream=True)
+        assert_oai_stream_success(r)
+        assert_tool_called(
+            r,
+            expected_name="list_skills",
+            msg="undefined_tool_retry_after_error",
+        )
+
 
 # ============================================================
 # 14 tool_call_schema — tool call schema advanced validation
