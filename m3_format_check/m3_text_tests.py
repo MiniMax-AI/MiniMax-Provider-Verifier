@@ -509,6 +509,74 @@ class TestMessageFormat:
             f"got empty content (stream={stream})"
         )
 
+    def _run_history_tool_call_empty_arguments(self, empty_args):
+        """Shared body: assistant history has a tool_call with empty arguments.
+
+        Setup:
+          - user asks for the current server time.
+          - assistant tool_call invoking `get_current_time` with empty
+            arguments (either "" or "{}").
+          - tool result returns a timestamp.
+          - user follow-up asks the model to continue.
+
+        Expected:
+          - HTTP 200, and the model actually continues the turn — i.e. it
+            produces either a non-empty visible content or a new tool_call.
+            An accepted-but-empty response (no content and no tool_call) means
+            the provider choked on the empty-arguments history.
+        """
+        r = oai_chat({
+            "messages": [
+                {"role": "user", "content": "What's the current server time?"},
+                {"role": "assistant", "content": None, "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "get_current_time", "arguments": empty_args},
+                    }
+                ]},
+                {"role": "tool", "tool_call_id": "c1", "content": "2026-08-14T10:00:00Z"},
+                {"role": "user", "content": "Great, now just tell me that time in a short sentence."},
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "get_current_time",
+                    "description": "Get the current server time (UTC)",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }],
+        })
+        assert_oai_success(r)
+        content = get_oai_content(r)
+        tool_calls = get_tool_calls(r)
+        assert content or tool_calls, (
+            f"empty-arguments history (arguments={empty_args!r}): model should "
+            f"continue the turn with content or a tool_call, got neither.\n"
+            f"  finish_reason={(r.get('body') or {}).get('choices', [{}])[0].get('finish_reason')!r} "
+            f"body={str(r.get('body'))[:300]}"
+        )
+
+    def test_07_07_history_tool_call_empty_string_arguments(self):
+        """History tool_call with `arguments: ""` (empty string).
+
+        Some clients serialize a no-arg tool call as an empty string. This is a
+        valid "no arguments" representation and must be accepted when it appears
+        in the conversation history; expect HTTP 200 and the model continues the
+        turn (non-empty content or a new tool_call).
+        """
+        self._run_history_tool_call_empty_arguments("")
+
+    def test_07_08_history_tool_call_empty_object_arguments(self):
+        """History tool_call with `arguments: "{}"` (empty JSON object).
+
+        Other clients serialize a no-arg tool call as an empty JSON object
+        string. This is a valid "no arguments" representation and must be
+        accepted when it appears in the conversation history; expect HTTP 200
+        and the model continues the turn (non-empty content or a new tool_call).
+        """
+        self._run_history_tool_call_empty_arguments("{}")
+
 
 # ============================================================
 # 08 model_compat — model-name compatibility
