@@ -100,6 +100,8 @@
 | 07_04 | `test_07_04_user_content_empty_array` | user.content=[] empty array | status > 0 |
 | 07_05 | `test_07_05_user_content_null` | user.content=null | 200 or 400 |
 | 07_06 | `test_07_06_multiple_system_messages` | Multiple system messages | HTTP 200 + non-empty response |
+| 07_07 | `test_07_07_history_tool_call_empty_string_arguments` | A tool_call in the conversation history with `arguments: ""` (empty string) | HTTP 200 and the model continues the turn (non-empty content or a new tool_call) |
+| 07_08 | `test_07_08_history_tool_call_empty_object_arguments` | A tool_call in the conversation history with `arguments: "{}"` (empty JSON object) | HTTP 200 and the model continues the turn (non-empty content or a new tool_call) |
 
 ## 08 model_compat — Model name compatibility
 

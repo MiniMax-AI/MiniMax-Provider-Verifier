@@ -100,6 +100,8 @@
 | 07_04 | `test_07_04_user_content_empty_array` | user.content=[] 空数组 | status > 0 |
 | 07_05 | `test_07_05_user_content_null` | user.content=null | 200 或 400 |
 | 07_06 | `test_07_06_multiple_system_messages` | 多条 system 消息 | HTTP 200 + 非空响应 |
+| 07_07 | `test_07_07_history_tool_call_empty_string_arguments` | 对话历史中工具调用的 arguments 为 `""`（空字符串） | HTTP 200 且模型正常续接（产出非空 content 或新的 tool_call） |
+| 07_08 | `test_07_08_history_tool_call_empty_object_arguments` | 对话历史中工具调用的 arguments 为 `"{}"`（空 JSON 对象） | HTTP 200 且模型正常续接（产出非空 content 或新的 tool_call） |
 
 ## 08 model_compat — 模型名兼容性
 
