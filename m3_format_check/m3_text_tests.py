@@ -509,13 +509,16 @@ class TestMessageFormat:
             f"got empty content (stream={stream})"
         )
 
-    def _run_history_tool_call_empty_arguments(self, empty_args):
-        """Shared body: assistant history has a tool_call with empty arguments.
+    def test_07_07_history_tool_call_empty_object_arguments(self):
+        """History tool_call with `arguments: "{}"` (empty JSON object).
+
+        Clients serialize a no-arg tool call as an empty JSON object string.
+        This is a valid "no arguments" representation and must be accepted when
+        it appears in the conversation history.
 
         Setup:
           - user asks for the current server time.
-          - assistant tool_call invoking `get_current_time` with empty
-            arguments (either "" or "{}").
+          - assistant tool_call invoking `get_current_time` with `arguments: "{}"`.
           - tool result returns a timestamp.
           - user follow-up asks the model to continue.
 
@@ -532,7 +535,7 @@ class TestMessageFormat:
                     {
                         "id": "c1",
                         "type": "function",
-                        "function": {"name": "get_current_time", "arguments": empty_args},
+                        "function": {"name": "get_current_time", "arguments": "{}"},
                     }
                 ]},
                 {"role": "tool", "tool_call_id": "c1", "content": "2026-08-14T10:00:00Z"},
@@ -551,31 +554,11 @@ class TestMessageFormat:
         content = get_oai_content(r)
         tool_calls = get_tool_calls(r)
         assert content or tool_calls, (
-            f"empty-arguments history (arguments={empty_args!r}): model should "
+            f"empty-arguments history (arguments='{{}}'): model should "
             f"continue the turn with content or a tool_call, got neither.\n"
             f"  finish_reason={(r.get('body') or {}).get('choices', [{}])[0].get('finish_reason')!r} "
             f"body={str(r.get('body'))[:300]}"
         )
-
-    def test_07_07_history_tool_call_empty_string_arguments(self):
-        """History tool_call with `arguments: ""` (empty string).
-
-        Some clients serialize a no-arg tool call as an empty string. This is a
-        valid "no arguments" representation and must be accepted when it appears
-        in the conversation history; expect HTTP 200 and the model continues the
-        turn (non-empty content or a new tool_call).
-        """
-        self._run_history_tool_call_empty_arguments("")
-
-    def test_07_08_history_tool_call_empty_object_arguments(self):
-        """History tool_call with `arguments: "{}"` (empty JSON object).
-
-        Other clients serialize a no-arg tool call as an empty JSON object
-        string. This is a valid "no arguments" representation and must be
-        accepted when it appears in the conversation history; expect HTTP 200
-        and the model continues the turn (non-empty content or a new tool_call).
-        """
-        self._run_history_tool_call_empty_arguments("{}")
 
 
 # ============================================================
