@@ -4,7 +4,7 @@
 
 ## Scope
 
-- `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests, and that no `U+FFFD` (`�`) replacement char appears in `delta.content` for an emoji-dense request across 20 requests.
+- `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests.
 - `TestContentStreamPacketLengthDistribution`: each pure-content scenario runs five times by default. All non-empty `delta.content` fragments from the five runs are merged and evaluated once. Override the run count with `M3_STREAM_CONTENT_RUNS`.
 - `TestToolCallStreamPacketLengthDistribution`: each tool-call scenario runs once and uses its own thresholds for non-empty `delta.tool_calls[].function.arguments` fragments. The parallel-tool scenario evaluates both the combined distribution and every observed `tool_call.index` distribution.
 - The packet-quality scenarios evaluate packet-size quality only. They do not validate output length, JSON validity, tool names, argument contents, or tool-call counts.
@@ -49,7 +49,6 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | Text request with `stream_options.include_usage=true` | Independent SSE protocol check; not part of packet-quality rules |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | Run a long-reasoning, long-answer request 20 times and verify that non-empty `content` and `reasoning_content` never coexist in one `delta` | Independent SSE protocol check; not part of packet-quality rules |
-| 02_08 | `test_02_08_stream_no_utf8_replacement_char_in_emoji` | Run an emoji-dense request 20 times and verify no `U+FFFD` (`�`) replacement char appears in any `delta.content` | Guards against providers truncating a 4-byte emoji mid-UTF-8-frame |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
 | 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
 | 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |

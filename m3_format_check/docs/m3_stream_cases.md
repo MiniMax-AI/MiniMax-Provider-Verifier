@@ -4,7 +4,7 @@
 
 ## 测试范围
 
-- `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk，连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`，以及高密度 emoji 请求连续 20 次中 `delta.content` 都不出现 `U+FFFD`（`�`）替换字符。
+- `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk，以及连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`。
 - `TestContentStreamPacketLengthDistribution`：纯 content 场景默认执行 5 次，将 5 次的所有非空 `delta.content` 分包合并后统一判定。可通过 `M3_STREAM_CONTENT_RUNS` 调整次数。
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
@@ -49,7 +49,6 @@
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` 文本场景 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | 使用长推理和长回答请求连续执行 20 次，检查每个 `delta` 中非空 `content` 与 `reasoning_content` 不会同时出现 | 独立 SSE 协议校验，不属于分包质量规则 |
-| 02_08 | `test_02_08_stream_no_utf8_replacement_char_in_emoji` | 使用高密度 emoji 请求连续执行 20 次，检查任意 `delta.content` 中都不出现 `U+FFFD`（`�`）替换字符 | 防止 provider 把四字节 emoji 从 UTF-8 分帧中间截断 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |
