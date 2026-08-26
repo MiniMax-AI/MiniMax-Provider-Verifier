@@ -857,8 +857,8 @@ class TestSSEStream:
     def test_02_08_stream_no_utf8_replacement_char_in_emoji(self):
         """流式 delta.content 不得出现 U+FFFD(�)替换字符。
 
-        背景(0823 innomatrix emoji 字符截断问题):部分 provider 的输出链路
-        存在 UTF-8 分帧(framing)问题,会把一个四字节 emoji 从字节中间截断。
+        背景:部分 provider 的输出链路存在 UTF-8 分帧(framing)问题,
+        会把一个四字节 emoji 从字节中间截断。
         随后服务端把非法字节转成 EF BF BD,即 Unicode 替换字符 U+FFFD(�),
         并丢弃剩余字节。因为返回的 JSON 里已经落成了 �,客户端无论如何缓存、
         拼接都无法恢复原始 emoji,直接导致输出损坏。
