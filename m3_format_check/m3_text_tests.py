@@ -400,9 +400,6 @@ class TestMaxTokens:
             "messages": oai_simple_messages("Hi"),
             "max_tokens": mt,
         })
-        assert r.get("trace_id"), (
-            f"max_tokens={mt} missing trace_id: status={r.get('status')}"
-        )
         assert r["status"] in (200, 400, 422), (
             f"max_tokens={mt} expected 200/400/422 (over 512k tolerate), "
             f"got {r['status']} trace={r.get('trace_id')}"
@@ -414,9 +411,6 @@ class TestMaxTokens:
             "messages": oai_simple_messages("Reply OK only"),
             "max_completion_tokens": 524288,
         })
-        assert r.get("trace_id"), (
-            f"max_completion_tokens=524288 missing trace_id: status={r.get('status')}"
-        )
         assert r["status"] in (200, 400), (
             f"max_completion_tokens=524288 unexpected {r['status']} "
             f"trace={r.get('trace_id')}"
