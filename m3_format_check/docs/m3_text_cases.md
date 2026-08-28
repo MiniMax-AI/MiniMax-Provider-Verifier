@@ -9,7 +9,7 @@
 | 模块编号 | 模块名 | 主题 | 函数数 |
 |:---:|:---|:---|:---:|
 | 01 | basic_text | 基础文本对话(非流式) | 3 |
-| 02 | sse_stream | SSE 流式协议字段 | 6 |
+| 02 | sse_stream | SSE 流式协议字段 | 7 |
 | 03 | multiturn | 多轮对话 | 2 |
 | 04 | thinking | thinking 思考开关 | 4 |
 | 05 | sampling | 采样参数(temperature / top_p / seed) | 3 |
@@ -49,6 +49,7 @@
 | 02_04 | `test_02_04_stream_chunk_fields` | 流式 chunk 必带字段 | id / choices / object 全部存在 |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` 文本场景 | 流应正常返回 usage chunk |
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` 文本场景 | usage 非空且三字段 > 0,且只出现在流式最后一个 data chunk |
+| 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | 高密度 emoji 流式请求连续执行 20 次 | 任意 `delta.content` 中都不出现 `U+FFFD`（`�`）替换字符;防止四字节 emoji 被 UTF-8 分帧从中间截断 |
 
 ## 03 multiturn — 多轮对话
 
@@ -253,7 +254,7 @@
 
 ---
 
-## 附录:parametrize 展开后的 155 个 items
+## 附录:parametrize 展开后的 156 个 items
 
 凡函数签名带 `@pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])` 的会展开为 2 个 items;`max_tokens` 的两个 case 各展开为 2 个 items。
 
@@ -264,4 +265,4 @@
 | `mt ∈ {512000, 524288}` | 06_09 |
 | `mt ∈ {524289, 1000000}` | 06_10 |
 
-总 items = 116 函数 - 34 (`stream` 双值函数) - 1 (`ctx_tokens × stream` 函数) - 2 (`mt` 双值函数) + 34×2 + 1×4 + 2×2 = **155**。
+总 items = 117 函数 - 34 (`stream` 双值函数) - 1 (`ctx_tokens × stream` 函数) - 2 (`mt` 双值函数) + 34×2 + 1×4 + 2×2 = **156**。
