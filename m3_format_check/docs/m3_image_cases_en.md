@@ -2,7 +2,7 @@
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
-> Module count: **13**; case function count: **64**; pytest collected items: **103**
+> Module count: **13**; case function count: **65**; pytest collected items: **107**
 
 ## Module Overview
 
@@ -17,11 +17,11 @@
 | 07 | image_thinking_combo | Image + thinking variant combinations | 4 | 4 |
 | 08 | image_stream_usage | Image + streaming usage chunk | 2 | 3 |
 | 09 | image_param | Image-related params / Usage arithmetic / Error tolerance | 5 | 8 |
-| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 16 | 30 |
+| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 17 | 34 |
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
-| | **Total** | | **64** | **103** |
+| | **Total** | | **65** | **107** |
 
 ---
 
@@ -120,8 +120,9 @@
 | 10_12 | `test_10_12_max_long_side_pixel_monotonic` | Same image at 3 mlsp tiers (252/504/1008), strict monotonic tokens | prompt_tokens[252] < [504] < [1008] |
 | 10_13 | `test_10_13_max_long_side_pixel_invalid[0/-1/100/251/1009]` | mlsp invalid values (0 / negative / non-28-multiple near edges) | HTTP 200 / 400 / 413 / 422 |
 | 10_14 | `test_10_14_max_long_side_pixel_real_image[252\|1008]` | sx1.jpg real image + mlsp ∈ {252, 1008} | HTTP 200 |
-| 10_15 | `test_10_15_min_short_side_upscale[400x40\|300x80\|112x20]` | rule b: long side ≤ tier and short side < 112, upscale short side to 112 (min_short_side_pixel fixed 112) | HTTP 200 + prompt_tokens > 0 |
+| 10_15 | `test_10_15_min_short_side_upscale[landscape_400x40\|300x80\|112x20 / portrait_40x400\|80x300]` | rule b: long side ≤ tier and short side < 112, upscale short side to 112 (landscape "too flat" + portrait "too narrow") | HTTP 200 + prompt_tokens > 0 |
 | 10_16 | `test_10_16_min_short_side_upscale_monotonic` | rule b monotonic: fixed long side 400, original short 90/40/20 (all < 112) all upscaled to 112 | smaller original short side never reduces prompt_tokens |
+| 10_17 | `test_10_17_max_long_side_scale_down_orientation[portrait_2000x3000\|landscape_3000x2000]` | rule a: long side > tier triggers scale-down (portrait "too tall" + landscape "too wide") | HTTP 200 + prompt_tokens > 0 |
 
 ## 11 image_size_limit — Single-image size cap / request-body cap / size gradient
 

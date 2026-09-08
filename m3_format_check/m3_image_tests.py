@@ -983,15 +983,21 @@ class TestImageResolutionTier:
     @pytest.mark.parametrize(
         "width,height",
         [
+            # landscape (W > H): short side is the height ("too flat")
             (400, 40),   # long side 400 (<= tier), short side 40 (< 112) -> upscale short side to 112
             (300, 80),   # long side 300 (<= tier), short side 80 (< 112) -> upscale short side to 112
             (112, 20),   # long side already = min tier, short side 20 (< 112) -> upscale short side to 112
+            # portrait (H > W): short side is the width ("too narrow")
+            (40, 400),   # portrait mirror of 400x40 -> upscale width to 112
+            (80, 300),   # portrait mirror of 300x80 -> upscale width to 112
         ],
-        ids=["400x40", "300x80", "112x20"],
+        ids=["landscape_400x40", "landscape_300x80", "landscape_112x20",
+             "portrait_40x400", "portrait_80x300"],
     )
     def test_10_15_min_short_side_upscale(self, width, height):
         """10_15 — rule b: long side <= max_long_side_pixel and short side < min_short_side_pixel (112)
-        -> image is upscaled so the short side reaches 112. Acceptance smoke: HTTP 200 + prompt_tokens > 0.
+        -> image is upscaled so the short side reaches 112. Covers both orientations (short side = height
+        for landscape "too flat", short side = width for portrait "too narrow"). Smoke: 200 + tokens > 0.
         """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
@@ -1028,6 +1034,34 @@ class TestImageResolutionTier:
             f"10_16 min_short_side upscale: smaller original short side should not reduce prompt_tokens, "
             f"got {tokens}"
         )
+
+    # -------------------- 10_17: rule a scale-down orientation coverage --------------------
+    # Rule a: if the long side > max_long_side_pixel, scale down so the long side == max_long_side_pixel.
+    # Existing 10_04/05/06 only exercise landscape (W>H, "too wide"); this adds the portrait
+    # counterpart (H>W, "too tall") so both scale-down orientations are covered.
+
+    @pytest.mark.parametrize(
+        "width,height,orient",
+        [
+            (2000, 3000, "portrait_too_tall"),   # long side = height 3000 > default tier -> scale down
+            (3000, 2000, "landscape_too_wide"),  # long side = width 3000 > default tier -> scale down (mirror)
+        ],
+        ids=["portrait_2000x3000", "landscape_3000x2000"],
+    )
+    def test_10_17_max_long_side_scale_down_orientation(self, width, height, orient):
+        """10_17 — rule a: long side > max_long_side_pixel triggers scale-down. Cover both orientations
+        (long side = height for portrait "too tall", long side = width for landscape "too wide").
+        Acceptance smoke: HTTP 200 + prompt_tokens > 0.
+        """
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(width, height), "detail": "default"
+                }},
+                {"type": "text", "text": self._COLOR_PROMPT},
+            ]}],
+        })
+        _assert_basic_ok(r, f"10_17 scale_down {orient} {width}x{height}")
 
 
 # ============================================================

@@ -2,7 +2,7 @@
 
 > 对应文件:`data/m3_api_test/m3_image_tests.py`
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
-> 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**103**
+> 模块数:**13**;case 函数数:**65**;pytest 收集 items 数:**107**
 
 ## 模块总览
 
@@ -17,11 +17,11 @@
 | 07 | image_thinking_combo | 图 + thinking 各形态组合 | 4 | 4 |
 | 08 | image_stream_usage | 图 + 流式 usage chunk | 2 | 3 |
 | 09 | image_param | 图相关参数 / Usage 算术 / 异常容错 | 5 | 8 |
-| 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比 | 16 | 30 |
+| 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比 | 17 | 34 |
 | 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
-| | **合计** | | **64** | **103** |
+| | **合计** | | **65** | **107** |
 
 ---
 
@@ -120,8 +120,9 @@
 | 10_12 | `test_10_12_max_long_side_pixel_monotonic` | 同图三档 mlsp(252/504/1008),token 严格单调 | prompt_tokens[252] < [504] < [1008] |
 | 10_13 | `test_10_13_max_long_side_pixel_invalid[0/-1/100/251/1009]` | mlsp 非法值(0/负/非 28 倍数邻近) | HTTP 200 / 400 / 413 / 422 |
 | 10_14 | `test_10_14_max_long_side_pixel_real_image[252\|1008]` | sx1.jpg 真图 + mlsp ∈ {252, 1008} | HTTP 200 |
-| 10_15 | `test_10_15_min_short_side_upscale[400x40\|300x80\|112x20]` | 规则 b:长边≤档位且短边<112,放大至短边=112(min_short_side_pixel 固定 112) | HTTP 200 + prompt_tokens > 0 |
+| 10_15 | `test_10_15_min_short_side_upscale[landscape_400x40\|300x80\|112x20 / portrait_40x400\|80x300]` | 规则 b:长边≤档位且短边<112,放大至短边=112(横向"太扁"+纵向"太窄"两方向) | HTTP 200 + prompt_tokens > 0 |
 | 10_16 | `test_10_16_min_short_side_upscale_monotonic` | 规则 b 单调:固定长边 400,原短边 90/40/20(均<112)均放大至 112 | 原短边越小 prompt_tokens 不减 |
+| 10_17 | `test_10_17_max_long_side_scale_down_orientation[portrait_2000x3000\|landscape_3000x2000]` | 规则 a:长边>档位触发缩小(纵向"过长"+横向"过宽"两方向) | HTTP 200 + prompt_tokens > 0 |
 
 ## 11 image_size_limit — 单图大小限 / 请求体限 / size 梯度
 
