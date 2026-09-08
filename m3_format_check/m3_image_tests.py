@@ -834,17 +834,21 @@ class TestImageResolutionTier:
 
     def test_10_08_max_total_pixels_exceeded(self):
         """10_08 — rule c: 4000x4000 = 16,000,000 pixels > 12,845,056 cap. Two behaviors are acceptable:
-          - 200: the backend auto-scales the oversized image and infers normally (must be a valid
-            response with prompt_tokens > 0, i.e. the image was actually consumed).
+          - 200: the backend auto-scales the oversized image and infers normally. This must be a valid
+            response: prompt_tokens > 0 AND the model actually recognizes the (solid red) image content,
+            i.e. the answer mentions "red" — proving the image was consumed, not silently dropped.
           - 4xx (400/413/422): the request is rejected because the post-scale pixel count still exceeds
             max_total_pixels.
+
+        The fixture is a solid-red PNG (make_png_base64 default RGB=255,0,0), so the dominant color is a
+        deterministic ground truth we can assert on.
         """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
-                    "url": make_png_base64(4000, 4000), "detail": "default"
+                    "url": make_png_base64(4000, 4000, 255, 0, 0), "detail": "default"
                 }},
-                {"type": "text", "text": "What?"},
+                {"type": "text", "text": self._COLOR_PROMPT},
             ]}],
         })
         assert r["status"] in (200, 400, 413, 422), (
@@ -856,6 +860,11 @@ class TestImageResolutionTier:
             assert pt > 0, (
                 f"10_08 rule c: HTTP 200 must be a valid inference over the (auto-scaled) image, "
                 f"got prompt_tokens={pt}"
+            )
+            content = get_oai_content(r)
+            assert "red" in content.lower(), (
+                f"10_08 rule c: HTTP 200 must recognize the solid-red image content (expected 'red' in "
+                f"answer, proving the oversized image was auto-scaled and consumed), got: {content[:200]!r}"
             )
 
     def test_10_09_max_total_pixels_at_boundary(self):
