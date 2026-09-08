@@ -917,19 +917,48 @@ class TestImageResolutionTier:
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
 
     def test_10_08_max_total_pixels_exceeded(self):
-        """10_08 — 4000x4000 = 16M pixels > 12,845,056 cap. API handling unsettled → soft assertion."""
+        """10_08 — rule c: zn6.jpg is a real 4284x5712 = 24,470,208-pixel photo, ~1.9x over the
+        max_total_pixels = 12,845,056 cap. Two behaviors are acceptable:
+          - 200: the backend auto-scales the oversized image and infers normally. This must be a valid
+            response: prompt_tokens > 0 AND the model actually recognizes the real photo content
+            (a person looking into an aquarium with colorful fish / water plants), proving the image was
+            consumed rather than silently dropped.
+          - 4xx (400/413/422): the request is rejected because the post-scale pixel count still exceeds
+            max_total_pixels.
+        """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
-                    "url": make_png_base64(4000, 4000), "detail": "default"
+                    "url": real_image_b64("zn6.jpg", "image/jpeg"), "detail": "default"
                 }},
-                {"type": "text", "text": "What?"},
+                {"type": "text", "text": "Describe this image in one sentence."},
             ]}],
+            "max_tokens": 1024,
         })
-        assert r["status"] in (200, 400, 413, 422), f"10_08 HTTP={r['status']}"
+        assert r["status"] in (200, 400, 413, 422), (
+            f"10_08 rule c: 24.5M px > max_total_pixels=12,845,056 expected 200(auto-scale)/4xx(reject), "
+            f"got HTTP={r['status']}: {str(r.get('body'))[:300]}"
+        )
+        if r["status"] == 200:
+            pt = _get_prompt_tokens(r)
+            assert pt > 0, (
+                f"10_08 rule c: HTTP 200 must be a valid inference over the (auto-scaled) image, "
+                f"got prompt_tokens={pt}"
+            )
+            content = get_oai_content(r).lower()
+            # zn6.jpg ground truth: a person by an aquarium with fish / water / plants. Require at least
+            # one salient keyword so a silent image drop (generic empty-ish answer) cannot pass.
+            keywords = ("fish", "aquarium", "tank", "water", "person")
+            assert any(k in content for k in keywords), (
+                f"10_08 rule c: HTTP 200 must recognize the real aquarium photo (expected one of "
+                f"{keywords} in the answer, proving the oversized image was auto-scaled and consumed), "
+                f"got: {content[:200]!r}"
+            )
 
     def test_10_09_max_total_pixels_at_boundary(self):
-        """10_09 — 3584x3584 = 12,845,056 (= upper bound) → boundary value, allow 200 / 4xx."""
+        """10_09 — rule c boundary: 3584x3584 = 12,845,056 (exactly = max_total_pixels). "exceeds" means
+        strictly greater than the cap, so being exactly equal must be accepted → HTTP 200 + prompt_tokens > 0.
+        """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
@@ -938,7 +967,7 @@ class TestImageResolutionTier:
                 {"type": "text", "text": "What?"},
             ]}],
         })
-        assert r["status"] in (200, 400, 413, 422), f"10_09 HTTP={r['status']}"
+        _assert_basic_ok(r, "10_09 max_total_pixels_at_boundary (=12,845,056)")
 
     # -------------------- 10_10: aspect ratio preserved --------------------
 
@@ -1040,6 +1069,96 @@ class TestImageResolutionTier:
             f"10_14 max_long_side_pixel={pixel} expected 200, got {r['status']}: "
             f"{str(r.get('body'))[:300]}"
         )
+
+    # -------------------- 10_15~10_16: min_short_side_pixel upscale (rule b) --------------------
+    # M3 scaling contract rule b: if the long side <= max_long_side_pixel AND the short side <
+    # min_short_side_pixel, the image is upscaled until the short side == min_short_side_pixel.
+    # min_short_side_pixel is a fixed, non-configurable 112px for both image and video.
+
+    _MIN_SHORT_SIDE_PIXEL = 112
+
+    @pytest.mark.parametrize(
+        "width,height",
+        [
+            # landscape (W > H): short side is the height ("too flat")
+            (400, 40),   # long side 400 (<= tier), short side 40 (< 112) -> upscale short side to 112
+            (300, 80),   # long side 300 (<= tier), short side 80 (< 112) -> upscale short side to 112
+            (112, 20),   # long side already = min tier, short side 20 (< 112) -> upscale short side to 112
+            # portrait (H > W): short side is the width ("too narrow")
+            (40, 400),   # portrait mirror of 400x40 -> upscale width to 112
+            (80, 300),   # portrait mirror of 300x80 -> upscale width to 112
+        ],
+        ids=["landscape_400x40", "landscape_300x80", "landscape_112x20",
+             "portrait_40x400", "portrait_80x300"],
+    )
+    def test_10_15_min_short_side_upscale(self, width, height):
+        """10_15 — rule b: long side <= max_long_side_pixel and short side < min_short_side_pixel (112)
+        -> image is upscaled so the short side reaches 112. Covers both orientations (short side = height
+        for landscape "too flat", short side = width for portrait "too narrow"). Smoke: 200 + tokens > 0.
+        """
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(width, height), "detail": "default"
+                }},
+                {"type": "text", "text": self._COLOR_PROMPT},
+            ]}],
+        })
+        _assert_basic_ok(r, f"10_15 min_short_side_upscale {width}x{height}")
+
+    def test_10_16_min_short_side_upscale_monotonic(self):
+        """10_16 — rule b monotonicity: for the same long side, a smaller original short side is upscaled
+        by a larger factor (up to short side = 112), so the post-scale pixel count is at least as large,
+        hence prompt_tokens should be non-decreasing as the original short side shrinks.
+        Compare short sides 90 vs 40 vs 20 (all < 112) at a fixed long side of 400.
+        """
+        long_side = 400
+        tokens = {}
+        for short in (90, 40, 20):
+            r = oai_chat({
+                "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {
+                        "url": make_png_base64(long_side, short), "detail": "default"
+                    }},
+                    {"type": "text", "text": self._COLOR_PROMPT},
+                ]}],
+            })
+            _assert_basic_ok(r, f"10_16 upscale short={short}")
+            tokens[short] = _get_prompt_tokens(r)
+        # All three upscale the short side to 112; token counts should be near-equal and positive.
+        # We only require them equal-or-monotonic (smaller original short side never yields fewer tokens).
+        assert tokens[90] <= tokens[40] <= tokens[20] or tokens[90] == tokens[40] == tokens[20], (
+            f"10_16 min_short_side upscale: smaller original short side should not reduce prompt_tokens, "
+            f"got {tokens}"
+        )
+
+    # -------------------- 10_17: rule a scale-down orientation coverage --------------------
+    # Rule a: if the long side > max_long_side_pixel, scale down so the long side == max_long_side_pixel.
+    # Existing 10_04/05/06 only exercise landscape (W>H, "too wide"); this adds the portrait
+    # counterpart (H>W, "too tall") so both scale-down orientations are covered.
+
+    @pytest.mark.parametrize(
+        "width,height,orient",
+        [
+            (2000, 3000, "portrait_too_tall"),   # long side = height 3000 > default tier -> scale down
+            (3000, 2000, "landscape_too_wide"),  # long side = width 3000 > default tier -> scale down (mirror)
+        ],
+        ids=["portrait_2000x3000", "landscape_3000x2000"],
+    )
+    def test_10_17_max_long_side_scale_down_orientation(self, width, height, orient):
+        """10_17 — rule a: long side > max_long_side_pixel triggers scale-down. Cover both orientations
+        (long side = height for portrait "too tall", long side = width for landscape "too wide").
+        Acceptance smoke: HTTP 200 + prompt_tokens > 0.
+        """
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(width, height), "detail": "default"
+                }},
+                {"type": "text", "text": self._COLOR_PROMPT},
+            ]}],
+        })
+        _assert_basic_ok(r, f"10_17 scale_down {orient} {width}x{height}")
 
 
 # ============================================================

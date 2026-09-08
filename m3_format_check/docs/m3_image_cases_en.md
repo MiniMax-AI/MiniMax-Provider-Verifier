@@ -2,7 +2,7 @@
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
-> Module count: **13**; case function count: **63**; pytest collected items: **100**
+> Module count: **13**; case function count: **65**; pytest collected items: **110**
 
 ## Module Overview
 
@@ -13,15 +13,15 @@
 | 03 | multi_image | Multi-image stacking / recognition / description | 9 | 13 |
 | 04 | system_multimodal | System message containing image (identity / context injection) | 2 | 4 |
 | 05 | multiturn_multimodal | Multi-turn multimodal dialog (images interleaved) | 1 | 2 |
-| 06 | image_tool_combo | Image + tool_call combination | 1 | 2 |
+| 06 | image_tool_combo | Image + tool_call combination | 3 | 4 |
 | 07 | image_thinking_combo | Image + thinking variant combinations | 4 | 4 |
 | 08 | image_stream_usage | Image + streaming usage chunk | 3 | 4 |
 | 09 | image_param | Image-related params / Usage arithmetic / Error tolerance | 5 | 8 |
-| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / aspect ratio | 14 | 26 |
+| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 17 | 34 |
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
-| | **Total** | | **63** | **100** |
+| | **Total** | | **65** | **110** |
 
 ---
 
@@ -101,7 +101,7 @@
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch: PNG bytes labeled as image/jpeg | HTTP 200 (gateway tolerant) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | Same image with detail=low / high | HTTP 200 + content > 5 |
 
-## 10 resolution_tier — Tier / max_long_side_pixel / max_total_pixels / aspect ratio
+## 10 resolution_tier — Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio
 
 ⚠️ Contract: detail is only a request param; the response does NOT assert the detail field (rule 5a); max_long_side_pixel must be a multiple of 28 (OAI ViT patch constraint).
 
@@ -114,13 +114,16 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG (long side > 2016, triggers scale) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG (long side > 2016) boundary smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | Omit detail vs explicit detail="default" comparison | Both HTTP 200 |
-| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M pixels (> 12,845,056 cap) | HTTP 200 / 400 / 413 / 422 |
-| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap) | HTTP 200 / 400 / 413 / 422 |
+| 10_08 | `test_10_08_max_total_pixels_exceeded` | zn6.jpg real photo 4284×5712 = 24.5M pixels (> 12,845,056 cap, rule c) | 200 (auto-scale, answer contains fish/aquarium/water etc., prompt_tokens>0) or 400/413/422 (reject) |
+| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap, rule c boundary) | HTTP 200 + prompt_tokens > 0 (=cap must accept) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500 (8:1 aspect ratio) acceptance | HTTP 200 + prompt_tokens > 0 |
 | 10_11 | `test_10_11_max_long_side_pixel_tiers[252\|504\|1008]` | mlsp as multiple of 28 (252/504/1008) + 5000×3000 red PNG | HTTP 200 + prompt_tokens > 0 |
 | 10_12 | `test_10_12_max_long_side_pixel_monotonic` | Same image at 3 mlsp tiers (252/504/1008), strict monotonic tokens | prompt_tokens[252] < [504] < [1008] |
 | 10_13 | `test_10_13_max_long_side_pixel_invalid[0/-1/100/251/1009]` | mlsp invalid values (0 / negative / non-28-multiple near edges) | HTTP 200 / 400 / 413 / 422 |
 | 10_14 | `test_10_14_max_long_side_pixel_real_image[252\|1008]` | sx1.jpg real image + mlsp ∈ {252, 1008} | HTTP 200 |
+| 10_15 | `test_10_15_min_short_side_upscale[landscape_400x40\|300x80\|112x20 / portrait_40x400\|80x300]` | rule b: long side ≤ tier and short side < 112, upscale short side to 112 (landscape "too flat" + portrait "too narrow") | HTTP 200 + prompt_tokens > 0 |
+| 10_16 | `test_10_16_min_short_side_upscale_monotonic` | rule b monotonic: fixed long side 400, original short 90/40/20 (all < 112) all upscaled to 112 | smaller original short side never reduces prompt_tokens |
+| 10_17 | `test_10_17_max_long_side_scale_down_orientation[portrait_2000x3000\|landscape_3000x2000]` | rule a: long side > tier triggers scale-down (portrait "too tall" + landscape "too wide") | HTTP 200 + prompt_tokens > 0 |
 
 ## 11 image_size_limit — Single-image size cap / request-body cap / size gradient
 
