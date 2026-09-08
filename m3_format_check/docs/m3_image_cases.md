@@ -2,7 +2,7 @@
 
 > 对应文件:`data/m3_api_test/m3_image_tests.py`
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
-> 模块数:**13**;case 函数数:**62**;pytest 收集 items 数:**99**
+> 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**103**
 
 ## 模块总览
 
@@ -17,11 +17,11 @@
 | 07 | image_thinking_combo | 图 + thinking 各形态组合 | 4 | 4 |
 | 08 | image_stream_usage | 图 + 流式 usage chunk | 2 | 3 |
 | 09 | image_param | 图相关参数 / Usage 算术 / 异常容错 | 5 | 8 |
-| 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / 宽高比 | 14 | 26 |
+| 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比 | 16 | 30 |
 | 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
-| | **合计** | | **62** | **99** |
+| | **合计** | | **64** | **103** |
 
 ---
 
@@ -113,13 +113,15 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG(>2016 长边,触发缩放) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG(>2016 长边)边界 smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | 不传 detail / 显式 detail="default" 两次对比 | 两次都 HTTP 200 |
-| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M 像素(> 12,845,056 上限) | HTTP 200 / 400 / 413 / 422 |
-| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056(=上限) | HTTP 200 / 400 / 413 / 422 |
+| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M 像素(> 12,845,056 上限,规则 c) | HTTP 400 / 413 / 422(必须拒绝) |
+| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056(=上限,规则 c 边界) | HTTP 200 + prompt_tokens > 0(=上限应接受) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500(宽高比 8:1)接受性 | HTTP 200 + prompt_tokens > 0 |
 | 10_11 | `test_10_11_max_long_side_pixel_tiers[252\|504\|1008]` | mlsp 取 28 倍数(252/504/1008)+ 5000×3000 红 PNG | HTTP 200 + prompt_tokens > 0 |
 | 10_12 | `test_10_12_max_long_side_pixel_monotonic` | 同图三档 mlsp(252/504/1008),token 严格单调 | prompt_tokens[252] < [504] < [1008] |
 | 10_13 | `test_10_13_max_long_side_pixel_invalid[0/-1/100/251/1009]` | mlsp 非法值(0/负/非 28 倍数邻近) | HTTP 200 / 400 / 413 / 422 |
 | 10_14 | `test_10_14_max_long_side_pixel_real_image[252\|1008]` | sx1.jpg 真图 + mlsp ∈ {252, 1008} | HTTP 200 |
+| 10_15 | `test_10_15_min_short_side_upscale[400x40\|300x80\|112x20]` | 规则 b:长边≤档位且短边<112,放大至短边=112(min_short_side_pixel 固定 112) | HTTP 200 + prompt_tokens > 0 |
+| 10_16 | `test_10_16_min_short_side_upscale_monotonic` | 规则 b 单调:固定长边 400,原短边 90/40/20(均<112)均放大至 112 | 原短边越小 prompt_tokens 不减 |
 
 ## 11 image_size_limit — 单图大小限 / 请求体限 / size 梯度
 

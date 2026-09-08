@@ -2,7 +2,7 @@
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
-> Module count: **13**; case function count: **62**; pytest collected items: **99**
+> Module count: **13**; case function count: **64**; pytest collected items: **103**
 
 ## Module Overview
 
@@ -17,11 +17,11 @@
 | 07 | image_thinking_combo | Image + thinking variant combinations | 4 | 4 |
 | 08 | image_stream_usage | Image + streaming usage chunk | 2 | 3 |
 | 09 | image_param | Image-related params / Usage arithmetic / Error tolerance | 5 | 8 |
-| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / aspect ratio | 14 | 26 |
+| 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 16 | 30 |
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
-| | **Total** | | **62** | **99** |
+| | **Total** | | **64** | **103** |
 
 ---
 
@@ -113,13 +113,15 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG (long side > 2016, triggers scale) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG (long side > 2016) boundary smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | Omit detail vs explicit detail="default" comparison | Both HTTP 200 |
-| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M pixels (> 12,845,056 cap) | HTTP 200 / 400 / 413 / 422 |
-| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap) | HTTP 200 / 400 / 413 / 422 |
+| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M pixels (> 12,845,056 cap, rule c) | HTTP 400 / 413 / 422 (must reject) |
+| 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap, rule c boundary) | HTTP 200 + prompt_tokens > 0 (=cap must accept) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500 (8:1 aspect ratio) acceptance | HTTP 200 + prompt_tokens > 0 |
 | 10_11 | `test_10_11_max_long_side_pixel_tiers[252\|504\|1008]` | mlsp as multiple of 28 (252/504/1008) + 5000×3000 red PNG | HTTP 200 + prompt_tokens > 0 |
 | 10_12 | `test_10_12_max_long_side_pixel_monotonic` | Same image at 3 mlsp tiers (252/504/1008), strict monotonic tokens | prompt_tokens[252] < [504] < [1008] |
 | 10_13 | `test_10_13_max_long_side_pixel_invalid[0/-1/100/251/1009]` | mlsp invalid values (0 / negative / non-28-multiple near edges) | HTTP 200 / 400 / 413 / 422 |
 | 10_14 | `test_10_14_max_long_side_pixel_real_image[252\|1008]` | sx1.jpg real image + mlsp ∈ {252, 1008} | HTTP 200 |
+| 10_15 | `test_10_15_min_short_side_upscale[400x40\|300x80\|112x20]` | rule b: long side ≤ tier and short side < 112, upscale short side to 112 (min_short_side_pixel fixed 112) | HTTP 200 + prompt_tokens > 0 |
+| 10_16 | `test_10_16_min_short_side_upscale_monotonic` | rule b monotonic: fixed long side 400, original short 90/40/20 (all < 112) all upscaled to 112 | smaller original short side never reduces prompt_tokens |
 
 ## 11 image_size_limit — Single-image size cap / request-body cap / size gradient
 

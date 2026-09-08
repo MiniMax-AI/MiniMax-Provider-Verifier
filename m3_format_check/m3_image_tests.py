@@ -833,7 +833,10 @@ class TestImageResolutionTier:
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
 
     def test_10_08_max_total_pixels_exceeded(self):
-        """10_08 — 4000x4000 = 16M pixels > 12,845,056 cap. API handling unsettled → soft assertion."""
+        """10_08 — rule c: 4000x4000 = 16,000,000 pixels > 12,845,056 cap. After scaling the pixel
+        count still exceeds max_total_pixels, so the request MUST be rejected (no inference).
+        detail=default does not scale down purely by total-pixel budget here, so this must be an error.
+        """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
@@ -842,10 +845,15 @@ class TestImageResolutionTier:
                 {"type": "text", "text": "What?"},
             ]}],
         })
-        assert r["status"] in (200, 400, 413, 422), f"10_08 HTTP={r['status']}"
+        assert r["status"] in (400, 413, 422), (
+            f"10_08 rule c: 16M px > max_total_pixels=12,845,056 must be rejected, got HTTP={r['status']}: "
+            f"{str(r.get('body'))[:300]}"
+        )
 
     def test_10_09_max_total_pixels_at_boundary(self):
-        """10_09 — 3584x3584 = 12,845,056 (= upper bound) → boundary value, allow 200 / 4xx."""
+        """10_09 — rule c boundary: 3584x3584 = 12,845,056 (exactly = max_total_pixels). "exceeds" means
+        strictly greater than the cap, so being exactly equal must be accepted → HTTP 200 + prompt_tokens > 0.
+        """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
@@ -854,7 +862,7 @@ class TestImageResolutionTier:
                 {"type": "text", "text": "What?"},
             ]}],
         })
-        assert r["status"] in (200, 400, 413, 422), f"10_09 HTTP={r['status']}"
+        _assert_basic_ok(r, "10_09 max_total_pixels_at_boundary (=12,845,056)")
 
     # -------------------- 10_10: aspect ratio preserved --------------------
 
@@ -955,6 +963,62 @@ class TestImageResolutionTier:
         assert r["status"] == 200, (
             f"10_14 max_long_side_pixel={pixel} expected 200, got {r['status']}: "
             f"{str(r.get('body'))[:300]}"
+        )
+
+    # -------------------- 10_15~10_16: min_short_side_pixel upscale (rule b) --------------------
+    # M3 scaling contract rule b: if the long side <= max_long_side_pixel AND the short side <
+    # min_short_side_pixel, the image is upscaled until the short side == min_short_side_pixel.
+    # min_short_side_pixel is a fixed, non-configurable 112px for both image and video.
+
+    _MIN_SHORT_SIDE_PIXEL = 112
+
+    @pytest.mark.parametrize(
+        "width,height",
+        [
+            (400, 40),   # long side 400 (<= tier), short side 40 (< 112) -> upscale short side to 112
+            (300, 80),   # long side 300 (<= tier), short side 80 (< 112) -> upscale short side to 112
+            (112, 20),   # long side already = min tier, short side 20 (< 112) -> upscale short side to 112
+        ],
+        ids=["400x40", "300x80", "112x20"],
+    )
+    def test_10_15_min_short_side_upscale(self, width, height):
+        """10_15 — rule b: long side <= max_long_side_pixel and short side < min_short_side_pixel (112)
+        -> image is upscaled so the short side reaches 112. Acceptance smoke: HTTP 200 + prompt_tokens > 0.
+        """
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(width, height), "detail": "default"
+                }},
+                {"type": "text", "text": self._COLOR_PROMPT},
+            ]}],
+        })
+        _assert_basic_ok(r, f"10_15 min_short_side_upscale {width}x{height}")
+
+    def test_10_16_min_short_side_upscale_monotonic(self):
+        """10_16 — rule b monotonicity: for the same long side, a smaller original short side is upscaled
+        by a larger factor (up to short side = 112), so the post-scale pixel count is at least as large,
+        hence prompt_tokens should be non-decreasing as the original short side shrinks.
+        Compare short sides 90 vs 40 vs 20 (all < 112) at a fixed long side of 400.
+        """
+        long_side = 400
+        tokens = {}
+        for short in (90, 40, 20):
+            r = oai_chat({
+                "messages": [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {
+                        "url": make_png_base64(long_side, short), "detail": "default"
+                    }},
+                    {"type": "text", "text": self._COLOR_PROMPT},
+                ]}],
+            })
+            _assert_basic_ok(r, f"10_16 upscale short={short}")
+            tokens[short] = _get_prompt_tokens(r)
+        # All three upscale the short side to 112; token counts should be near-equal and positive.
+        # We only require them equal-or-monotonic (smaller original short side never yields fewer tokens).
+        assert tokens[90] <= tokens[40] <= tokens[20] or tokens[90] == tokens[40] == tokens[20], (
+            f"10_16 min_short_side upscale: smaller original short side should not reduce prompt_tokens, "
+            f"got {tokens}"
         )
 
 
