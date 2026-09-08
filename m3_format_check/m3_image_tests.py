@@ -833,26 +833,26 @@ class TestImageResolutionTier:
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
 
     def test_10_08_max_total_pixels_exceeded(self):
-        """10_08 — rule c: 4000x4000 = 16,000,000 pixels > 12,845,056 cap. Two behaviors are acceptable:
+        """10_08 — rule c: zn6.jpg is a real 4284x5712 = 24,470,208-pixel photo, ~1.9x over the
+        max_total_pixels = 12,845,056 cap. Two behaviors are acceptable:
           - 200: the backend auto-scales the oversized image and infers normally. This must be a valid
-            response: prompt_tokens > 0 AND the model actually recognizes the (solid red) image content,
-            i.e. the answer mentions "red" — proving the image was consumed, not silently dropped.
+            response: prompt_tokens > 0 AND the model actually recognizes the real photo content
+            (a person looking into an aquarium with colorful fish / water plants), proving the image was
+            consumed rather than silently dropped.
           - 4xx (400/413/422): the request is rejected because the post-scale pixel count still exceeds
             max_total_pixels.
-
-        The fixture is a solid-red PNG (make_png_base64 default RGB=255,0,0), so the dominant color is a
-        deterministic ground truth we can assert on.
         """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
-                    "url": make_png_base64(4000, 4000, 255, 0, 0), "detail": "default"
+                    "url": real_image_b64("zn6.jpg", "image/jpeg"), "detail": "default"
                 }},
-                {"type": "text", "text": self._COLOR_PROMPT},
+                {"type": "text", "text": "Describe this image in one sentence."},
             ]}],
+            "max_tokens": 1024,
         })
         assert r["status"] in (200, 400, 413, 422), (
-            f"10_08 rule c: 16M px > max_total_pixels=12,845,056 expected 200(auto-scale)/4xx(reject), "
+            f"10_08 rule c: 24.5M px > max_total_pixels=12,845,056 expected 200(auto-scale)/4xx(reject), "
             f"got HTTP={r['status']}: {str(r.get('body'))[:300]}"
         )
         if r["status"] == 200:
@@ -861,10 +861,14 @@ class TestImageResolutionTier:
                 f"10_08 rule c: HTTP 200 must be a valid inference over the (auto-scaled) image, "
                 f"got prompt_tokens={pt}"
             )
-            content = get_oai_content(r)
-            assert "red" in content.lower(), (
-                f"10_08 rule c: HTTP 200 must recognize the solid-red image content (expected 'red' in "
-                f"answer, proving the oversized image was auto-scaled and consumed), got: {content[:200]!r}"
+            content = get_oai_content(r).lower()
+            # zn6.jpg ground truth: a person by an aquarium with fish / water / plants. Require at least
+            # one salient keyword so a silent image drop (generic empty-ish answer) cannot pass.
+            keywords = ("fish", "aquarium", "tank", "water", "person")
+            assert any(k in content for k in keywords), (
+                f"10_08 rule c: HTTP 200 must recognize the real aquarium photo (expected one of "
+                f"{keywords} in the answer, proving the oversized image was auto-scaled and consumed), "
+                f"got: {content[:200]!r}"
             )
 
     def test_10_09_max_total_pixels_at_boundary(self):
