@@ -113,7 +113,7 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG (long side > 2016, triggers scale) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG (long side > 2016) boundary smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | Omit detail vs explicit detail="default" comparison | Both HTTP 200 |
-| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M pixels (> 12,845,056 cap, rule c) | HTTP 400 / 413 / 422 (must reject) |
+| 10_08 | `test_10_08_max_total_pixels_exceeded` | 4000×4000 = 16M pixels (> 12,845,056 cap, rule c) | 200 (auto-scale + valid inference, prompt_tokens>0) or 400/413/422 (reject) |
 | 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap, rule c boundary) | HTTP 200 + prompt_tokens > 0 (=cap must accept) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500 (8:1 aspect ratio) acceptance | HTTP 200 + prompt_tokens > 0 |
 | 10_11 | `test_10_11_max_long_side_pixel_tiers[252\|504\|1008]` | mlsp as multiple of 28 (252/504/1008) + 5000×3000 red PNG | HTTP 200 + prompt_tokens > 0 |

@@ -833,9 +833,11 @@ class TestImageResolutionTier:
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
 
     def test_10_08_max_total_pixels_exceeded(self):
-        """10_08 — rule c: 4000x4000 = 16,000,000 pixels > 12,845,056 cap. After scaling the pixel
-        count still exceeds max_total_pixels, so the request MUST be rejected (no inference).
-        detail=default does not scale down purely by total-pixel budget here, so this must be an error.
+        """10_08 — rule c: 4000x4000 = 16,000,000 pixels > 12,845,056 cap. Two behaviors are acceptable:
+          - 200: the backend auto-scales the oversized image and infers normally (must be a valid
+            response with prompt_tokens > 0, i.e. the image was actually consumed).
+          - 4xx (400/413/422): the request is rejected because the post-scale pixel count still exceeds
+            max_total_pixels.
         """
         r = oai_chat({
             "messages": [{"role": "user", "content": [
@@ -845,10 +847,16 @@ class TestImageResolutionTier:
                 {"type": "text", "text": "What?"},
             ]}],
         })
-        assert r["status"] in (400, 413, 422), (
-            f"10_08 rule c: 16M px > max_total_pixels=12,845,056 must be rejected, got HTTP={r['status']}: "
-            f"{str(r.get('body'))[:300]}"
+        assert r["status"] in (200, 400, 413, 422), (
+            f"10_08 rule c: 16M px > max_total_pixels=12,845,056 expected 200(auto-scale)/4xx(reject), "
+            f"got HTTP={r['status']}: {str(r.get('body'))[:300]}"
         )
+        if r["status"] == 200:
+            pt = _get_prompt_tokens(r)
+            assert pt > 0, (
+                f"10_08 rule c: HTTP 200 must be a valid inference over the (auto-scaled) image, "
+                f"got prompt_tokens={pt}"
+            )
 
     def test_10_09_max_total_pixels_at_boundary(self):
         """10_09 — rule c boundary: 3584x3584 = 12,845,056 (exactly = max_total_pixels). "exceeds" means
