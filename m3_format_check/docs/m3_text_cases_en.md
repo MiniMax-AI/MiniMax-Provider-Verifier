@@ -61,7 +61,6 @@
 
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
-| 04_01 | `test_04_01_thinking_disabled` | `thinking.type=disabled` | Response must not contain any thinking signal |
 | 04_02 | `test_04_02_thinking_adaptive` | `thinking.type=adaptive` (model decides) | HTTP 200 |
 | 04_03 | `test_04_03_thinking_invalid_value` | `thinking.type` invalid value | 400/422 reject or 200 fallback |
 | 04_04 | `test_04_04_thinking_stream` | adaptive + stream | Streaming + thinking coexist |

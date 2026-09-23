@@ -61,7 +61,6 @@
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
-| 04_01 | `test_04_01_thinking_disabled` | `thinking.type=disabled` | 响应不应含任何思考信号 |
 | 04_02 | `test_04_02_thinking_adaptive` | `thinking.type=adaptive`(模型自决) | HTTP 200 |
 | 04_03 | `test_04_03_thinking_invalid_value` | `thinking.type` 非法值 | 400/422 拒绝或 200 回落 |
 | 04_04 | `test_04_04_thinking_stream` | adaptive + 流式 | 流式 + 思考共存可用 |
