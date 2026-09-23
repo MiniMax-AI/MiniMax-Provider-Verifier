@@ -1,0 +1,52 @@
+{
+  "test_file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_06/minimax-m3-a-official/test_data.jsonl",
+  "total_providers": 1,
+  "successful_providers": 1,
+  "failed_providers": 0,
+  "provider_results": [
+    {
+      "provider": "minimax-m3-a-official",
+      "status": "success",
+      "summary": {
+        "model": "space-bunny",
+        "success_count": 102,
+        "failure_count": 0,
+        "all_count": 102,
+        "language_following_checked_count": 2,
+        "language_following_valid_count": 1,
+        "language_following_invalid_count": 1,
+        "tool_calls_finish_tool_calls": 84,
+        "tool_calls_finish_stop": 0,
+        "stop_finish_tool_calls": 0,
+        "stop_finish_stop": 15,
+        "tool_calls_finish_others": 0,
+        "tool_calls_finish_others_detail": {},
+        "expected_tool_call_total_count": 100,
+        "tool_calls_schema_validation_error_count": 0,
+        "tool_calls_successful_count": 84,
+        "tool_calls_total_count": 186,
+        "tool_calls_count_distribution": {
+          "2": 21,
+          "3": 19,
+          "1": 32,
+          "4": 9,
+          "5": 2,
+          "9": 1
+        },
+        "scenario_check_checked_count": 1,
+        "scenario_check_valid_count": 1,
+        "scenario_check_invalid_count": 0,
+        "scenario_check_pass_rate": 1.0,
+        "error_only_reasoning_checked_count": 102,
+        "error_only_reasoning_count": 0,
+        "error_only_reasoning_rate": 0.0,
+        "success_rate": 1.0,
+        "tool_calls_match_rate": 0.99
+      },
+      "output_file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_06/minimax-m3-a-official/minimax-m3-a-official_results.jsonl",
+      "summary_file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_06/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+      "completed_at": "2026-09-23T15:36:28.124974"
+    }
+  ],
+  "generated_at": "2026-09-23T15:36:28.129037"
+}

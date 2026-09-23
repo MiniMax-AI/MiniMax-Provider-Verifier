@@ -42,6 +42,15 @@ The primary metrics are:
 
 The evaluation results below are computed using our initial release of test prompts, each executed 10 times per provider, with all metrics reported as the mean over the 10-run distribution. As a baseline, `minimax` represents the performance of our [official MiniMax Open Platform](https://platform.minimax.io/ ) deployment, providing a reference point for interpreting other providers' results.
 
+### MiniMax-M3-a Model – September 2026 Data
+
+| Metric | Query-Success-Rate | ToolCalls-Match-Rate | ToolCalls-Schema-Accuracy | Error-Only-Reasoning-Rate | Language-Following-Success-Rate | Scenario-Check-Pass-Rate |
+|--------|--------------------|-----------------------------|--------------------|--------------------------------------------|----------------------------------|--------------------------|
+| MiniMax-M3-a | 100.00% | 98.70% | 99.64% | 0.00% | 85.00% | 90.00% |
+
+> Baseline results: official MiniMax-M3-a deployment, `pass@10` mean. Result folder: `output-dir/MiniMax-M3-a/`.
+
+
 ### MiniMax-M3 Model – June 2026 Data
 
 | Metric | Query-Success-Rate | ToolCalls-Match-Rate | ToolCalls-Schema-Accuracy | Error-Only-Reasoning-Rate | Language-Following-Success-Rate | Scenario-Check-Pass-Rate |

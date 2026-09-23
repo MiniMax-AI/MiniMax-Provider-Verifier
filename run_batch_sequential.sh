@@ -46,6 +46,7 @@ DIRECT_MODEL=""
 DIRECT_API_KEY=""
 MM_MODEL="MiniMax-M2.5"
 LOOP_COUNT="10"
+NO_SIMILARITY=""
 
 # Parse command line arguments
 echo "📋 Parsing command line arguments..."
@@ -94,6 +95,14 @@ while [[ $# -gt 0 ]]; do
         --mm-model)
             MM_MODEL="$2"
             shift 2
+            ;;
+        --no-similarity)
+            NO_SIMILARITY="true"
+            shift
+            ;;
+        --no-baseline)
+            MM_MODEL="__NO_BASELINE__"
+            shift
             ;;
         *)
             shift
@@ -360,12 +369,14 @@ if [ $USE_UV -eq 1 ]; then
         --root-dir "$OUTPUT_BASE_DIR" \
         --provider "$REPORT_PROVIDER_NAME" \
         --detailed \
+        ${NO_SIMILARITY:+--no-similarity} \
         --output "$METRICS_REPORT"
 else
     $PYTHON_CMD "$SCRIPT_DIR/scripts/calculate_batch_metrics.py" \
         --root-dir "$OUTPUT_BASE_DIR" \
         --provider "$REPORT_PROVIDER_NAME" \
         --detailed \
+        ${NO_SIMILARITY:+--no-similarity} \
         --output "$METRICS_REPORT"
 fi
 

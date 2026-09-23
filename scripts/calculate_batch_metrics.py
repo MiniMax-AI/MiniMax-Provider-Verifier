@@ -467,6 +467,8 @@ def main():
                         help='Output results to JSON file')
     parser.add_argument('--sample-file', type=str, default=None,
                         help='sample.jsonl file path, used to count expected_tool_call as Match-Rate denominator')
+    parser.add_argument('--no-similarity', action='store_true',
+                        help='Skip ToolCalls-Trigger Similarity (F1) computation entirely')
     
     args = parser.parse_args()
     
@@ -520,7 +522,9 @@ def main():
         # Calculate ToolCalls-Trigger-Similarity
         # Skip condition: specified provider is minimax itself
         is_minimax_self = args.provider and args.provider.lower() == 'minimax'
-        if not is_minimax_self:
+        if args.no_similarity:
+            metrics['ToolCalls-Trigger-Similarity'] = None
+        elif not is_minimax_self:
             results_file = file_path.replace('_summary.json', '_results.jsonl')
             if os.path.exists(results_file):
                 model_results = load_jsonl(results_file)
