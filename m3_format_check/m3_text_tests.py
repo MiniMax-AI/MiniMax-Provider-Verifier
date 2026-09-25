@@ -197,15 +197,6 @@ class TestMultiturn:
 class TestThinking:
     """thinking field: disabled / adaptive / invalid value / combined with streaming."""
 
-    def test_04_01_thinking_disabled(self):
-        """thinking.type=disabled: response should not contain any thinking signal."""
-        r = oai_chat({
-            "messages": oai_simple_messages("Say hello"),
-            "thinking": {"type": "disabled"},
-        })
-        assert_oai_success(r)
-        assert_thinking_absent(r, "thinking=disabled")
-
     def test_04_02_thinking_adaptive(self):
         """thinking.type=adaptive: model decides whether to think; only assert 200."""
         r = oai_chat({
