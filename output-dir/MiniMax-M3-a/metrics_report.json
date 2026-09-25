@@ -1,0 +1,135 @@
+{
+    "summary": {
+        "total_files": 10,
+        "average_metrics": {
+            "1. Query-Success-Rate": 1.0,
+            "2. ToolCalls-Match-Rate": 0.9869999999999999,
+            "4. ToolCalls-Schema-Accuracy": 0.996399885255307,
+            "5. Error-Only-Reasoning-Rate": 0.0,
+            "6. Language-Following-Success-Rate": 0.85,
+            "7. Scenario-Check-Pass-Rate": 0.9
+        }
+    },
+    "results": [
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_01/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 0.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_02/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 0.9879518072289156,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 0.5,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_03/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 0.5,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_04/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_05/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_06/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 0.5,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_07/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_08/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 0.9880952380952381,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_09/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "/Users/minimax/GitHub/MiniMax-Provider-Verifier/output-dir/MiniMax-M3-a/loop_10/minimax-m3-a-official/minimax-m3-a-official_summary.json",
+            "model": "space-bunny",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 0.9879518072289156,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        }
+    ]
+}
