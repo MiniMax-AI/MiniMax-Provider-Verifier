@@ -297,8 +297,13 @@ class ValidatorRunner:
                 if hasattr(event, 'provider') and event.provider:
                     provider = event.provider
 
+                if hasattr(event, 'usage') and event.usage:
+                    usage = event.usage
+
                 if not hasattr(event, 'choices') or not event.choices:
-                    logger.warning("Empty choices in stream event")
+                    # Spec-legitimate: providers send a terminal chunk with
+                    # choices=[] to carry usage when stream_options.include_usage
+                    # is set. Nothing to warn about, usage was already read above.
                     continue
 
                 choice = event.choices[0]
@@ -326,9 +331,6 @@ class ValidatorRunner:
 
                 if hasattr(choice, 'finish_reason') and choice.finish_reason:
                     finish_reason = choice.finish_reason
-
-                if hasattr(choice, 'usage') and choice.usage:
-                    usage = choice.usage
 
             response = {
                 "id": request_id,
