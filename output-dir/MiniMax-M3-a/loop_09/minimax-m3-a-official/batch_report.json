@@ -8,7 +8,7 @@
       "provider": "minimax-m3-a-official",
       "status": "success",
       "summary": {
-        "model": "MiniMax-M3-a",
+        "model": "space-bunny",
         "success_count": 102,
         "failure_count": 0,
         "all_count": 102,
