@@ -31,6 +31,7 @@ written to RUN_LOG_PATH (injected by conftest).
 import pytest
 
 from helpers import *
+from image_tools import make_png_base64
 
 
 REASONING_EFFORT_ENUM = ("low", "medium", "high", "xhigh", "max")
@@ -162,3 +163,32 @@ class TestReasoningEffort:
         assert_oai_stream_success(r)
         assert_stream_complete(r, msg=f"reasoning_effort={effort} stream")
         assert_thinking_present(r, msg=f"reasoning_effort={effort} stream")
+
+    @pytest.mark.parametrize("effort", ["low", "max"])
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_01_09_effort_with_image(self, effort, stream):
+        """Image input accepts low/max effort with thinking and a final answer,
+        in both non-streaming and complete streaming responses.
+        """
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(672, 672, r=255, g=0, b=0),
+                }},
+                {"type": "text", "text": (
+                    "Identify the dominant color in this image. Use 17 if it is "
+                    "red, 23 if green, or 31 if blue, then multiply that number "
+                    "by 19. Think it through and give the color and result."
+                )},
+            ]}],
+            "reasoning_effort": effort,
+        }, stream=stream)
+
+        context = f"image + reasoning_effort={effort}, stream={stream}"
+        if stream:
+            assert_oai_stream_success(r)
+            assert_stream_complete(r, msg=context)
+        else:
+            assert_oai_success(r)
+        assert_thinking_present(r, msg=context)
+        assert get_oai_content(r).strip(), f"{context}: expected non-empty final answer"
