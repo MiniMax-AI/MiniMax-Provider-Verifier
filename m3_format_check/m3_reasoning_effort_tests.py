@@ -37,6 +37,26 @@ from image_tools import make_png_base64
 REASONING_EFFORT_ENUM = ("low", "medium", "high", "xhigh", "max")
 
 
+def _reasoning_tokens(r: dict) -> int:
+    """usage.completion_tokens_details.reasoning_tokens (0 when absent).
+
+    Non-stream reads body.usage; stream reads the last chunk carrying usage.
+    """
+    if r.get("stream"):
+        usage = {}
+        for chunk in reversed(r.get("chunks") or []):
+            if isinstance(chunk, dict) and chunk.get("usage"):
+                usage = chunk["usage"]
+                break
+    else:
+        usage = (r.get("body") or {}).get("usage") or {}
+    details = usage.get("completion_tokens_details") or {}
+    try:
+        return int(details.get("reasoning_tokens") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 # ============================================================
 # 01 reasoning_effort — thinking-depth control
 # ============================================================
@@ -64,15 +84,24 @@ class TestReasoningEffort:
         else:
             assert_oai_success(r)
         assert_thinking_present(r, msg=f"reasoning_effort={effort} (thinking forced on)")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort={effort}: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
-    def test_01_02_none_rejected(self):
-        """reasoning_effort=none: thinking is forced on and `none` is NOT
-        accepted → must return HTTP 400."""
+    def test_01_02_none_accepted_with_thinking(self):
+        """reasoning_effort=none: passes when the response is HTTP 200 with
+        non-empty reasoning_content and usage reasoning_tokens > 0."""
         r = oai_chat({
             "messages": oai_simple_messages("Say hello"),
             "reasoning_effort": "none",
         })
-        assert_error(r, 400)
+        assert_oai_success(r)
+        assert_thinking_present(r, msg="reasoning_effort=none")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort=none: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     def test_01_03_minimal_mapped_to_low(self):
         """reasoning_effort=minimal is documented to map to `low` → accepted
@@ -83,6 +112,10 @@ class TestReasoningEffort:
         })
         assert_oai_success(r)
         assert_thinking_present(r, msg="reasoning_effort=minimal (mapped to low)")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort=minimal: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     def test_01_04_out_of_enum_ignored(self):
         """Out-of-enum value is ignored; the model falls back to default depth
@@ -100,6 +133,10 @@ class TestReasoningEffort:
         )
         if r["status"] == 200:
             assert_thinking_present(r, msg="reasoning_effort=out-of-enum (default depth)")
+            assert _reasoning_tokens(r) > 0, (
+                f"reasoning_effort=out-of-enum: expected reasoning_tokens > 0, "
+                f"got {_reasoning_tokens(r)}"
+            )
 
     def test_01_05_effort_with_thinking_adaptive(self):
         """reasoning_effort combined with thinking.type=adaptive (the only
@@ -112,16 +149,26 @@ class TestReasoningEffort:
         })
         assert_oai_success(r)
         assert_thinking_present(r, msg="reasoning_effort=high + thinking.adaptive")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort=high + thinking.adaptive: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
-    def test_01_06_effort_with_thinking_disabled_rejected(self):
-        """thinking.type=disabled is not supported when thinking is forced on →
-        HTTP 400, even when a valid reasoning_effort is supplied."""
+    def test_01_06_effort_with_thinking_disabled(self):
+        """reasoning_effort=high + thinking.type=disabled: passes when the
+        response is HTTP 200 with non-empty reasoning_content and usage
+        reasoning_tokens > 0."""
         r = oai_chat({
             "messages": oai_simple_messages("Hi"),
             "reasoning_effort": "high",
             "thinking": {"type": "disabled"},
         })
-        assert_error(r, 400)
+        assert_oai_success(r)
+        assert_thinking_present(r, msg="reasoning_effort=high + thinking.disabled")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort=high + thinking.disabled: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     def test_01_07_reasoning_content_split(self):
         """reasoning_split defaults to true, so WHEN the model thinks, the
@@ -151,6 +198,10 @@ class TestReasoningEffort:
             "thinking signal present but reasoning_content is empty; "
             "reasoning_split=true should place thinking in message.reasoning_content"
         )
+        assert _reasoning_tokens(r) > 0, (
+            f"thinking signal present but reasoning_tokens <= 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     def test_01_08_effort_stream_thinking(self, effort):
@@ -163,6 +214,10 @@ class TestReasoningEffort:
         assert_oai_stream_success(r)
         assert_stream_complete(r, msg=f"reasoning_effort={effort} stream")
         assert_thinking_present(r, msg=f"reasoning_effort={effort} stream")
+        assert _reasoning_tokens(r) > 0, (
+            f"reasoning_effort={effort} stream: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
@@ -192,3 +247,6 @@ class TestReasoningEffort:
             assert_oai_success(r)
         assert_thinking_present(r, msg=context)
         assert get_oai_content(r).strip(), f"{context}: expected non-empty final answer"
+        assert _reasoning_tokens(r) > 0, (
+            f"{context}: expected reasoning_tokens > 0, got {_reasoning_tokens(r)}"
+        )
