@@ -112,7 +112,7 @@ class ValidatorRunner:
             if not response or "choices" not in response or not response["choices"]:
                 return False
             message = response["choices"][0].get("message") or {}
-            reasoning = message.get("reasoning") or ""
+            reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
             content = message.get("content") or ""
             tool_calls = message.get("tool_calls")
             # Compatible with None / [] / non-list cases
