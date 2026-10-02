@@ -269,7 +269,7 @@ def calculate_error_only_reasoning(results: List[Dict]) -> Dict:
                 continue
             
             # Check reasoning, content, tool_calls
-            reasoning = message.get('reasoning', '')
+            reasoning = message.get('reasoning_content') or message.get('reasoning', '')
             content = message.get('content', '')
             tool_calls = message.get('tool_calls', [])
             
