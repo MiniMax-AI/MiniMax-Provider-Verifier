@@ -854,6 +854,57 @@ class TestSSEStream:
             f"content 与 reasoning_content,示例: {first_failure['samples']}"
         )
 
+    def test_02_08_finish_reason_never_empty_string(self):
+        """流式 chunk 的 finish_reason 没有值时必须是 null,不能默认成空字符串 ""。
+
+        OAI 流式协议里,中间 delta chunk 表示"还没结束",其 finish_reason 应为
+        null(JSON null / Python None);只有终止 chunk 才带合法的 finish_reason
+        (stop / length / tool_calls / content_filter)。部分 provider 会在中间 chunk
+        把尚未确定的 finish_reason 写成空字符串 "",这是非标准行为:下游若按
+        `finish_reason is not None` 判断是否结束,会把 "" 误当成"已给出结束原因",
+        从而错误地提前判定流结束或污染 finish_reason 统计。
+
+        本用例逐个检查所有 data chunk 的每个 choice:
+          - finish_reason 为 None(null)      → 合法(中间包);
+          - finish_reason 在合法集内           → 合法(终止包);
+          - finish_reason 为 "" 或其他空白/空串 → 判失败。
+        """
+        valid = ("stop", "length", "tool_calls", "content_filter")
+        result = oai_chat({
+            "messages": oai_simple_messages(
+                "请用不少于300字的中文介绍一下你自己,并说明你能帮我做什么。"
+            ),
+            "max_tokens": 4096,
+            "thinking": {"type": "adaptive"},
+        }, stream=True)
+        assert_oai_stream_success(result)
+
+        offenders = []
+        for idx, chunk in enumerate(result.get("chunks") or []):
+            if not isinstance(chunk, dict):
+                continue
+            # 跳过我们在 oai_chat 里合成的 [DONE] / event / raw 哨兵包。
+            if chunk.get("_done") or chunk.get("_event") or chunk.get("_raw"):
+                continue
+            for choice_idx, choice in enumerate(chunk.get("choices") or []):
+                if not isinstance(choice, dict):
+                    continue
+                # 用哨兵区分"字段缺失"与"字段显式为 null";两者都合法。
+                fr = choice.get("finish_reason", "__MISSING__")
+                if fr == "__MISSING__" or fr is None:
+                    continue
+                if not isinstance(fr, str) or not fr.strip() or fr not in valid:
+                    offenders.append({
+                        "chunk_index": idx,
+                        "choice_index": choice_idx,
+                        "finish_reason": fr,
+                    })
+
+        assert not offenders, (
+            f"02_08 流式响应出现非法 finish_reason: finish_reason 无值时必须为 null,"
+            f"不能是空字符串 \"\" 或非法值(合法集: {valid})。违规项: {offenders[:5]}"
+        )
+
 
 class TestContentStreamPacketLengthDistribution:
     """Run pure-content scenarios repeatedly, then aggregate packet statistics."""
