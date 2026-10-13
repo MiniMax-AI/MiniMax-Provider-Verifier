@@ -37,6 +37,14 @@ MODEL = os.environ.get("M3_MODEL", "MiniMax-M3")
 MODEL_MINI = os.environ.get("M3_MODEL_MINI", "MiniMax-M2-mini")
 TIMEOUT = 1800
 
+# Default max output tokens injected when a case does not set its own
+# max_tokens / max_completion_tokens. Avoids length-truncated empty content
+# when the model over-reasons on extreme inputs. Override via M3_MAX_TOKENS.
+try:
+    DEFAULT_MAX_TOKENS = int(os.environ.get("M3_MAX_TOKENS", "20480"))
+except ValueError:
+    DEFAULT_MAX_TOKENS = 20480
+
 OAI_URL = f"{BASE_URL}/v1/chat/completions"
 
 OAI_HEADERS = {
@@ -715,6 +723,11 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
     # Mutate payload as the original helper did so the log captures what was
     # actually on the wire (model, stream flag).
     payload.setdefault("model", MODEL)
+    # Only inject a default output-token cap when the case specifies neither
+    # max_tokens nor max_completion_tokens, so dedicated boundary cases that
+    # set their own value are left untouched.
+    if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
+        payload["max_tokens"] = DEFAULT_MAX_TOKENS
     payload["stream"] = stream
 
     started = time.time()
