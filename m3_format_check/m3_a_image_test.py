@@ -23,8 +23,13 @@ All cases go through helpers.oai_chat() → /v1/chat/completions, jsonl written 
 RUN_LOG_PATH (injected by conftest).
 """
 import base64
+import hashlib
+import io
+import tempfile
+import zipfile
 from pathlib import Path
 
+import httpx
 import pytest
 
 from helpers import *
@@ -1349,12 +1354,17 @@ class TestImageSizeLimit:
 # 12 image_count_limit — multi-image count upper bound (spec 1.3.6: ≤200 images per request)
 # ============================================================
 
-# Image source for stacking 200+ images:
-#   Use the synthetic 672x672 PNG generator (image_tools.make_png_base64). 672x672 is the M3
-#   low-tier minimum size, encoding at roughly 600 tokens per image; stacking 200 of them stays
-#   well under the 524k max_model_len decoder cap.
-#   The previously-used COS sx1.jpg (2000x1334, ~3,400 tokens/image) blew past max_model_len
-#   at 200 images and prevented the cap from ever being exercised on the network path.
+# 12_01 downloads and caches the original 1920x1080 JPEG screenshots from COS, then submits base64.
+# Preserve image bytes and encoding parameters: about 44.6 MiB and 539k input tokens for 200 images.
+# 12_02 keeps distinct small images to check the 201-image count limit independently.
+
+_MULTI_IMAGE_ARCHIVE_URL = (
+    "https://qa-tool-1315599187.cos.ap-shanghai.myqcloud.com"
+    "/model-release-checker/fixtures/provider-verifier/large-images/"
+    "screenshots_1920x1080_36835f481051.zip"
+)
+_MULTI_IMAGE_ARCHIVE_SHA256 = "36835f4810513d81f0a68a6e6b3380fe88b7ca9109e47baa4a41bb82ae3cc575"
+_MULTI_IMAGE_ARCHIVE_CACHE = Path(__file__).parent / "fixtures" / ".cache" / "screenshots_1920x1080_36835f481051.zip"
 
 
 def _count_mentions_in_text(content: str, expected: int) -> bool:
@@ -1388,9 +1398,10 @@ class TestImageCountLimit:
         acknowledging it sees 201 images (some providers accept >200 silently and process them all;
         we only require they don't undercount).
 
-    Images are synthetic 672x672 PNGs whose RGB varies with the index, so every image is distinct
-    (defeats provider-side dedup) and per-image token cost stays low enough to leave headroom
-    against the model's max_model_len."""
+    12_01 cycles 72 original JPEG blocks (71 distinct screenshots) into 200 image blocks.
+    Fixtures are downloaded from COS and verified with SHA-256; Git stores only the loader and URL.
+    12_02 uses distinct 672x672 PNGs. Image encoding errors must not pass 12_01.
+    """
 
     def _url_block(self, idx: int = 0):
         """Single-image block: 672x672 synthetic PNG, base64 data URL.
@@ -1400,12 +1411,40 @@ class TestImageCountLimit:
         r, g, b = (idx * 37) % 256, (idx * 53) % 256, (idx * 73) % 256
         return {"type": "image_url", "image_url": {"url": make_png_base64(672, 672, r, g, b)}}
 
+    def _large_url_block(self, idx: int):
+        """Load original screenshots once; verify and atomically cache them for concurrent runs."""
+        if not hasattr(self, "_large_urls"):
+            cache = _MULTI_IMAGE_ARCHIVE_CACHE
+            data = cache.read_bytes() if cache.exists() else b""
+            if hashlib.sha256(data).hexdigest() != _MULTI_IMAGE_ARCHIVE_SHA256:
+                response = httpx.get(_MULTI_IMAGE_ARCHIVE_URL, timeout=300)
+                response.raise_for_status()
+                data = response.content
+                if hashlib.sha256(data).hexdigest() != _MULTI_IMAGE_ARCHIVE_SHA256:
+                    raise ValueError("Original screenshot archive SHA-256 verification failed")
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=cache.parent, delete=False) as temp:
+                    temp.write(data)
+                Path(temp.name).replace(cache)
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                self._large_urls = [
+                    "data:image/jpeg;base64," + base64.b64encode(
+                        archive.read(f"screenshot_{i:03d}.jpg")
+                    ).decode() for i in range(72)
+                ]
+        return {"type": "image_url", "image_url": {
+            "url": self._large_urls[idx % len(self._large_urls)],
+            # Preserve the failing request's encoding parameters to prevent automatic downsampling.
+            "detail": "default",
+            "max_long_side_pixel": 2016,
+        }}
+
     @pytest.mark.timeout(600)
     def test_12_01_count_at_max(self):
         """12_01 — Single request with 200 image URLs (spec 1.3.6 cap) → HTTP 200 AND the model
         explicitly acknowledges seeing 200 images (rules out silent truncation to a smaller count)."""
         n = 200
-        content = [self._url_block(i) for i in range(n)]
+        content = [self._large_url_block(i) for i in range(n)]
         content.append({
             "type": "text",
             "text": (
