@@ -44,19 +44,16 @@ COMPLEX_PROMPT = (
 )
 
 
-def _reasoning_tokens(result: dict) -> int:
-    """usage.completion_tokens_details.reasoning_tokens (0 when absent).
-
-    Non-stream reads body.usage; stream reads the last chunk carrying usage.
-    """
-    if result.get("stream"):
+def _reasoning_tokens(r: dict) -> int:
+    """Return reasoning_tokens from the response usage (0 when absent)."""
+    if r.get("stream"):
         usage = {}
-        for chunk in reversed(result.get("chunks") or []):
+        for chunk in reversed(r.get("chunks") or []):
             if isinstance(chunk, dict) and chunk.get("usage"):
                 usage = chunk["usage"]
                 break
     else:
-        usage = (result.get("body") or {}).get("usage") or {}
+        usage = (r.get("body") or {}).get("usage") or {}
     details = usage.get("completion_tokens_details") or {}
     try:
         return int(details.get("reasoning_tokens") or 0)
@@ -64,162 +61,179 @@ def _reasoning_tokens(result: dict) -> int:
         return 0
 
 
-def _request(prompt: str, *, stream: bool = False, **fields) -> dict:
-    payload = {
-        "messages": oai_simple_messages(prompt),
-        "max_completion_tokens": MAX_COMPLETION_TOKENS,
-        **fields,
-    }
-    if stream:
-        payload["stream_options"] = {"include_usage": True}
-    result = oai_chat(payload, stream=stream)
-    if stream:
-        assert_oai_stream_success(result)
-    else:
-        assert_oai_success(result)
-    assert get_oai_content(result).strip(), "Expected non-empty final answer"
-    return result
-
-
-def _assert_usage_if_thinking(result: dict, context: str) -> bool:
-    """Require positive reasoning_tokens only when reasoning content is returned."""
-    has_thinking = get_thinking_signals(result)["any"]
+def _assert_usage_if_thinking(r: dict, context: str) -> bool:
+    """Check the token count only when the response contains thinking."""
+    has_thinking = get_thinking_signals(r)["any"]
     if has_thinking:
-        assert _reasoning_tokens(result) > 0, (
-            f"{context}: thinking signal present but reasoning_tokens={_reasoning_tokens(result)}"
+        assert _reasoning_tokens(r) > 0, (
+            f"{context}: thinking is present but reasoning_tokens={_reasoning_tokens(r)}"
         )
     return has_thinking
 
 
-def _assert_disabled(result: dict, context: str) -> None:
-    assert_thinking_absent(result, msg=context)
-    assert _reasoning_tokens(result) == 0, (
-        f"{context}: expected zero or absent reasoning_tokens when disabled, "
-        f"got {_reasoning_tokens(result)}"
+def _assert_disabled(r: dict, context: str) -> None:
+    assert_thinking_absent(r, msg=context)
+    assert _reasoning_tokens(r) == 0, (
+        f"{context}: disabled should have no reasoning tokens, got {_reasoning_tokens(r)}"
     )
 
 
 # ============================================================
-# 01 reasoning_effort — thinking-depth control
+# 01 reasoning_effort — thinking and token usage
 # ============================================================
 
 class TestReasoningEffort:
-    """reasoning_effort field: valid-enum acceptance, adaptive/disabled thinking,
-    `minimal`->low mapping, out-of-enum fallback, and streaming coexistence."""
-
     @pytest.mark.parametrize("effort", REASONING_EFFORT_ENUM)
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_01_valid_effort_accepted(self, effort, stream):
-        """Each valid enum value (low/medium/high/xhigh/max) is accepted → HTTP 200.
-
-        Thinking is adaptive; when a thinking signal is present, reasoning_tokens
-        must be positive.
-        """
-        result = _request("What is 23 * 47? Explain briefly.", stream=stream,
-                          reasoning_effort=effort)
-        _assert_usage_if_thinking(result, f"effort={effort}, stream={stream}")
+        """Valid effort values should be accepted in both response modes."""
+        payload = {
+            "messages": oai_simple_messages("What is 23 * 47? Think it through."),
+            "reasoning_effort": effort,
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, f"reasoning_effort={effort}, stream={stream}")
 
     def test_01_03_minimal_mapped_to_low(self):
-        """reasoning_effort=minimal is documented to map to `low` → accepted
-        (HTTP 200), NOT rejected. Thinking is adaptive."""
-        result = _request("What is 12 + 30?", reasoning_effort="minimal")
-        _assert_usage_if_thinking(result, "effort=minimal")
+        """The historical minimal value should still be accepted."""
+        r = oai_chat({
+            "messages": oai_simple_messages("What is 12 + 30?"),
+            "reasoning_effort": "minimal",
+        })
+        assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, "reasoning_effort=minimal")
 
     def test_01_04_out_of_enum_ignored(self):
-        """Out-of-enum value is ignored; the model falls back to default depth
-        → HTTP 200 with adaptive thinking.
-
-        Documented behaviour is a silent fallback (not a 400). Tolerate a strict
-        deployment that rejects with 400/422 instead.
-        """
-        result = oai_chat({
-            "messages": oai_simple_messages("What is 2 + 2?"),
+        """Accept a fallback response or a strict validation error."""
+        r = oai_chat({
+            "messages": oai_simple_messages("What is 2+2?"),
             "reasoning_effort": "ultra_super_max_xyz",
         })
-        assert result["status"] in (200, 400, 422)
-        if result["status"] == 200:
-            assert_oai_success(result)
-            _assert_usage_if_thinking(result, "effort=out_of_enum")
+        assert r["status"] in (200, 400, 422), (
+            f"out-of-enum reasoning_effort HTTP={r['status']}: {str(r.get('body'))[:300]}"
+        )
+        if r["status"] == 200:
+            assert_oai_success(r)
+            _assert_usage_if_thinking(r, "reasoning_effort=out-of-enum")
 
     def test_01_05_effort_with_thinking_adaptive(self):
-        """reasoning_effort combined with thinking.type=adaptive → HTTP 200;
-        check reasoning_tokens when thinking is present."""
-        result = _request("Explain why the sky is blue, briefly.",
-                          reasoning_effort="high", thinking={"type": "adaptive"})
-        _assert_usage_if_thinking(result, "effort=high + adaptive")
+        """Effort and adaptive thinking should work together."""
+        r = oai_chat({
+            "messages": oai_simple_messages("Explain why the sky is blue, briefly."),
+            "reasoning_effort": "high",
+            "thinking": {"type": "adaptive"},
+        })
+        assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, "reasoning_effort=high + thinking.adaptive")
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_06_effort_with_thinking_disabled(self, stream):
-        """reasoning_effort=high + thinking.type=disabled: passes when the
-        response is HTTP 200 with no reasoning content and zero or absent
-        reasoning_tokens."""
-        result = _request("Hi", stream=stream, reasoning_effort="high",
-                          thinking={"type": "disabled"})
-        _assert_disabled(result, f"effort=high + disabled, stream={stream}")
+        """Disabled thinking should return a final answer without reasoning."""
+        payload = {
+            "messages": oai_simple_messages("Hi"),
+            "reasoning_effort": "high",
+            "thinking": {"type": "disabled"},
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_disabled(r, f"reasoning_effort=high + thinking.disabled, stream={stream}")
 
     def test_01_07_reasoning_content_split(self):
-        """reasoning_split defaults to true, so WHEN the model thinks, the
-        thinking is returned in the dedicated `reasoning_content` field rather
-        than as an inline <think> tag in content.
-
-        Per the spec, deep thinking is adaptive: the model may skip thinking on
-        simple turns, in which case `reasoning_content` is absent — callers must
-        null-check. So this does NOT force a thinking signal; it only verifies
-        the split placement when a signal is present.
-        """
-        result = _request(COMPLEX_PROMPT, reasoning_effort="high")
-        signals = get_thinking_signals(result)
-        if not signals["any"]:
-            # Adaptive thinking may legitimately skip; nothing to assert about split.
-            pytest.skip("Adaptive thinking returned no visible reasoning; cannot check field placement")
-        # A thinking signal exists: with reasoning_split defaulting to true it
-        # must land in reasoning_content (not only as an inline <think> tag).
-        message = result["body"]["choices"][0]["message"]
+        """When thinking is visible, it should use reasoning_content."""
+        r = oai_chat({
+            "messages": oai_simple_messages(
+                "A train travels 60 km in 45 minutes. What is its average speed "
+                "in km/h? Show the reasoning."
+            ),
+            "reasoning_effort": "high",
+        })
+        assert_oai_success(r)
+        sig = get_thinking_signals(r)
+        if not sig["any"]:
+            return
+        message = r["body"]["choices"][0]["message"]
         reasoning_content = message.get("reasoning_content")
         assert isinstance(reasoning_content, str) and reasoning_content.strip(), (
-            "thinking signal present but reasoning_content is empty"
+            "thinking signal present but reasoning_content is empty; "
+            "reasoning_split=true should place thinking in message.reasoning_content"
         )
-        _assert_usage_if_thinking(result, "reasoning_content placement")
+        assert _reasoning_tokens(r) > 0, (
+            f"thinking signal present but reasoning_tokens={_reasoning_tokens(r)}"
+        )
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     def test_01_08_effort_stream_thinking(self, effort):
-        """reasoning_effort under streaming coexists with the SSE protocol; the
-        stream completes cleanly and may carry a thinking signal."""
-        result = _request("Compute 17 * 19 step by step.", stream=True,
-                          reasoning_effort=effort)
-        _assert_usage_if_thinking(result, f"stream effort={effort}")
+        """Streaming should finish cleanly and report usage if it thinks."""
+        r = oai_chat({
+            "messages": oai_simple_messages("Compute 17 * 19 step by step."),
+            "reasoning_effort": effort,
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_oai_stream_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, f"reasoning_effort={effort} stream")
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_09_effort_with_image(self, effort, stream):
-        """Image input accepts low/max effort with adaptive thinking and a final answer,
-        in both non-streaming and complete streaming responses.
-        """
+        """Image input should produce a final answer for low and max effort."""
         payload = {
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
                     "url": make_png_base64(672, 672, r=255, g=0, b=0),
                 }},
-                {"type": "text", "text": "Identify the color and multiply its RGB red value by 19."},
+                {"type": "text", "text": (
+                    "Identify the dominant color in this image. Use 17 if it is "
+                    "red, 23 if green, or 31 if blue, then multiply that number "
+                    "by 19. Think it through and give the color and result."
+                )},
             ]}],
             "reasoning_effort": effort,
         }
         if stream:
             payload["stream_options"] = {"include_usage": True}
-        result = oai_chat(payload, stream=stream)
+        r = oai_chat(payload, stream=stream)
+        context = f"image + reasoning_effort={effort}, stream={stream}"
         if stream:
-            assert_oai_stream_success(result)
+            assert_oai_stream_success(r)
         else:
-            assert_oai_success(result)
-        assert get_oai_content(result).strip()
-        _assert_usage_if_thinking(result, f"image effort={effort}, stream={stream}")
+            assert_oai_success(r)
+        assert get_oai_content(r).strip(), f"{context}: expected non-empty final answer"
+        _assert_usage_if_thinking(r, context)
 
     @pytest.mark.parametrize("effort", ["low", "high", "max"])
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_10_complex_effort(self, effort, stream):
-        """Cover effort levels and reasoning token counts on complex prompts in both response modes."""
-        result = _request(COMPLEX_PROMPT, stream=stream, reasoning_effort=effort)
-        _assert_usage_if_thinking(result, f"complex effort={effort}, stream={stream}")
+        """Complex input covers effort levels and both response modes."""
+        payload = {
+            "messages": oai_simple_messages(COMPLEX_PROMPT),
+            "reasoning_effort": effort,
+            "max_completion_tokens": MAX_COMPLETION_TOKENS,
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, f"complex effort={effort}, stream={stream}")
 
     @pytest.mark.parametrize("thinking", [None, {"type": "adaptive"}],
                              ids=["default", "adaptive"])
@@ -227,49 +241,80 @@ class TestReasoningEffort:
                              ids=["short", "complex"])
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_11_adaptive(self, thinking, prompt, stream):
-        """Allow default and explicit adaptive thinking to decide whether a prompt needs reasoning."""
-        fields = {} if thinking is None else {"thinking": thinking}
-        result = _request(prompt, stream=stream, **fields)
-        _assert_usage_if_thinking(result, f"adaptive prompt={prompt[:12]}, stream={stream}")
-
-    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
-    def test_01_12_reasoning_tokens_when_present(self, stream):
-        """Require reasoning_tokens to be present and positive whenever reasoning content is returned."""
-        result = _request(COMPLEX_PROMPT, stream=stream, reasoning_effort="high")
-        if not get_thinking_signals(result)["any"]:
-            pytest.skip("No visible thinking; cannot check reasoning token counts")
-        assert _reasoning_tokens(result) > 0, (
-            f"stream={stream}: thinking signal present but reasoning_tokens is missing or zero"
-        )
+        """Default and adaptive thinking may vary with the prompt."""
+        payload = {
+            "messages": oai_simple_messages(prompt),
+            "max_completion_tokens": MAX_COMPLETION_TOKENS,
+        }
+        if thinking is not None:
+            payload["thinking"] = thinking
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_usage_if_thinking(r, f"adaptive prompt={prompt[:12]}, stream={stream}")
 
     @pytest.mark.parametrize("prompt", ["Hi", COMPLEX_PROMPT],
                              ids=["short", "complex"])
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_01_13_thinking_disabled(self, prompt, stream):
-        """Answer with standalone disabled thinking, no reasoning content, and zero or absent tokens."""
-        result = _request(prompt, stream=stream, thinking={"type": "disabled"})
-        _assert_disabled(result, f"disabled prompt={prompt[:12]}, stream={stream}")
+        """Disabled thinking should answer without reasoning for either prompt."""
+        payload = {
+            "messages": oai_simple_messages(prompt),
+            "thinking": {"type": "disabled"},
+            "max_completion_tokens": MAX_COMPLETION_TOKENS,
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+        assert get_oai_content(r).strip()
+        _assert_disabled(r, f"disabled prompt={prompt[:12]}, stream={stream}")
 
     @pytest.mark.slow
     def test_01_14_effort_depth_repeated(self):
-        """Compare repeated samples of the same prompt: max should have a higher token median than low."""
+        """Max should use more reasoning tokens than low on repeated inputs."""
         lengths = {"low": [], "max": []}
         for _ in range(5):
             for effort in ("low", "max"):
-                result = _request(COMPLEX_PROMPT, reasoning_effort=effort)
-                if _assert_usage_if_thinking(result, f"repeated effort={effort}"):
-                    lengths[effort].append(_reasoning_tokens(result))
+                r = oai_chat({
+                    "messages": oai_simple_messages(COMPLEX_PROMPT),
+                    "reasoning_effort": effort,
+                    "max_completion_tokens": MAX_COMPLETION_TOKENS,
+                })
+                assert_oai_success(r)
+                assert get_oai_content(r).strip()
+                if _assert_usage_if_thinking(r, f"repeated effort={effort}"):
+                    lengths[effort].append(_reasoning_tokens(r))
         if min(map(len, lengths.values())) < 3:
-            pytest.skip(f"Insufficient samples with visible thinking: {lengths}")
+            pytest.skip(f"Too few visible thinking samples: {lengths}")
         assert median(lengths["max"]) > median(lengths["low"]), (
-            f"Expected max reasoning token median to exceed low: {lengths}"
+            f"max did not use more reasoning tokens than low: {lengths}"
         )
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     @pytest.mark.slow
     def test_01_15_disabled_repeated(self, stream):
-        """Repeat complex prompts to detect reasoning returned intermittently when thinking is disabled."""
+        """Repeated complex requests should not intermittently return reasoning."""
         for sample in range(5):
-            result = _request(COMPLEX_PROMPT, stream=stream,
-                              thinking={"type": "disabled"})
-            _assert_disabled(result, f"disabled sample={sample + 1}, stream={stream}")
+            payload = {
+                "messages": oai_simple_messages(COMPLEX_PROMPT),
+                "thinking": {"type": "disabled"},
+                "max_completion_tokens": MAX_COMPLETION_TOKENS,
+            }
+            if stream:
+                payload["stream_options"] = {"include_usage": True}
+            r = oai_chat(payload, stream=stream)
+            if stream:
+                assert_oai_stream_success(r)
+            else:
+                assert_oai_success(r)
+            assert get_oai_content(r).strip()
+            _assert_disabled(r, f"disabled sample={sample + 1}, stream={stream}")
