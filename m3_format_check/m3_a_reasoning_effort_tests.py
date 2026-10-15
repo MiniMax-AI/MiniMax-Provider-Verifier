@@ -114,13 +114,11 @@ class TestReasoningEffort:
         The prompt asks the model to think, so a thinking signal must be
         present at every effort level.
         """
-        payload = {
+        r = oai_chat({
             "messages": oai_simple_messages("What is 23 * 47? Think it through."),
             "reasoning_effort": effort,
-        }
-        if stream:
-            payload["stream_options"] = {"include_usage": True}
-        r = oai_chat(payload, stream=stream)
+            **({"stream_options": {"include_usage": True}} if stream else {}),
+        }, stream=stream)
 
         if stream:
             assert_oai_stream_success(r)
@@ -225,14 +223,12 @@ class TestReasoningEffort:
         A 200 that still returns thinking means `disabled` was silently
         swallowed, which fails.
         """
-        payload = {
+        r = oai_chat({
             "messages": oai_simple_messages("Hi"),
             "reasoning_effort": "high",
             "thinking": {"type": "disabled"},
-        }
-        if stream:
-            payload["stream_options"] = {"include_usage": True}
-        r = oai_chat(payload, stream=stream)
+            **({"stream_options": {"include_usage": True}} if stream else {}),
+        }, stream=stream)
 
         if r["status"] == 400:
             return
@@ -300,7 +296,7 @@ class TestReasoningEffort:
         """Image input accepts low/max effort with thinking and a final answer,
         in both non-streaming and complete streaming responses.
         """
-        payload = {
+        r = oai_chat({
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
                     "url": make_png_base64(672, 672, r=255, g=0, b=0),
@@ -312,10 +308,8 @@ class TestReasoningEffort:
                 )},
             ]}],
             "reasoning_effort": effort,
-        }
-        if stream:
-            payload["stream_options"] = {"include_usage": True}
-        r = oai_chat(payload, stream=stream)
+            **({"stream_options": {"include_usage": True}} if stream else {}),
+        }, stream=stream)
 
         context = f"image + reasoning_effort={effort}, stream={stream}"
         if stream:
