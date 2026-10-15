@@ -16,6 +16,11 @@ from typing import Optional
 
 import httpx
 
+try:
+    from .stream_protocol import inspect_stream_tool_calls
+except ImportError:
+    from stream_protocol import inspect_stream_tool_calls
+
 BASE_URL = os.environ.get("M3_BASE_URL")
 API_KEY = os.environ.get("M3_API_KEY")
 AUTH_TYPE = os.environ.get("M3_AUTH_TYPE", "bearer").strip().lower()
@@ -36,6 +41,14 @@ if not BASE_URL or (AUTH_TYPE == "bearer" and not API_KEY):
 MODEL = os.environ.get("M3_MODEL", "MiniMax-M3")
 MODEL_MINI = os.environ.get("M3_MODEL_MINI", "MiniMax-M2-mini")
 TIMEOUT = 1800
+
+# Default max output tokens injected when a case does not set its own
+# max_tokens / max_completion_tokens. Avoids length-truncated empty content
+# when the model over-reasons on extreme inputs. Override via M3_MAX_TOKENS.
+try:
+    DEFAULT_MAX_TOKENS = int(os.environ.get("M3_MAX_TOKENS", "20480"))
+except ValueError:
+    DEFAULT_MAX_TOKENS = 20480
 
 OAI_URL = f"{BASE_URL}/v1/chat/completions"
 
@@ -715,6 +728,11 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
     # Mutate payload as the original helper did so the log captures what was
     # actually on the wire (model, stream flag).
     payload.setdefault("model", MODEL)
+    # Only inject a default output-token cap when the case specifies neither
+    # max_tokens nor max_completion_tokens, so dedicated boundary cases that
+    # set their own value are left untouched.
+    if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
+        payload["max_tokens"] = DEFAULT_MAX_TOKENS
     payload["stream"] = stream
 
     started = time.time()
@@ -751,7 +769,7 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                                         chunks.append({"_raw": data})
                             elif line.startswith("event: "):
                                 chunks.append({"_event": line[7:]})
-                    return {
+                    result = {
                         "status": status,
                         "chunks": chunks,
                         "stream": True,
@@ -759,6 +777,10 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                         "response_headers": response_headers,
                         "trace_id": _extract_trace_id(response_headers, body, chunks),
                     }
+                    # Check successful streams even when a case only asserts HTTP status.
+                    if status == 200:
+                        assert_stream_tool_call_integrity(result, msg="oai_chat")
+                    return result
         else:
             resp = httpx.post(OAI_URL, json=payload, headers=hdrs, timeout=timeout)
             status = resp.status_code
@@ -823,7 +845,17 @@ def assert_oai_stream_success(result):
     assert result["status"] == 200, f"Expected 200, got {result['status']}"
     assert result.get("stream")
     assert len(result["chunks"]) > 0
+    assert_stream_tool_call_integrity(result, msg="assert_oai_stream_success")
     assert_stream_complete(result, msg="assert_oai_stream_success")
+
+
+def assert_stream_tool_call_integrity(result: dict, msg: str = ""):
+    """Check raw identities before merging; report indices, old/new IDs and fragment positions."""
+    tracker = inspect_stream_tool_calls(result.get("chunks") or [], result.get("trace_id"))
+    assert not tracker.errors, (
+        f"{msg}: stream tool_call protocol violation: "
+        f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
+    )
 
 
 def assert_stream_complete(result, msg: str = ""):
@@ -1035,6 +1067,7 @@ def get_tool_calls(result: dict) -> list:
     raw_calls = []  # [{"id", "name", "arguments"}] intermediate form
 
     if result.get("stream"):
+        assert_stream_tool_call_integrity(result, msg="get_tool_calls")
         # Streaming: rebuild per OAI delta.tool_calls protocol
         # In delta, tool_calls is [{"index": i, "id": ..., "function": {"name": ..., "arguments": "fragment"}}]
         # arguments strings at the same index need to be concatenated; id usually appears the first time
@@ -1045,10 +1078,10 @@ def get_tool_calls(result: dict) -> list:
                 continue
             delta = choices[0].get("delta") or {}
             for tc in delta.get("tool_calls") or []:
-                idx = tc.get("index", 0)
+                idx = tc["index"]
                 slot = partials.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                if tc.get("id"):
-                    slot["id"] = tc["id"]  # id appears once; later occurrences overwrite
+                if tc.get("id") and not slot["id"]:
+                    slot["id"] = tc["id"]  # Keep the first ID; pre-merge checks reject identity changes
                 fn = tc.get("function") or {}
                 if fn.get("name"):
                     slot["name"] += fn["name"]  # some implementations also fragment the name

@@ -36,3 +36,5 @@ provider.json
 
 # m3_format_check run logs (contain real API responses / trace ids)
 m3_format_check/logs/
+# Test fixtures downloaded from object storage
+m3_format_check/fixtures/.cache/
