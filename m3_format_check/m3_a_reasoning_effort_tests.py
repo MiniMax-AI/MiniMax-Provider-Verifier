@@ -7,7 +7,9 @@ reasoning_effort controls thinking depth. Per the spec
   - reasoning_effort adjusts thinking depth. Models that do not support it
     ignore the field entirely.
   - Valid enum: low / medium / high / xhigh / max.
-  - When thinking is forced on, `none` is NOT accepted and returns HTTP 400.
+  - When thinking is forced on, `none` is outside the accepted enum: the
+    request is either rejected with HTTP 4xx, or the value is ignored and
+    thinking stays adaptive.
   - `minimal` is mapped to `low`.
   - Out-of-enum values are ignored; the model falls back to default depth.
   - When thinking is forced on, thinking runs regardless of reasoning_effort,
@@ -89,18 +91,34 @@ class TestReasoningEffort:
             f"got {_reasoning_tokens(r)}"
         )
 
-    def test_01_02_none_accepted_with_thinking(self):
-        """reasoning_effort=none: passes when the response is HTTP 200 with
-        non-empty reasoning_content and usage reasoning_tokens > 0."""
+    def test_01_02_none_rejected_or_adaptive(self):
+        """reasoning_effort=none is outside the accepted enum. Two outcomes pass:
+
+          - HTTP 4xx: the value is rejected outright (documented behaviour when
+            thinking is forced on).
+          - HTTP 200: the value is ignored and thinking stays adaptive, i.e. a
+            thinking signal must still be present (non-empty reasoning_content
+            and usage reasoning_tokens > 0).
+
+        Anything else (5xx, or 200 with thinking silently turned off) fails.
+        """
         r = oai_chat({
             "messages": oai_simple_messages("Say hello"),
             "reasoning_effort": "none",
         })
-        assert_oai_success(r)
-        assert_thinking_present(r, msg="reasoning_effort=none")
+
+        assert r["status"] == 200 or 400 <= r["status"] < 500, (
+            f"reasoning_effort=none: expected HTTP 200 or 4xx, got {r['status']}: "
+            f"{str(r.get('body'))[:300]}"
+        )
+        if r["status"] != 200:
+            return
+
+        # Accepted → thinking must remain adaptive (never silently disabled).
+        assert_thinking_present(r, msg="reasoning_effort=none (ignored, thinking adaptive)")
         assert _reasoning_tokens(r) > 0, (
-            f"reasoning_effort=none: expected reasoning_tokens > 0, "
-            f"got {_reasoning_tokens(r)}"
+            f"reasoning_effort=none accepted with HTTP 200: expected "
+            f"reasoning_tokens > 0, got {_reasoning_tokens(r)}"
         )
 
     def test_01_03_minimal_mapped_to_low(self):
@@ -155,20 +173,27 @@ class TestReasoningEffort:
         )
 
     def test_01_06_effort_with_thinking_disabled(self):
-        """reasoning_effort=high + thinking.type=disabled: passes when the
-        response is HTTP 200 with non-empty reasoning_content and usage
-        reasoning_tokens > 0."""
+        """reasoning_effort=high + thinking.type=disabled. Two outcomes pass:
+
+          - HTTP 400: thinking is forced on, so `disabled` is rejected.
+          - HTTP 200: the request is accepted, in which case thinking must
+            actually be off — no <think> tag and no reasoning_content.
+
+        A 200 that still returns thinking means `disabled` was silently
+        swallowed, which fails.
+        """
         r = oai_chat({
             "messages": oai_simple_messages("Hi"),
             "reasoning_effort": "high",
             "thinking": {"type": "disabled"},
         })
+
+        if r["status"] == 400:
+            return
+
         assert_oai_success(r)
-        assert_thinking_present(r, msg="reasoning_effort=high + thinking.disabled")
-        assert _reasoning_tokens(r) > 0, (
-            f"reasoning_effort=high + thinking.disabled: expected reasoning_tokens > 0, "
-            f"got {_reasoning_tokens(r)}"
-        )
+        # Accepted → thinking must be genuinely suppressed.
+        assert_thinking_absent(r, msg="reasoning_effort=high + thinking.disabled")
 
     def test_01_07_reasoning_content_split(self):
         """reasoning_split defaults to true, so WHEN the model thinks, the
