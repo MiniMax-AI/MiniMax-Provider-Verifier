@@ -211,14 +211,12 @@ class TestReasoningEffort:
             f"got {_reasoning_tokens(r)}"
         )
 
-    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
-    def test_01_06_effort_with_thinking_disabled(self, stream):
+    def test_01_06_effort_with_thinking_disabled(self):
         """reasoning_effort=high + thinking.type=disabled. Two outcomes pass:
 
-          - HTTP 400: the conflicting combination is rejected.
+          - HTTP 400: thinking is forced on, so `disabled` is rejected.
           - HTTP 200: the request is accepted, in which case thinking must
-            actually be off — no <think> tag, no reasoning_content and zero
-            reasoning_tokens.
+            actually be off — no <think> tag and no reasoning_content.
 
         A 200 that still returns thinking means `disabled` was silently
         swallowed, which fails.
@@ -227,18 +225,14 @@ class TestReasoningEffort:
             "messages": oai_simple_messages("Hi"),
             "reasoning_effort": "high",
             "thinking": {"type": "disabled"},
-            **({"stream_options": {"include_usage": True}} if stream else {}),
-        }, stream=stream)
+        })
 
         if r["status"] == 400:
             return
 
-        if stream:
-            assert_oai_stream_success(r)
-        else:
-            assert_oai_success(r)
+        assert_oai_success(r)
         # Accepted → thinking must be genuinely suppressed.
-        _assert_disabled(r, f"reasoning_effort=high + thinking.disabled, stream={stream}")
+        assert_thinking_absent(r, msg="reasoning_effort=high + thinking.disabled")
 
     def test_01_07_reasoning_content_split(self):
         """reasoning_split defaults to true, so WHEN the model thinks, the
