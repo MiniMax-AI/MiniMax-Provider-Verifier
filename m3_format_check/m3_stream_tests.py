@@ -324,7 +324,7 @@ if CONTENT_SCENARIO_RUNS < 1:
 
 
 def _tool_protocol_run_count() -> int:
-    """只控制 02_09/02_10 的最大采样次数，快速验证可配置为 1。"""
+    """Return the request limit for cases 02_09 and 02_10; use 1 for a quick check."""
     value = os.environ.get("M3_STREAM_TOOL_PROTOCOL_RUNS", "20")
     try:
         run_count = int(value)
@@ -336,7 +336,7 @@ def _tool_protocol_run_count() -> int:
 
 
 def _tool_protocol_results(case_id: str, run_count: int):
-    """逐次发请求，公共 helper 仅校验流成功，协议规则由各 case 独立断言。"""
+    """Yield successful streams for each case to validate its own protocol rule."""
     for run_index in range(1, run_count + 1):
         result = oai_chat({
             "messages": oai_simple_messages(
@@ -946,7 +946,7 @@ class TestSSEStream:
         )
 
     def test_02_09_tool_call_index_unique_in_chunk(self):
-        """默认最多 20 次：同一 chunk、同一 choice 内的工具 index 不重复。"""
+        """Check unique tool-call indices per chunk and choice over up to 20 requests by default."""
         run_count = _tool_protocol_run_count()
         parallel_samples = 0
         for result, context in _tool_protocol_results("02_09", run_count):
@@ -972,11 +972,11 @@ class TestSSEStream:
         print(summary)
 
     def test_02_10_tool_call_identity_stable(self):
-        """默认最多 20 次：在合并前校验每次响应的工具调用身份。"""
+        """Check tool-call identities before merging over up to 20 requests by default."""
         run_count = _tool_protocol_run_count()
         parallel_samples = 0
         for result, context in _tool_protocol_results("02_10", run_count):
-            # 每次请求重新跟踪身份；单调用响应同样先检查协议，再判断并行覆盖。
+            # Reset identity state per response and validate single calls before checking parallel coverage.
             tracker = inspect_stream_tool_calls(result["chunks"])
             assert not tracker.errors, (
                 f"{context}: stream tool_call identity violation: "

@@ -1,4 +1,4 @@
-"""协议问题由独立 case 定位，公共请求与解析不让其他用例连带失败。"""
+"""Keep protocol validation in dedicated cases without gating shared request and parsing helpers."""
 import importlib
 import json
 import sys
@@ -92,7 +92,7 @@ def helpers(monkeypatch):
 
 @pytest.fixture
 def mock_stream(helpers, monkeypatch):
-    """使用内存 HTTP 传输运行真实 oai_chat，不请求外部服务。"""
+    """Run oai_chat through an in-memory HTTP transport."""
     client_class = httpx.Client
 
     def install(chunks=None, status=200, *, responses=None):
@@ -222,7 +222,7 @@ def test_protocol_cases_default_to_twenty_independent_requests(helpers, mock_str
     stream_cases = importlib.import_module("m3_stream_tests")
     requests, records = mock_stream(valid_stream())
     getattr(stream_cases.TestSSEStream(), case_name)()
-    # 同一组合法 ID 可在不同响应中重复，不能被当作跨请求身份复用。
+    # The same valid IDs may appear in separate responses without triggering ID reuse errors.
     assert len(requests) == len(records) == 20
     assert "parallel_samples=20/20" in capsys.readouterr().out
     assert all(request["max_tokens"] == 4096 and "tool_choice" not in request for request in requests)
