@@ -5,6 +5,8 @@
 ## Scope
 
 - `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests.
+- `02_09` and `02_10` each send one multi-city parallel weather-tool request and inspect the complete response for within-chunk index uniqueness and cross-chunk call identity stability. Each case requires at least two actual tool calls in the same choice.
+- These protocol rules are asserted only by `02_09` and `02_10`, respectively. `oai_chat`, generic success assertions, and tool-argument extraction do not validate call identities, so one protocol defect does not cause unrelated functional cases to fail.
 - `TestContentStreamPacketLengthDistribution`: each pure-content scenario runs five times by default. All non-empty `delta.content` fragments from the five runs are merged and evaluated once. Override the run count with `M3_STREAM_CONTENT_RUNS`.
 - `TestToolCallStreamPacketLengthDistribution`: each tool-call scenario runs once and uses its own thresholds for non-empty `delta.tool_calls[].function.arguments` fragments. The parallel-tool scenario evaluates both the combined distribution and every observed `tool_call.index` distribution.
 - The packet-quality scenarios evaluate packet-size quality only. They do not validate output length, JSON validity, tool names, argument contents, or tool-call counts.
@@ -49,6 +51,8 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | Text request with `stream_options.include_usage=true` | Independent SSE protocol check; not part of packet-quality rules |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | Run a long-reasoning, long-answer request 20 times and verify that non-empty `content` and `reasoning_content` never coexist in one `delta` | Independent SSE protocol check; not part of packet-quality rules |
+| 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | Send one multi-city parallel weather-tool request and verify unique `index` values within `delta.tool_calls` for every chunk and choice in the response | Independent SSE protocol check; not part of packet-quality rules |
+| 02_10 | `test_02_10_tool_call_identity_stable` | Send one multi-city parallel weather-tool request and inspect all raw deltas before merging: new indices in each choice first appear consecutively from zero; every call eventually has a non-empty ID; IDs stay stable and are not reused by another call (later fragments may omit the ID) | Independent SSE protocol check; not part of packet-quality rules |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
 | 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
 | 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |

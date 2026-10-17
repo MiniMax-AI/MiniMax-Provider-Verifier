@@ -5,6 +5,8 @@
 ## 测试范围
 
 - `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk，以及连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`。
+- `02_09`、`02_10` 各执行一次多城市天气并行工具调用请求，检查完整响应中的包内 index 唯一性和跨包调用身份稳定性；每个用例均要求同一 choice 实际产生至少两个工具调用。
+- 两项协议规则分别只由 `02_09`、`02_10` 断言；`oai_chat`、通用成功断言和工具参数提取不执行身份校验，避免同一协议问题使其他功能用例连带失败。
 - `TestContentStreamPacketLengthDistribution`：纯 content 场景默认执行 5 次，将 5 次的所有非空 `delta.content` 分包合并后统一判定。可通过 `M3_STREAM_CONTENT_RUNS` 调整次数。
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
@@ -49,6 +51,8 @@
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` 文本场景 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | 使用长推理和长回答请求连续执行 20 次，检查每个 `delta` 中非空 `content` 与 `reasoning_content` 不会同时出现 | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | 单次多城市天气并行工具调用，检查响应中每个 chunk、每个 choice 的 `delta.tool_calls` 内 `index` 不重复 | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_10 | `test_02_10_tool_call_identity_stable` | 单次多城市天气并行工具调用，在合并前检查全部原始 `delta.tool_calls`：每个 choice 的新 `index` 首次出现时从 0 连续递增；每个调用最终具有非空 `id`；同一调用的 `id` 稳定，且不被其他调用复用（后续分片允许省略 `id`） | 独立 SSE 协议校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |

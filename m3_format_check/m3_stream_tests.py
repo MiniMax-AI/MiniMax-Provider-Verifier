@@ -20,11 +20,13 @@ import pytest
 
 import helpers
 from helpers import (
+    WEATHER_TOOL_OAI,
     assert_oai_stream_success,
     assert_stream_usage_only_in_last_chunk,
     oai_chat,
     oai_simple_messages,
 )
+from stream_protocol import inspect_stream_tool_calls
 
 
 CONTENT_STRING_TOOL = {
@@ -903,6 +905,62 @@ class TestSSEStream:
         assert not offenders, (
             f"02_08 流式响应出现非法 finish_reason: finish_reason 无值时必须为 null,"
             f"不能是空字符串 \"\" 或非法值(合法集: {valid})。违规项: {offenders[:5]}"
+        )
+
+    def test_02_09_tool_call_index_unique_in_chunk(self):
+        """单次并行天气请求：同一 chunk、同一 choice 内的工具 index 不重复。"""
+        result = oai_chat({
+            "messages": oai_simple_messages(
+                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
+                "in parallel. Do not answer until all three tool calls are made."
+            ),
+            "tools": [WEATHER_TOOL_OAI],
+            "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+            "parallel_tool_calls": True,
+        }, stream=True)
+        assert_oai_stream_success(result)
+
+        calls_by_choice = {}
+        for chunk_index, chunk in enumerate(result["chunks"]):
+            for choice_position, choice in enumerate(chunk.get("choices") or []):
+                choice_index = choice.get("index", choice_position)
+                calls = (choice.get("delta") or {}).get("tool_calls") or []
+                indices = [call.get("index") for call in calls]
+                assert len(indices) == len(set(indices)), (
+                    f"02_09 chunk_index={chunk_index}, choice_index={choice_index}: "
+                    f"duplicate tool_call index; indices={indices}, "
+                    f"trace_id={result.get('trace_id')}"
+                )
+                calls_by_choice.setdefault(choice_index, set()).update(indices)
+        assert any(len(indices) >= 2 for indices in calls_by_choice.values()), (
+            "02_09 expected at least 2 tool calls in one choice; "
+            f"observed={calls_by_choice}, trace_id={result.get('trace_id')}"
+        )
+
+    def test_02_10_tool_call_identity_stable(self):
+        """单次并行天气请求：在合并前校验全部原始分片的工具调用身份。"""
+        result = oai_chat({
+            "messages": oai_simple_messages(
+                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
+                "in parallel. Do not answer until all three tool calls are made."
+            ),
+            "tools": [WEATHER_TOOL_OAI],
+            "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+            "parallel_tool_calls": True,
+        }, stream=True)
+        assert_oai_stream_success(result)
+        # 身份校验仅在本 case 执行；后续分片允许省略 ID，不合并原始参数。
+        tracker = inspect_stream_tool_calls(
+            result["chunks"], response_id=result.get("trace_id"),
+        )
+        assert not tracker.errors, (
+            "02_10 stream tool_call identity violation: "
+            f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
+        )
+        calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
+        assert any(count >= 2 for count in calls_by_choice.values()), (
+            "02_10 expected at least 2 tool calls in one choice; "
+            f"observed={dict(calls_by_choice)}, trace_id={result.get('trace_id')}"
         )
 
 
