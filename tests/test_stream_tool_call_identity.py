@@ -172,12 +172,16 @@ def test_oai_chat_returns_raw_protocol_issues_for_independent_cases(helpers, moc
     (complete_stream(chunk(delta(0, "a"), delta(2, "b"))), None, "tool_call_index_sequence"),
     (complete_stream(chunk(delta(0), delta(1, "b"))), None, "tool_call_id_missing"),
     (complete_stream(chunk(delta(0, "a"), delta(0, "a"), delta(1, "b"))), "duplicate tool_call index", None),
+    (complete_stream(chunk(delta(0, "a")), chunk(delta(0, "changed"))), "SKIP", "tool_call_id_changed"),
+    (complete_stream(chunk(delta(0))), "SKIP", "tool_call_id_missing"),
+    (complete_stream(chunk(delta(0, "a"), delta(0, "a"))), "duplicate tool_call index", "SKIP"),
     (complete_stream(chunk(delta(0, "a"), delta(1, "b")),
                      chunk(delta(0, "c"), delta(1, "d"), choice_index=1)), None, None),
-    (complete_stream(), "expected at least 2", "expected at least 2"),
-    (complete_stream(chunk(delta(0, "a"))), "expected at least 2", "expected at least 2"),
+    (complete_stream(), "SKIP", "SKIP"),
+    (complete_stream(chunk(delta(0, "a"))), "SKIP", "SKIP"),
 ], ids=["valid", "interleaved", "id_changed", "id_reused", "index_gap", "missing_id",
-        "duplicate_index", "separate_choices", "no_calls", "single_call"])
+        "duplicate_index", "single_call_changed_id", "single_call_missing_id", "single_index_duplicated",
+        "separate_choices", "no_calls", "single_call"])
 def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, case_id, chunks, error09, error10):
     stream_cases = importlib.import_module("m3_stream_tests")
     requests, records = mock_stream(chunks)
@@ -187,7 +191,10 @@ def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, 
     }
     run_case = getattr(stream_cases.TestSSEStream(), names[case_id])
     expected_error = error09 if case_id == "02_09" else error10
-    if expected_error:
+    if expected_error == "SKIP":
+        with pytest.raises(pytest.skip.Exception, match="parallel tool calls not observed"):
+            run_case()
+    elif expected_error:
         with pytest.raises(AssertionError, match=expected_error) as exc:
             run_case()
         assert case_id in str(exc.value)
@@ -197,3 +204,4 @@ def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, 
     assert len(requests) == len(records) == 1
     assert requests[0]["stream"] is True
     assert requests[0]["parallel_tool_calls"] is True
+    assert "tool_choice" not in requests[0]

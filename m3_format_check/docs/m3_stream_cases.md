@@ -5,7 +5,7 @@
 ## 测试范围
 
 - `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk，以及连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`。
-- `02_09`、`02_10` 各执行一次多城市天气并行工具调用请求，检查完整响应中的包内 index 唯一性和跨包调用身份稳定性；每个用例均要求同一 choice 实际产生至少两个工具调用。
+- `02_09`、`02_10` 各执行一次多城市天气并行工具调用请求，检查完整响应中的包内 index 唯一性和跨包调用身份稳定性。省略 `tool_choice`，避免强制指定函数限制部分渠道的并行输出；检查实际返回的分片后，若同一 choice 未产生至少两个调用，则记为 `SKIP`（并行场景未覆盖），不判为协议失败。
 - 两项协议规则分别只由 `02_09`、`02_10` 断言；`oai_chat`、通用成功断言和工具参数提取不执行身份校验，避免同一协议问题使其他功能用例连带失败。
 - `TestContentStreamPacketLengthDistribution`：纯 content 场景默认执行 5 次，将 5 次的所有非空 `delta.content` 分包合并后统一判定。可通过 `M3_STREAM_CONTENT_RUNS` 调整次数。
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。

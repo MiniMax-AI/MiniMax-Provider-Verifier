@@ -5,7 +5,7 @@
 ## Scope
 
 - `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests.
-- `02_09` and `02_10` each send one multi-city parallel weather-tool request and inspect the complete response for within-chunk index uniqueness and cross-chunk call identity stability. Each case requires at least two actual tool calls in the same choice.
+- `02_09` and `02_10` each send one multi-city parallel weather-tool request and inspect the complete response for within-chunk index uniqueness and cross-chunk call identity stability. Omit `tool_choice` because forcing a function can restrict parallel output on some providers. After checking the observed fragments, report `SKIP` (parallel scenario not covered) if no choice contains at least two calls, rather than reporting a protocol failure.
 - These protocol rules are asserted only by `02_09` and `02_10`, respectively. `oai_chat`, generic success assertions, and tool-argument extraction do not validate call identities, so one protocol defect does not cause unrelated functional cases to fail.
 - `TestContentStreamPacketLengthDistribution`: each pure-content scenario runs five times by default. All non-empty `delta.content` fragments from the five runs are merged and evaluated once. Override the run count with `M3_STREAM_CONTENT_RUNS`.
 - `TestToolCallStreamPacketLengthDistribution`: each tool-call scenario runs once and uses its own thresholds for non-empty `delta.tool_calls[].function.arguments` fragments. The parallel-tool scenario evaluates both the combined distribution and every observed `tool_call.index` distribution.
