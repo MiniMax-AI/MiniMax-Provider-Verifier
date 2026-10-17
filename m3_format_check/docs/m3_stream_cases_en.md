@@ -1,6 +1,7 @@
 # M3 Streaming Packet-Quality Tests
 
 > Corresponding file: `m3_format_check/m3_stream_tests.py`
+> Cases `02_09` and `02_10` also apply to `m3_format_check/m3_a_stream_test.py`.
 
 ## Scope
 

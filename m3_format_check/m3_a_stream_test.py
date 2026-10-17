@@ -25,6 +25,7 @@ from helpers import (
     oai_chat,
     oai_simple_messages,
 )
+from stream_protocol import inspect_stream_tool_calls
 
 
 CONTENT_STRING_TOOL = {
@@ -295,6 +296,69 @@ TOOL_CALL_SCENARIO_PARAMS = tuple(
 CONTENT_SCENARIO_RUNS = int(os.environ.get("M3_STREAM_CONTENT_RUNS", "5"))
 if CONTENT_SCENARIO_RUNS < 1:
     raise ValueError("M3_STREAM_CONTENT_RUNS must be at least 1")
+
+
+def _bash_glob_stream_result(case_id: str):
+    """Send one parallel bash/glob request and retain its response context."""
+    result = oai_chat({
+        "messages": oai_simple_messages(
+            "请调用 bash 检查仓库，command 为 pwd && git status --short --branch && "
+            "git branch --show-current && git log -5 --oneline，timeout 为 120，"
+            "run_in_background 为 false。同时调用 glob，在 /app 下查找 **/AGENTS.md，"
+            "include_ignored 为 false，limit 为 200，offset 为 0，sort 为 none。"
+            "请直接发出工具调用。"
+        ),
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "bash",
+                    "description": "Execute a shell command.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string"},
+                            "timeout": {"type": "number"},
+                            "run_in_background": {"type": "boolean"},
+                        },
+                        "required": ["command"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "glob",
+                    "description": "Search files by glob pattern.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {"type": "string"},
+                            "path": {"type": "string"},
+                            "include_ignored": {"type": "boolean"},
+                            "limit": {"type": "number"},
+                            "offset": {"type": "number"},
+                            "sort": {"type": "string", "enum": ["none", "modified"]},
+                        },
+                        "required": ["pattern"],
+                    },
+                },
+            },
+        ],
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+        "max_tokens": 64000,
+        "reasoning_split": True,
+    }, stream=True)
+    response_id = next(
+        (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
+    )
+    context = f"{case_id} response_id={response_id}, trace_id={result.get('trace_id')}"
+    try:
+        assert_oai_stream_success(result)
+    except AssertionError as exc:
+        raise AssertionError(f"{context}: {exc}") from exc
+    return result, context
 
 
 _FALLBACK_STATS_PATH = (
@@ -880,6 +944,37 @@ class TestSSEStream:
             f"02_08 流式响应出现非法 finish_reason: finish_reason 无值时必须为 null,"
             f"不能是空字符串 \"\" 或非法值(合法集: {valid})。违规项: {offenders[:5]}"
         )
+
+    def test_02_09_tool_call_index_unique_in_chunk(self):
+        """Check unique tool-call indices per chunk and choice in one bash/glob response."""
+        result, context = _bash_glob_stream_result("02_09")
+        calls_by_choice = {}
+        for chunk_index, chunk in enumerate(result["chunks"]):
+            for choice_position, choice in enumerate(chunk.get("choices") or []):
+                choice_index = choice.get("index", choice_position)
+                calls = (choice.get("delta") or {}).get("tool_calls") or []
+                indices = [call.get("index") for call in calls]
+                assert len(indices) == len(set(indices)), (
+                    f"{context}, chunk_index={chunk_index}, choice_index={choice_index}: "
+                    f"duplicate tool_call index; indices={indices}, "
+                    f"tool_calls={json.dumps(calls, ensure_ascii=False)}"
+                )
+                calls_by_choice.setdefault(choice_index, set()).update(indices)
+        if not any(len(indices) >= 2 for indices in calls_by_choice.values()):
+            pytest.skip(f"{context}: parallel tool calls not observed")
+
+    def test_02_10_tool_call_identity_stable(self):
+        """Check tool-call identities before merging one bash/glob response."""
+        result, context = _bash_glob_stream_result("02_10")
+        # Validate the raw deltas before checking parallel coverage.
+        tracker = inspect_stream_tool_calls(result["chunks"])
+        assert not tracker.errors, (
+            f"{context}: stream tool_call identity violation: "
+            f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
+        )
+        calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
+        if not any(count >= 2 for count in calls_by_choice.values()):
+            pytest.skip(f"{context}: parallel tool calls not observed")
 
 
 class TestContentStreamPacketLengthDistribution:
