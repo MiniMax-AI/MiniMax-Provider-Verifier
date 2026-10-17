@@ -95,16 +95,17 @@ def mock_stream(helpers, monkeypatch):
     """使用内存 HTTP 传输运行真实 oai_chat，不请求外部服务。"""
     client_class = httpx.Client
 
-    def install(chunks, status=200):
+    def install(chunks=None, status=200, *, responses=None):
         requests, records = [], []
 
         def handle_request(request):
             requests.append(json.loads(request.content))
             if status != 200:
                 return httpx.Response(status, json={"error": "invalid request"})
+            current_chunks = responses[len(requests) - 1] if responses is not None else chunks
             lines = [
                 "data: [DONE]" if item.get("_done") else f"data: {json.dumps(item)}"
-                for item in chunks
+                for item in current_chunks
             ]
             return httpx.Response(
                 200, headers={"Content-Type": "text/event-stream", "trace-id": "trace-isolated"},
@@ -182,7 +183,8 @@ def test_oai_chat_returns_raw_protocol_issues_for_independent_cases(helpers, moc
 ], ids=["valid", "interleaved", "id_changed", "id_reused", "index_gap", "missing_id",
         "duplicate_index", "single_call_changed_id", "single_call_missing_id", "single_index_duplicated",
         "separate_choices", "no_calls", "single_call"])
-def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, case_id, chunks, error09, error10):
+def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, monkeypatch, case_id, chunks, error09, error10):
+    monkeypatch.setenv("M3_STREAM_TOOL_PROTOCOL_RUNS", "1")
     stream_cases = importlib.import_module("m3_stream_tests")
     requests, records = mock_stream(chunks)
     names = {
@@ -205,3 +207,75 @@ def test_stream_protocol_cases_report_their_own_rule_once(helpers, mock_stream, 
     assert requests[0]["stream"] is True
     assert requests[0]["parallel_tool_calls"] is True
     assert "tool_choice" not in requests[0]
+    assert requests[0]["max_tokens"] == 4096
+
+
+CASE_NAMES = (
+    "test_02_09_tool_call_index_unique_in_chunk",
+    "test_02_10_tool_call_identity_stable",
+)
+
+
+@pytest.mark.parametrize("case_name", CASE_NAMES)
+def test_protocol_cases_default_to_twenty_independent_requests(helpers, mock_stream, monkeypatch, capsys, case_name):
+    monkeypatch.delenv("M3_STREAM_TOOL_PROTOCOL_RUNS", raising=False)
+    stream_cases = importlib.import_module("m3_stream_tests")
+    requests, records = mock_stream(valid_stream())
+    getattr(stream_cases.TestSSEStream(), case_name)()
+    # 同一组合法 ID 可在不同响应中重复，不能被当作跨请求身份复用。
+    assert len(requests) == len(records) == 20
+    assert "parallel_samples=20/20" in capsys.readouterr().out
+    assert all(request["max_tokens"] == 4096 and "tool_choice" not in request for request in requests)
+
+
+@pytest.mark.parametrize("case_name", CASE_NAMES)
+def test_protocol_cases_continue_after_uncovered_samples(helpers, mock_stream, monkeypatch, capsys, case_name):
+    monkeypatch.setenv("M3_STREAM_TOOL_PROTOCOL_RUNS", "3")
+    stream_cases = importlib.import_module("m3_stream_tests")
+    requests, records = mock_stream(responses=[
+        complete_stream(chunk(delta(0, "single"))), valid_stream(), complete_stream(),
+    ])
+    getattr(stream_cases.TestSSEStream(), case_name)()
+    assert len(requests) == len(records) == 3
+    assert "parallel_samples=1/3" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("case_name", CASE_NAMES)
+def test_protocol_cases_skip_only_after_exhausting_uncovered_samples(helpers, mock_stream, monkeypatch, case_name):
+    monkeypatch.setenv("M3_STREAM_TOOL_PROTOCOL_RUNS", "3")
+    stream_cases = importlib.import_module("m3_stream_tests")
+    requests, records = mock_stream(complete_stream(chunk(delta(0, "single"))))
+    with pytest.raises(pytest.skip.Exception, match="parallel_samples=0/3"):
+        getattr(stream_cases.TestSSEStream(), case_name)()
+    assert len(requests) == len(records) == 3
+
+
+@pytest.mark.parametrize("case_name,bad_chunks,error_code", [
+    (CASE_NAMES[0], complete_stream(chunk(delta(0, "a"), delta(0, "a"))), "duplicate tool_call index"),
+    (CASE_NAMES[1], complete_stream(chunk(delta(0, "a")), chunk(delta(0, "changed"))), "tool_call_id_changed"),
+])
+@pytest.mark.parametrize("first_is_parallel", [False, True], ids=["uncovered_first", "valid_first"])
+def test_protocol_cases_stop_at_first_violation_without_hiding_it(
+    helpers, mock_stream, monkeypatch, case_name, bad_chunks, error_code, first_is_parallel,
+):
+    monkeypatch.setenv("M3_STREAM_TOOL_PROTOCOL_RUNS", "3")
+    stream_cases = importlib.import_module("m3_stream_tests")
+    first = valid_stream() if first_is_parallel else complete_stream(chunk(delta(0, "single")))
+    requests, records = mock_stream(responses=[first, bad_chunks, valid_stream()])
+    with pytest.raises(AssertionError, match=error_code) as exc:
+        getattr(stream_cases.TestSSEStream(), case_name)()
+    message = str(exc.value)
+    assert "run=2/3" in message and "response_id=chatcmpl-regression" in message
+    assert "trace-isolated" in message and "chunk_index" in message
+    assert len(requests) == len(records) == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "abc", "1.5", ""])
+@pytest.mark.parametrize("case_name", CASE_NAMES)
+def test_invalid_protocol_run_count_fails_before_sending_requests(helpers, mock_stream, monkeypatch, case_name, value):
+    monkeypatch.setenv("M3_STREAM_TOOL_PROTOCOL_RUNS", value)
+    stream_cases = importlib.import_module("m3_stream_tests")
+    requests, records = mock_stream(valid_stream())
+    with pytest.raises(ValueError, match="M3_STREAM_TOOL_PROTOCOL_RUNS must be a positive integer"):
+        getattr(stream_cases.TestSSEStream(), case_name)()
+    assert requests == records == []

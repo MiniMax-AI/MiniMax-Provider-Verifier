@@ -323,6 +323,44 @@ if CONTENT_SCENARIO_RUNS < 1:
     raise ValueError("M3_STREAM_CONTENT_RUNS must be at least 1")
 
 
+def _tool_protocol_run_count() -> int:
+    """只控制 02_09/02_10 的最大采样次数，快速验证可配置为 1。"""
+    value = os.environ.get("M3_STREAM_TOOL_PROTOCOL_RUNS", "20")
+    try:
+        run_count = int(value)
+    except ValueError as exc:
+        raise ValueError("M3_STREAM_TOOL_PROTOCOL_RUNS must be a positive integer") from exc
+    if run_count < 1:
+        raise ValueError("M3_STREAM_TOOL_PROTOCOL_RUNS must be a positive integer")
+    return run_count
+
+
+def _tool_protocol_results(case_id: str, run_count: int):
+    """逐次发请求，公共 helper 仅校验流成功，协议规则由各 case 独立断言。"""
+    for run_index in range(1, run_count + 1):
+        result = oai_chat({
+            "messages": oai_simple_messages(
+                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
+                "in parallel. Do not answer until all three tool calls are made."
+            ),
+            "tools": [WEATHER_TOOL_OAI],
+            "parallel_tool_calls": True,
+            "max_tokens": 4096,
+        }, stream=True)
+        response_id = next(
+            (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
+        )
+        context = (
+            f"{case_id} run={run_index}/{run_count}, "
+            f"response_id={response_id}, trace_id={result.get('trace_id')}"
+        )
+        try:
+            assert_oai_stream_success(result)
+        except AssertionError as exc:
+            raise AssertionError(f"{context}: {exc}") from exc
+        yield result, context
+
+
 _FALLBACK_STATS_PATH = (
     Path(__file__).parent
     / "logs"
@@ -908,60 +946,51 @@ class TestSSEStream:
         )
 
     def test_02_09_tool_call_index_unique_in_chunk(self):
-        """单次并行天气请求：同一 chunk、同一 choice 内的工具 index 不重复。"""
-        result = oai_chat({
-            "messages": oai_simple_messages(
-                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
-                "in parallel. Do not answer until all three tool calls are made."
-            ),
-            "tools": [WEATHER_TOOL_OAI],
-            "parallel_tool_calls": True,
-        }, stream=True)
-        assert_oai_stream_success(result)
-
-        calls_by_choice = {}
-        for chunk_index, chunk in enumerate(result["chunks"]):
-            for choice_position, choice in enumerate(chunk.get("choices") or []):
-                choice_index = choice.get("index", choice_position)
-                calls = (choice.get("delta") or {}).get("tool_calls") or []
-                indices = [call.get("index") for call in calls]
-                assert len(indices) == len(set(indices)), (
-                    f"02_09 chunk_index={chunk_index}, choice_index={choice_index}: "
-                    f"duplicate tool_call index; indices={indices}, "
-                    f"trace_id={result.get('trace_id')}"
-                )
-                calls_by_choice.setdefault(choice_index, set()).update(indices)
-        if not any(len(indices) >= 2 for indices in calls_by_choice.values()):
+        """默认最多 20 次：同一 chunk、同一 choice 内的工具 index 不重复。"""
+        run_count = _tool_protocol_run_count()
+        parallel_samples = 0
+        for result, context in _tool_protocol_results("02_09", run_count):
+            calls_by_choice = {}
+            for chunk_index, chunk in enumerate(result["chunks"]):
+                for choice_position, choice in enumerate(chunk.get("choices") or []):
+                    choice_index = choice.get("index", choice_position)
+                    calls = (choice.get("delta") or {}).get("tool_calls") or []
+                    indices = [call.get("index") for call in calls]
+                    assert len(indices) == len(set(indices)), (
+                        f"{context}, chunk_index={chunk_index}, choice_index={choice_index}: "
+                        f"duplicate tool_call index; indices={indices}, "
+                        f"tool_calls={json.dumps(calls, ensure_ascii=False)}"
+                    )
+                    calls_by_choice.setdefault(choice_index, set()).update(indices)
+            parallel_samples += int(any(len(indices) >= 2 for indices in calls_by_choice.values()))
+        summary = f"02_09 completed_runs={run_count}, parallel_samples={parallel_samples}/{run_count}"
+        if not parallel_samples:
             pytest.skip(
-                "02_09 parallel tool calls not observed; "
-                f"observed={calls_by_choice}, trace_id={result.get('trace_id')}"
+                f"{summary}: parallel tool calls not observed; "
+                f"last_response={context}"
             )
+        print(summary)
 
     def test_02_10_tool_call_identity_stable(self):
-        """单次并行天气请求：在合并前校验全部原始分片的工具调用身份。"""
-        result = oai_chat({
-            "messages": oai_simple_messages(
-                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
-                "in parallel. Do not answer until all three tool calls are made."
-            ),
-            "tools": [WEATHER_TOOL_OAI],
-            "parallel_tool_calls": True,
-        }, stream=True)
-        assert_oai_stream_success(result)
-        # 身份校验仅在本 case 执行；后续分片允许省略 ID，不合并原始参数。
-        tracker = inspect_stream_tool_calls(
-            result["chunks"], response_id=result.get("trace_id"),
-        )
-        assert not tracker.errors, (
-            "02_10 stream tool_call identity violation: "
-            f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
-        )
-        calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
-        if not any(count >= 2 for count in calls_by_choice.values()):
-            pytest.skip(
-                "02_10 parallel tool calls not observed; "
-                f"observed={dict(calls_by_choice)}, trace_id={result.get('trace_id')}"
+        """默认最多 20 次：在合并前校验每次响应的工具调用身份。"""
+        run_count = _tool_protocol_run_count()
+        parallel_samples = 0
+        for result, context in _tool_protocol_results("02_10", run_count):
+            # 每次请求重新跟踪身份；单调用响应同样先检查协议，再判断并行覆盖。
+            tracker = inspect_stream_tool_calls(result["chunks"])
+            assert not tracker.errors, (
+                f"{context}: stream tool_call identity violation: "
+                f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
             )
+            calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
+            parallel_samples += int(any(count >= 2 for count in calls_by_choice.values()))
+        summary = f"02_10 completed_runs={run_count}, parallel_samples={parallel_samples}/{run_count}"
+        if not parallel_samples:
+            pytest.skip(
+                f"{summary}: parallel tool calls not observed; "
+                f"last_response={context}"
+            )
+        print(summary)
 
 
 class TestContentStreamPacketLengthDistribution:
