@@ -1,10 +1,10 @@
-# M3 Streaming Protocol and Packet-Quality Tests
+# M3 Streaming Packet-Quality Tests
 
 > Corresponding file: `m3_format_check/m3_stream_tests.py`
 
 ## Scope
 
-- `TestSSEStream`: checks final-chunk usage (`02_06`), mutually exclusive non-empty content and reasoning_content (`02_07`, 20 requests), valid finish_reason values (`02_08`), and tool-call index uniqueness and identity stability (`02_09` and `02_10`, one request each).
+- `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests.
 - `02_09` and `02_10` each send one parallel `bash` + `glob` request: ask `bash` to inspect repository status and recent commits, and `glob` to find `**/AGENTS.md` under `/app`. Use `tool_choice="auto"`, `parallel_tool_calls=true`, `max_tokens=64000`, and `reasoning_split=true`, then inspect the complete response as raw deltas. Fail on a protocol violation with response/trace IDs and fragment positions; skip without retrying if parallel calls are not observed. The tests receive tool calls without executing shell commands or file searches.
 - These protocol rules are asserted only by `02_09` and `02_10`, respectively. `oai_chat`, generic success assertions, and tool-argument extraction do not validate call identities, so one protocol defect does not cause unrelated functional cases to fail.
 - `TestContentStreamPacketLengthDistribution`: each pure-content scenario runs five times by default. All non-empty `delta.content` fragments from the five runs are merged and evaluated once. Override the run count with `M3_STREAM_CONTENT_RUNS`.
@@ -51,7 +51,6 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 |:---:|:---|:---|:---|
 | 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | Text request with `stream_options.include_usage=true` | Independent SSE protocol check; not part of packet-quality rules |
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | Run a long-reasoning, long-answer request 20 times and verify that non-empty `content` and `reasoning_content` never coexist in one `delta` | Independent SSE protocol check; not part of packet-quality rules |
-| 02_08 | `test_02_08_finish_reason_never_empty_string` | Send one streaming request and check each choice: finish_reason may be missing or null; otherwise it must be a valid non-empty termination reason | Independent SSE protocol check; not part of packet-quality rules |
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | Send one parallel `bash` + `glob` request and verify unique `index` values within `delta.tool_calls` for every chunk and choice in the response | Independent SSE protocol check; not part of packet-quality rules |
 | 02_10 | `test_02_10_tool_call_identity_stable` | Send one parallel `bash` + `glob` request and inspect all raw deltas before merging: new indices in each choice first appear consecutively from zero; every call eventually has a non-empty ID; IDs stay stable and are not reused by another call (later fragments may omit the ID) | Independent SSE protocol check; not part of packet-quality rules |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
