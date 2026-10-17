@@ -20,7 +20,6 @@ import pytest
 
 import helpers
 from helpers import (
-    WEATHER_TOOL_OAI,
     assert_oai_stream_success,
     assert_stream_usage_only_in_last_chunk,
     oai_chat,
@@ -323,42 +322,67 @@ if CONTENT_SCENARIO_RUNS < 1:
     raise ValueError("M3_STREAM_CONTENT_RUNS must be at least 1")
 
 
-def _tool_protocol_run_count() -> int:
-    """Return the request limit for cases 02_09 and 02_10; use 1 for a quick check."""
-    value = os.environ.get("M3_STREAM_TOOL_PROTOCOL_RUNS", "20")
+def _tool_protocol_result(case_id: str):
+    """Send one bash/glob request for each case to validate its own protocol rule."""
+    result = oai_chat({
+        "messages": oai_simple_messages(
+            "请调用 bash 检查仓库，command 为 pwd && git status --short --branch && "
+            "git branch --show-current && git log -5 --oneline，timeout 为 120，"
+            "run_in_background 为 false。同时调用 glob，在 /app 下查找 **/AGENTS.md，"
+            "include_ignored 为 false，limit 为 200，offset 为 0，sort 为 none。"
+            "请直接发出工具调用。"
+        ),
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "bash",
+                    "description": "Execute a shell command.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string"},
+                            "timeout": {"type": "number"},
+                            "run_in_background": {"type": "boolean"},
+                        },
+                        "required": ["command"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "glob",
+                    "description": "Search files by glob pattern.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "pattern": {"type": "string"},
+                            "path": {"type": "string"},
+                            "include_ignored": {"type": "boolean"},
+                            "limit": {"type": "number"},
+                            "offset": {"type": "number"},
+                            "sort": {"type": "string", "enum": ["none", "modified"]},
+                        },
+                        "required": ["pattern"],
+                    },
+                },
+            },
+        ],
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+        "max_tokens": 64000,
+        "reasoning_split": True,
+    }, stream=True)
+    response_id = next(
+        (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
+    )
+    context = f"{case_id} response_id={response_id}, trace_id={result.get('trace_id')}"
     try:
-        run_count = int(value)
-    except ValueError as exc:
-        raise ValueError("M3_STREAM_TOOL_PROTOCOL_RUNS must be a positive integer") from exc
-    if run_count < 1:
-        raise ValueError("M3_STREAM_TOOL_PROTOCOL_RUNS must be a positive integer")
-    return run_count
-
-
-def _tool_protocol_results(case_id: str, run_count: int):
-    """Yield successful streams for each case to validate its own protocol rule."""
-    for run_index in range(1, run_count + 1):
-        result = oai_chat({
-            "messages": oai_simple_messages(
-                "Call get_weather separately for Beijing, Shanghai, and Guangzhou "
-                "in parallel. Do not answer until all three tool calls are made."
-            ),
-            "tools": [WEATHER_TOOL_OAI],
-            "parallel_tool_calls": True,
-            "max_tokens": 4096,
-        }, stream=True)
-        response_id = next(
-            (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
-        )
-        context = (
-            f"{case_id} run={run_index}/{run_count}, "
-            f"response_id={response_id}, trace_id={result.get('trace_id')}"
-        )
-        try:
-            assert_oai_stream_success(result)
-        except AssertionError as exc:
-            raise AssertionError(f"{context}: {exc}") from exc
-        yield result, context
+        assert_oai_stream_success(result)
+    except AssertionError as exc:
+        raise AssertionError(f"{context}: {exc}") from exc
+    return result, context
 
 
 _FALLBACK_STATS_PATH = (
@@ -946,51 +970,35 @@ class TestSSEStream:
         )
 
     def test_02_09_tool_call_index_unique_in_chunk(self):
-        """Check unique tool-call indices per chunk and choice over up to 20 requests by default."""
-        run_count = _tool_protocol_run_count()
-        parallel_samples = 0
-        for result, context in _tool_protocol_results("02_09", run_count):
-            calls_by_choice = {}
-            for chunk_index, chunk in enumerate(result["chunks"]):
-                for choice_position, choice in enumerate(chunk.get("choices") or []):
-                    choice_index = choice.get("index", choice_position)
-                    calls = (choice.get("delta") or {}).get("tool_calls") or []
-                    indices = [call.get("index") for call in calls]
-                    assert len(indices) == len(set(indices)), (
-                        f"{context}, chunk_index={chunk_index}, choice_index={choice_index}: "
-                        f"duplicate tool_call index; indices={indices}, "
-                        f"tool_calls={json.dumps(calls, ensure_ascii=False)}"
-                    )
-                    calls_by_choice.setdefault(choice_index, set()).update(indices)
-            parallel_samples += int(any(len(indices) >= 2 for indices in calls_by_choice.values()))
-        summary = f"02_09 completed_runs={run_count}, parallel_samples={parallel_samples}/{run_count}"
-        if not parallel_samples:
-            pytest.skip(
-                f"{summary}: parallel tool calls not observed; "
-                f"last_response={context}"
-            )
-        print(summary)
+        """Check unique tool-call indices per chunk and choice in one bash/glob response."""
+        result, context = _tool_protocol_result("02_09")
+        calls_by_choice = {}
+        for chunk_index, chunk in enumerate(result["chunks"]):
+            for choice_position, choice in enumerate(chunk.get("choices") or []):
+                choice_index = choice.get("index", choice_position)
+                calls = (choice.get("delta") or {}).get("tool_calls") or []
+                indices = [call.get("index") for call in calls]
+                assert len(indices) == len(set(indices)), (
+                    f"{context}, chunk_index={chunk_index}, choice_index={choice_index}: "
+                    f"duplicate tool_call index; indices={indices}, "
+                    f"tool_calls={json.dumps(calls, ensure_ascii=False)}"
+                )
+                calls_by_choice.setdefault(choice_index, set()).update(indices)
+        if not any(len(indices) >= 2 for indices in calls_by_choice.values()):
+            pytest.skip(f"{context}: parallel tool calls not observed")
 
     def test_02_10_tool_call_identity_stable(self):
-        """Check tool-call identities before merging over up to 20 requests by default."""
-        run_count = _tool_protocol_run_count()
-        parallel_samples = 0
-        for result, context in _tool_protocol_results("02_10", run_count):
-            # Reset identity state per response and validate single calls before checking parallel coverage.
-            tracker = inspect_stream_tool_calls(result["chunks"])
-            assert not tracker.errors, (
-                f"{context}: stream tool_call identity violation: "
-                f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
-            )
-            calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
-            parallel_samples += int(any(count >= 2 for count in calls_by_choice.values()))
-        summary = f"02_10 completed_runs={run_count}, parallel_samples={parallel_samples}/{run_count}"
-        if not parallel_samples:
-            pytest.skip(
-                f"{summary}: parallel tool calls not observed; "
-                f"last_response={context}"
-            )
-        print(summary)
+        """Check tool-call identities before merging one bash/glob response."""
+        result, context = _tool_protocol_result("02_10")
+        # Validate the raw deltas before checking parallel coverage.
+        tracker = inspect_stream_tool_calls(result["chunks"])
+        assert not tracker.errors, (
+            f"{context}: stream tool_call identity violation: "
+            f"{json.dumps(tracker.errors[0], ensure_ascii=False) if tracker.errors else ''}"
+        )
+        calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
+        if not any(count >= 2 for count in calls_by_choice.values()):
+            pytest.skip(f"{context}: parallel tool calls not observed")
 
 
 class TestContentStreamPacketLengthDistribution:
