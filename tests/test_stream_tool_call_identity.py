@@ -1,4 +1,4 @@
-"""Keep protocol validation in dedicated cases without gating shared request and parsing helpers."""
+"""Single-request bash/glob protocol checks and shared parsing regressions."""
 import importlib
 import json
 import sys
@@ -29,18 +29,18 @@ def complete_stream(*chunks):
     return [*chunks, chunk(finish_reason="tool_calls"), {"_done": True}]
 
 
-def valid_stream():
+def valid_bash_glob_stream():
     return [
-        chunk(delta(0, "call-a", '{"city":', "weather")),
-        chunk(delta(1, "call-b", '{"city":', "weather")),
-        chunk(delta(0, None, '"Beijing"}')),
-        chunk(delta(1, "call-b", '"Shanghai"}'), finish_reason="tool_calls"),
+        chunk(delta(0, "call-a", '{"command":', "bash")),
+        chunk(delta(1, "call-b", '{"pattern":', "glob")),
+        chunk(delta(0, None, '"pwd"}')),
+        chunk(delta(1, "call-b", '"**/AGENTS.md"}'), finish_reason="tool_calls"),
         {"choices": [], "usage": {"total_tokens": 10}}, {"_done": True},
     ]
 
 
 def test_interleaved_fragments_keep_stable_ids_and_sequential_new_indices():
-    tracker = inspect_stream_tool_calls(valid_stream())
+    tracker = inspect_stream_tool_calls(valid_bash_glob_stream())
     assert tracker.errors == []
     assert [c["first_id"] for c in tracker.id_history] == ["call-a", "call-b"]
 
@@ -92,20 +92,19 @@ def helpers(monkeypatch):
 
 @pytest.fixture
 def mock_stream(helpers, monkeypatch):
-    """Run oai_chat through an in-memory HTTP transport."""
+    """Serve a synthetic SSE response through oai_chat using in-memory HTTP."""
     client_class = httpx.Client
 
-    def install(chunks=None, status=200, *, responses=None):
+    def install(chunks, status=200):
         requests, records = [], []
 
         def handle_request(request):
             requests.append(json.loads(request.content))
             if status != 200:
                 return httpx.Response(status, json={"error": "invalid request"})
-            current_chunks = responses[len(requests) - 1] if responses is not None else chunks
             lines = [
                 "data: [DONE]" if item.get("_done") else f"data: {json.dumps(item)}"
-                for item in current_chunks
+                for item in chunks
             ]
             return httpx.Response(
                 200, headers={"Content-Type": "text/event-stream", "trace-id": "trace-isolated"},
@@ -120,33 +119,34 @@ def mock_stream(helpers, monkeypatch):
     return install
 
 
-def test_helpers_still_rebuild_valid_interleaved_calls(helpers):
-    calls = helpers.get_tool_calls({"stream": True, "chunks": valid_stream()})
+def test_helpers_rebuild_interleaved_bash_glob_calls(helpers):
+    calls = helpers.get_tool_calls({"stream": True, "chunks": valid_bash_glob_stream()})
     assert [c["id"] for c in calls] == ["call-a", "call-b"]
-    assert [c["arguments_obj"] for c in calls] == [{"city": "Beijing"}, {"city": "Shanghai"}]
+    assert [c["name"] for c in calls] == ["bash", "glob"]
+    assert [c["arguments_obj"] for c in calls] == [{"command": "pwd"}, {"pattern": "**/AGENTS.md"}]
 
 
 @pytest.mark.parametrize("entry", ["get_tool_calls", "assert_oai_stream_success"])
 def test_generic_helpers_do_not_gate_other_cases_on_identity(helpers, entry):
     chunks = complete_stream(
-        chunk(delta(0, "call-a", '{"city":', "weather")),
-        chunk(delta(0, "call-b", '"Beijing"}')),
+        chunk(delta(0, "call-a", '{"command":', "bash")),
+        chunk(delta(0, "call-b", '"pwd"}')),
     )
     result = getattr(helpers, entry)({"status": 200, "stream": True, "chunks": chunks})
     if entry == "get_tool_calls":
         assert result[0]["id"] == "call-b"
-        assert result[0]["arguments_obj"] == {"city": "Beijing"}
+        assert result[0]["arguments_obj"] == {"command": "pwd"}
 
 
 def test_tool_extraction_keeps_legacy_missing_index_fallback(helpers):
-    call = delta(0, "call-a", '{"city":"Beijing"}', "weather")
+    call = delta(0, "call-a", '{"command":"pwd"}', "bash")
     del call["index"]
     calls = helpers.get_tool_calls({"stream": True, "chunks": complete_stream(chunk(call))})
-    assert calls[0]["arguments_obj"] == {"city": "Beijing"}
+    assert calls[0]["arguments_obj"] == {"command": "pwd"}
 
 
 @pytest.mark.parametrize("status,chunks", [
-    (200, valid_stream()),
+    (200, valid_bash_glob_stream()),
     (200, complete_stream(chunk())),
     (200, complete_stream(chunk(delta(0, "a")), chunk(delta(0, "b")))),
     (200, complete_stream(chunk(delta(0, "a"), delta(1, "a")))),
@@ -155,7 +155,7 @@ def test_tool_extraction_keeps_legacy_missing_index_fallback(helpers):
 ])
 def test_oai_chat_returns_raw_protocol_issues_for_independent_cases(helpers, mock_stream, status, chunks):
     requests, records = mock_stream(chunks, status)
-    result = helpers.oai_chat({"messages": [{"role": "user", "content": "weather"}]}, stream=True)
+    result = helpers.oai_chat({"messages": [{"role": "user", "content": "Call bash and glob in parallel."}]}, stream=True)
     assert result["status"] == status
     assert result["chunks"] == chunks
     if status == 400:
@@ -166,7 +166,7 @@ def test_oai_chat_returns_raw_protocol_issues_for_independent_cases(helpers, moc
 
 @pytest.mark.parametrize("case_id", ["02_09", "02_10"])
 @pytest.mark.parametrize("chunks,error09,error10", [
-    (valid_stream(), None, None),
+    (valid_bash_glob_stream(), None, None),
     (complete_stream(chunk(delta(0, "a"), delta(1, "b")), chunk(delta(0), delta(1, "b"))), None, None),
     (complete_stream(chunk(delta(0, "a"), delta(1, "b")), chunk(delta(0, "changed"))), None, "tool_call_id_changed"),
     (complete_stream(chunk(delta(0, "a"), delta(1, "a"))), None, "tool_call_id_reused"),

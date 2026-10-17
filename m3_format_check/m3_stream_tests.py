@@ -322,8 +322,8 @@ if CONTENT_SCENARIO_RUNS < 1:
     raise ValueError("M3_STREAM_CONTENT_RUNS must be at least 1")
 
 
-def _tool_protocol_result(case_id: str):
-    """Send one bash/glob request for each case to validate its own protocol rule."""
+def _bash_glob_stream_result(case_id: str):
+    """Send one parallel bash/glob request and retain its response context."""
     result = oai_chat({
         "messages": oai_simple_messages(
             "请调用 bash 检查仓库，command 为 pwd && git status --short --branch && "
@@ -971,7 +971,7 @@ class TestSSEStream:
 
     def test_02_09_tool_call_index_unique_in_chunk(self):
         """Check unique tool-call indices per chunk and choice in one bash/glob response."""
-        result, context = _tool_protocol_result("02_09")
+        result, context = _bash_glob_stream_result("02_09")
         calls_by_choice = {}
         for chunk_index, chunk in enumerate(result["chunks"]):
             for choice_position, choice in enumerate(chunk.get("choices") or []):
@@ -989,7 +989,7 @@ class TestSSEStream:
 
     def test_02_10_tool_call_identity_stable(self):
         """Check tool-call identities before merging one bash/glob response."""
-        result, context = _tool_protocol_result("02_10")
+        result, context = _bash_glob_stream_result("02_10")
         # Validate the raw deltas before checking parallel coverage.
         tracker = inspect_stream_tool_calls(result["chunks"])
         assert not tracker.errors, (
