@@ -39,6 +39,12 @@ from image_tools import make_png_base64
 REASONING_EFFORT_ENUM = ("low", "medium", "high", "xhigh", "max")
 
 
+def _stream_usage_opts(stream: bool) -> dict:
+    """Streaming must explicitly opt in via `stream_options.include_usage=true` to get the usage chunk
+    (OpenAI convention; `include_usage` defaults to false). Same helper as m3_a_image_test.py."""
+    return {"stream_options": {"include_usage": True}} if stream else {}
+
+
 def _reasoning_tokens(r: dict) -> int:
     """usage.completion_tokens_details.reasoning_tokens (0 when absent).
 
@@ -79,6 +85,7 @@ class TestReasoningEffort:
         r = oai_chat({
             "messages": oai_simple_messages("What is 23 * 47? Think it through."),
             "reasoning_effort": effort,
+            **_stream_usage_opts(stream),
         }, stream=stream)
 
         if stream:
@@ -235,6 +242,7 @@ class TestReasoningEffort:
         r = oai_chat({
             "messages": oai_simple_messages("Compute 17 * 19 step by step."),
             "reasoning_effort": effort,
+            **_stream_usage_opts(True),
         }, stream=True)
         assert_oai_stream_success(r)
         assert_stream_complete(r, msg=f"reasoning_effort={effort} stream")
@@ -262,6 +270,7 @@ class TestReasoningEffort:
                 )},
             ]}],
             "reasoning_effort": effort,
+            **_stream_usage_opts(stream),
         }, stream=stream)
 
         context = f"image + reasoning_effort={effort}, stream={stream}"
