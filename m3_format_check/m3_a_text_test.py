@@ -1795,6 +1795,151 @@ class TestToolCallSchema:
                 f"todo_list[{idx}].title must be a str, got {type(it.get('title')).__name__}={it.get('title')!r}"
             )
 
+    # ------------- 14_10 / 14_11 api_fetch body field types -------------
+    # Verify a tool (`api_fetch`) whose `body` free-form object carries two
+    # fields whose JSON type is semantically significant and reported as a
+    # provider bug when coerced:
+    #   - `values`: a 2-D array (list of lists). Some provider tool-call parsers
+    #     flatten it to a 1-D array or stringify the inner rows.
+    #   - `flag`:   a JSON boolean (true/false). Some parsers emit the string
+    #     "true"/"false" instead of a real bool.
+    # The prompt mirrors the exact bug-report payload.
+
+    _API_FETCH_TOOL = {
+        "type": "function",
+        "function": {
+            "description": (
+                "Call an API endpoint by its full URL, routing to the appropriate "
+                "world state mutation.\n\nUse api_search first to discover the correct "
+                "URL and parameters for an endpoint."
+            ),
+            "name": "api_fetch",
+            "parameters": {
+                "properties": {
+                    "url": {"title": "Url", "type": "string"},
+                    "body": {
+                        "description": "Request body as a JSON object. Use {} when there is no request body.",
+                        "title": "Body",
+                        "type": "object",
+                    },
+                },
+                "required": ["url", "body"],
+                "title": "APIFetchArgsForModel",
+                "type": "object",
+            },
+        },
+    }
+
+    _API_FETCH_PROMPT = (
+        'fetch url=127.0.0.1:1000, 给body这个参数传入'
+        '{"range":"Current Competitive Dossier Analyst Allocation Entity Queue!M5:O5",'
+        '"values":[["Allocated","521","Emerging"]],"flag":true} '
+    )
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    @pytest.mark.timeout(300)
+    def test_14_10_body_values_is_2d_array(self, stream):
+        """`api_fetch` body.values must be a 2-D array (list of lists), not a
+        flattened 1-D array nor stringified rows.
+
+        The prompt asks the model to put {"values":[["Allocated","521","Emerging"]]}
+        into the free-form `body` object. The provider must preserve the nested
+        array structure.
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages(self._API_FETCH_PROMPT),
+            "tools": [self._API_FETCH_TOOL],
+            "tool_choice": "auto",
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "max_tokens": 32000,
+            "thinking": {"type": "adaptive"},
+        }, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+
+        calls = get_tool_calls(r)
+        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
+        c = calls[0]
+        assert c["name"] == "api_fetch", f"expected name='api_fetch', got {c['name']!r}"
+        args = c["arguments_obj"]
+        assert isinstance(args, dict), (
+            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
+        )
+
+        body = args.get("body")
+        assert isinstance(body, dict), (
+            f"'body' field must be a JSON object (dict), got {type(body).__name__}={body!r}. "
+            f"raw={c['arguments_raw']!r}"
+        )
+
+        values = body.get("values")
+        # Outer container must be a list ...
+        assert isinstance(values, list), (
+            f"'body.values' must be a 2-D array (list), got {type(values).__name__}={values!r}. "
+            f"raw={c['arguments_raw']!r}"
+        )
+        assert len(values) >= 1, (
+            f"'body.values' must contain at least one row, got {values!r}"
+        )
+        # ... and every element must itself be a list (the 2-D property).
+        for idx, row in enumerate(values):
+            assert isinstance(row, list), (
+                f"'body.values[{idx}]' must be a list (2-D array row), got "
+                f"{type(row).__name__}={row!r}. body.values must not be flattened "
+                f"or stringified. raw={c['arguments_raw']!r}"
+            )
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    @pytest.mark.timeout(300)
+    def test_14_11_body_flag_is_bool(self, stream):
+        """`api_fetch` body.flag must be a JSON boolean (true/false), not the
+        string "true"/"false".
+
+        The prompt asks the model to put {"flag":true} into the free-form
+        `body` object. A strict isinstance(x, bool) check catches providers that
+        stringify the boolean.
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages(self._API_FETCH_PROMPT),
+            "tools": [self._API_FETCH_TOOL],
+            "tool_choice": "auto",
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "max_tokens": 32000,
+            "thinking": {"type": "adaptive"},
+        }, stream=stream)
+        if stream:
+            assert_oai_stream_success(r)
+        else:
+            assert_oai_success(r)
+
+        calls = get_tool_calls(r)
+        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
+        c = calls[0]
+        assert c["name"] == "api_fetch", f"expected name='api_fetch', got {c['name']!r}"
+        args = c["arguments_obj"]
+        assert isinstance(args, dict), (
+            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
+        )
+
+        body = args.get("body")
+        assert isinstance(body, dict), (
+            f"'body' field must be a JSON object (dict), got {type(body).__name__}={body!r}. "
+            f"raw={c['arguments_raw']!r}"
+        )
+
+        flag = body.get("flag")
+        # Strict bool check: the string "true"/"false" must NOT pass. In Python
+        # bool is a subclass of int, so isinstance(x, bool) is the exact gate.
+        assert isinstance(flag, bool), (
+            f"'body.flag' must be a JSON boolean (true/false), got "
+            f"{type(flag).__name__}={flag!r}. The provider must not stringify the "
+            f"boolean. raw={c['arguments_raw']!r}"
+        )
+
 
 # ============================================================
 # 15 tool_call_combo — tool call combined with other features
