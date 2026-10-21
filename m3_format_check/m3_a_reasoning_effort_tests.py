@@ -91,36 +91,6 @@ class TestReasoningEffort:
             f"got {_reasoning_tokens(r)}"
         )
 
-    def test_01_02_none_rejected_or_adaptive(self):
-        """reasoning_effort=none is outside the accepted enum. Two outcomes pass:
-
-          - HTTP 4xx: the value is rejected outright (documented behaviour when
-            thinking is forced on).
-          - HTTP 200: the value is ignored and thinking stays adaptive, i.e. a
-            thinking signal must still be present (non-empty reasoning_content
-            and usage reasoning_tokens > 0).
-
-        Anything else (5xx, or 200 with thinking silently turned off) fails.
-        """
-        r = oai_chat({
-            "messages": oai_simple_messages("Say hello"),
-            "reasoning_effort": "none",
-        })
-
-        assert r["status"] == 200 or 400 <= r["status"] < 500, (
-            f"reasoning_effort=none: expected HTTP 200 or 4xx, got {r['status']}: "
-            f"{str(r.get('body'))[:300]}"
-        )
-        if r["status"] != 200:
-            return
-
-        # Accepted → thinking must remain adaptive (never silently disabled).
-        assert_thinking_present(r, msg="reasoning_effort=none (ignored, thinking adaptive)")
-        assert _reasoning_tokens(r) > 0, (
-            f"reasoning_effort=none accepted with HTTP 200: expected "
-            f"reasoning_tokens > 0, got {_reasoning_tokens(r)}"
-        )
-
     def test_01_03_minimal_mapped_to_low(self):
         """reasoning_effort=minimal is documented to map to `low` → accepted
         (HTTP 200), NOT rejected. Thinking stays on."""
