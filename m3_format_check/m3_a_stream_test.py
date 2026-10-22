@@ -170,26 +170,24 @@ assert len(LONG_TOOL_PAYLOAD) == 10000
 
 @dataclass(frozen=True)
 class PacketQualityRule:
-    tiny_packet_max: float
-    normal_packet_min: float
-    large_packet_max: float
-    normal_char_min: float
-    large_char_max: float
+    """Packet-size gate applied to the non-empty target fragments.
+
+    Packets are bucketed as tiny (1-4 chars), normal (5-200 chars), and large
+    (>200 chars). Serving stacks legitimately differ in how they group tokens:
+    some emit one token per packet (many tiny packets), others coalesce tokens
+    into larger chunks. Both are acceptable as long as the stream is actually
+    incremental, so tiny packets are not limited. A large packet means the
+    target text was buffered and flushed in one piece instead of streamed.
+
+    A distribution passes when it has at least ``normal_packet_min_count``
+    normal packets and at most ``large_packet_max_count`` large packets.
+    """
+
+    normal_packet_min_count: int = 1
+    large_packet_max_count: int = 0
 
 
-PACKET_QUALITY_RULES = {
-    "content": PacketQualityRule(0.05, 0.95, 0.02, 0.90, 0.10),
-    "tool_content_string_500_chars": PacketQualityRule(
-        0.15, 0.85, 0.00, 0.95, 0.00
-    ),
-    "tool_json_filename_content_500_chars": PacketQualityRule(
-        0.10, 0.90, 0.00, 0.95, 0.00
-    ),
-    "tool_string_10k_chars": PacketQualityRule(0.05, 0.90, 0.10, 0.65, 0.35),
-    "tool_nested_object_2k": PacketQualityRule(0.20, 0.75, 0.10, 0.60, 0.40),
-    "parallel_5_tool_calls": PacketQualityRule(0.15, 0.85, 0.00, 0.95, 0.00),
-    "reasoning_then_tool_call": PacketQualityRule(0.10, 0.85, 0.05, 0.85, 0.15),
-}
+PACKET_QUALITY_RULE = PacketQualityRule()
 
 
 @dataclass(frozen=True)
@@ -218,7 +216,7 @@ CONTENT_STREAM_SCENARIOS = (
             "请以《一次难忘的合作》为题，写一篇约500字的中文作文。"
             "直接输出作文正文，不要解释写作过程，不要使用 Markdown 代码块。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["content"],
+        quality_rule=PACKET_QUALITY_RULE,
     ),
     StreamScenario(
         name="01_02_structured_json_1k",
@@ -227,7 +225,7 @@ CONTENT_STREAM_SCENARIOS = (
             "sections 必须包含 8 个对象，每个对象包含 heading 和不少于100字的 "
             "description；整个 JSON 文本不少于1000个字符。不要使用 Markdown 代码块。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["content"],
+        quality_rule=PACKET_QUALITY_RULE,
         payload_overrides={"response_format": {"type": "json_object"}},
     ),
 )
@@ -240,7 +238,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             "save_content 工具保存完整作文。content 必须是完整作文正文；不要传入其他"
             "参数，也不要只在普通回复中输出作文。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["tool_content_string_500_chars"],
+        quality_rule=PACKET_QUALITY_RULE,
         tools=(CONTENT_STRING_TOOL,),
         tool_choice={"type": "function", "function": {"name": "save_content"}},
     ),
@@ -250,7 +248,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             "调用 write_file，把一篇约500字的中文产品说明写入 stream_500.txt。"
             "filename 必须精确为 stream_500.txt，content 必须包含完整正文，不要省略。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["tool_json_filename_content_500_chars"],
+        quality_rule=PACKET_QUALITY_RULE,
         tools=(FILENAME_CONTENT_JSON_TOOL,),
         tool_choice={"type": "function", "function": {"name": "write_file"}},
     ),
@@ -262,7 +260,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             "使用省略号或占位符。path 必须精确为 stream_10k.txt。\n<PAYLOAD>"
             f"{LONG_TOOL_PAYLOAD}</PAYLOAD>"
         ),
-        quality_rule=PACKET_QUALITY_RULES["tool_string_10k_chars"],
+        quality_rule=PACKET_QUALITY_RULE,
         tools=(PATH_CONTENT_TOOL,),
         tool_choice={"type": "function", "function": {"name": "write_file"}},
         payload_overrides={"max_tokens": 16384},
@@ -275,7 +273,7 @@ TOOL_CALL_STREAM_SCENARIOS = (
             "完成推理后调用 write_file，把不少于500字的最终计划写入 reasoning_plan.txt。"
             "path 必须精确为 reasoning_plan.txt，不要只返回普通文本。"
         ),
-        quality_rule=PACKET_QUALITY_RULES["reasoning_then_tool_call"],
+        quality_rule=PACKET_QUALITY_RULE,
         tools=(PATH_CONTENT_TOOL,),
         payload_overrides={"max_tokens": 8192},
     ),
@@ -569,13 +567,10 @@ def _summarize_tool_arguments_by_index(
     }
 
 
-def _quality_rule_dict(rule: PacketQualityRule) -> dict[str, float]:
+def _quality_rule_dict(rule: PacketQualityRule) -> dict[str, int]:
     return {
-        "tiny_packet_max": rule.tiny_packet_max,
-        "normal_packet_min": rule.normal_packet_min,
-        "large_packet_max": rule.large_packet_max,
-        "normal_char_min": rule.normal_char_min,
-        "large_char_max": rule.large_char_max,
+        "normal_packet_min_count": rule.normal_packet_min_count,
+        "large_packet_max_count": rule.large_packet_max_count,
     }
 
 
@@ -592,43 +587,20 @@ def _evaluate_distribution(
         }
 
     buckets = quality["buckets"]
-    actuals = {
-        "tiny_packet_ratio": buckets["tiny_1_4"]["packet_ratio"],
-        "normal_packet_ratio": buckets["normal_5_200"]["packet_ratio"],
-        "large_packet_ratio": buckets["large_gt_200"]["packet_ratio"],
-        "normal_char_ratio": buckets["normal_5_200"]["char_ratio"],
-        "large_char_ratio": buckets["large_gt_200"]["char_ratio"],
-    }
+    normal_count = buckets["normal_5_200"]["packet_count"]
+    large_count = buckets["large_gt_200"]["packet_count"]
     checks = {
-        "tiny_packet_ratio": {
-            "actual": actuals["tiny_packet_ratio"],
-            "operator": "<=",
-            "threshold": rule.tiny_packet_max,
-            "passed": actuals["tiny_packet_ratio"] <= rule.tiny_packet_max,
-        },
-        "normal_packet_ratio": {
-            "actual": actuals["normal_packet_ratio"],
+        "normal_packet_count": {
+            "actual": normal_count,
             "operator": ">=",
-            "threshold": rule.normal_packet_min,
-            "passed": actuals["normal_packet_ratio"] >= rule.normal_packet_min,
+            "threshold": rule.normal_packet_min_count,
+            "passed": normal_count >= rule.normal_packet_min_count,
         },
-        "large_packet_ratio": {
-            "actual": actuals["large_packet_ratio"],
+        "large_packet_count": {
+            "actual": large_count,
             "operator": "<=",
-            "threshold": rule.large_packet_max,
-            "passed": actuals["large_packet_ratio"] <= rule.large_packet_max,
-        },
-        "normal_char_ratio": {
-            "actual": actuals["normal_char_ratio"],
-            "operator": ">=",
-            "threshold": rule.normal_char_min,
-            "passed": actuals["normal_char_ratio"] >= rule.normal_char_min,
-        },
-        "large_char_ratio": {
-            "actual": actuals["large_char_ratio"],
-            "operator": "<=",
-            "threshold": rule.large_char_max,
-            "passed": actuals["large_char_ratio"] <= rule.large_char_max,
+            "threshold": rule.large_packet_max_count,
+            "passed": large_count <= rule.large_packet_max_count,
         },
     }
     return {
@@ -636,6 +608,13 @@ def _evaluate_distribution(
         "reason": None,
         "rule": _quality_rule_dict(rule),
         "checks": checks,
+        # Ratios are informational only and do not affect the result.
+        "ratios": {
+            "tiny_packet_ratio": buckets["tiny_1_4"]["packet_ratio"],
+            "normal_packet_ratio": buckets["normal_5_200"]["packet_ratio"],
+            "large_packet_ratio": buckets["large_gt_200"]["packet_ratio"],
+            "max_packet_chars": distribution["max_chars"],
+        },
     }
 
 
