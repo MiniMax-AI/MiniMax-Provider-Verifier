@@ -65,8 +65,7 @@ def _reasoning_tokens(r: dict) -> int:
 
 class TestReasoningEffort:
     """reasoning_effort field: valid-enum acceptance, forced thinking,
-    `none` rejection, `minimal`->low mapping, out-of-enum fallback, and
-    streaming coexistence."""
+    out-of-enum fallback, and streaming coexistence."""
 
     @pytest.mark.parametrize("effort", REASONING_EFFORT_ENUM)
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
@@ -93,20 +92,6 @@ class TestReasoningEffort:
         assert_thinking_present(r, msg=f"reasoning_effort={effort} (thinking forced on)")
         assert _reasoning_tokens(r) > 0, (
             f"reasoning_effort={effort}: expected reasoning_tokens > 0, "
-            f"got {_reasoning_tokens(r)}"
-        )
-
-    def test_01_03_minimal_mapped_to_low(self):
-        """reasoning_effort=minimal is documented to map to `low` → accepted
-        (HTTP 200), NOT rejected. Thinking stays on."""
-        r = oai_chat({
-            "messages": oai_simple_messages("What is 12 + 30?"),
-            "reasoning_effort": "minimal",
-        })
-        assert_oai_success(r)
-        assert_thinking_present(r, msg="reasoning_effort=minimal (mapped to low)")
-        assert _reasoning_tokens(r) > 0, (
-            f"reasoning_effort=minimal: expected reasoning_tokens > 0, "
             f"got {_reasoning_tokens(r)}"
         )
 

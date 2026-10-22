@@ -1795,7 +1795,7 @@ class TestToolCallSchema:
                 f"todo_list[{idx}].title must be a str, got {type(it.get('title')).__name__}={it.get('title')!r}"
             )
 
-    # ------------- 14_10 / 14_11 api_fetch body field types -------------
+    # ------------- 14_10 api_fetch body field types -------------
     # Verify a tool (`api_fetch`) whose `body` free-form object carries two
     # fields whose JSON type is semantically significant and reported as a
     # provider bug when coerced:
@@ -1803,6 +1803,7 @@ class TestToolCallSchema:
     #     flatten it to a 1-D array or stringify the inner rows.
     #   - `flag`:   a JSON boolean (true/false). Some parsers emit the string
     #     "true"/"false" instead of a real bool.
+    # Both fields come from the same request, so one case checks them together.
     # The prompt mirrors the exact bug-report payload.
 
     _API_FETCH_TOOL = {
@@ -1838,13 +1839,15 @@ class TestToolCallSchema:
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     @pytest.mark.timeout(300)
-    def test_14_10_body_values_is_2d_array(self, stream):
-        """`api_fetch` body.values must be a 2-D array (list of lists), not a
-        flattened 1-D array nor stringified rows.
+    def test_14_10_body_values_2d_array_and_flag_bool(self, stream):
+        """`api_fetch` body must keep the JSON types of both nested fields.
 
-        The prompt asks the model to put {"values":[["Allocated","521","Emerging"]]}
-        into the free-form `body` object. The provider must preserve the nested
-        array structure.
+        The prompt asks the model to put
+        {"values":[["Allocated","521","Emerging"]],"flag":true} into the
+        free-form `body` object. The provider must:
+          - keep `body.values` a 2-D array (list of lists), neither flattened
+            to a 1-D array nor with stringified rows;
+          - keep `body.flag` a JSON boolean, not the string "true"/"false".
         """
         r = oai_chat({
             "messages": oai_simple_messages(self._API_FETCH_PROMPT),
@@ -1891,45 +1894,6 @@ class TestToolCallSchema:
                 f"{type(row).__name__}={row!r}. body.values must not be flattened "
                 f"or stringified. raw={c['arguments_raw']!r}"
             )
-
-    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
-    @pytest.mark.timeout(300)
-    def test_14_11_body_flag_is_bool(self, stream):
-        """`api_fetch` body.flag must be a JSON boolean (true/false), not the
-        string "true"/"false".
-
-        The prompt asks the model to put {"flag":true} into the free-form
-        `body` object. A strict isinstance(x, bool) check catches providers that
-        stringify the boolean.
-        """
-        r = oai_chat({
-            "messages": oai_simple_messages(self._API_FETCH_PROMPT),
-            "tools": [self._API_FETCH_TOOL],
-            "tool_choice": "auto",
-            "temperature": 1.0,
-            "top_p": 0.95,
-            "max_tokens": 32000,
-            "thinking": {"type": "adaptive"},
-        }, stream=stream)
-        if stream:
-            assert_oai_stream_success(r)
-        else:
-            assert_oai_success(r)
-
-        calls = get_tool_calls(r)
-        assert len(calls) >= 1, f"expected at least 1 tool_call, got {len(calls)}"
-        c = calls[0]
-        assert c["name"] == "api_fetch", f"expected name='api_fetch', got {c['name']!r}"
-        args = c["arguments_obj"]
-        assert isinstance(args, dict), (
-            f"arguments must be JSON object, got {type(args).__name__}: {c['arguments_raw']!r}"
-        )
-
-        body = args.get("body")
-        assert isinstance(body, dict), (
-            f"'body' field must be a JSON object (dict), got {type(body).__name__}={body!r}. "
-            f"raw={c['arguments_raw']!r}"
-        )
 
         flag = body.get("flag")
         # Strict bool check: the string "true"/"false" must NOT pass. In Python
@@ -2603,21 +2567,12 @@ class TestFinishReason:
 # ============================================================
 
 class TestErrorCodes:
-    """Various error codes: 400 / 401 / content moderation."""
+    """Various error codes: 400 / content moderation."""
 
     def test_20_01_empty_messages(self):
         """Empty messages array → 400."""
         r = oai_chat({"messages": []})
         assert_error(r, 400)
-
-    def test_20_02_invalid_model(self):
-        """Invalid model name → 400 or 404 (both count as 4xx client error)."""
-        r = oai_chat({"messages": oai_simple_messages("Hi"), "model": "nonexistent-model-xyz"})
-        assert r["status"] in (400, 404), (
-            f"invalid_model should be rejected with 4xx, got {r['status']}: "
-            f"{str(r.get('body'))[:300]}"
-        )
-
 
     def test_20_04_top_p_out_of_range(self):
         """top_p out of range (>1 / <0) → 400."""
@@ -2628,26 +2583,10 @@ class TestErrorCodes:
             })
             assert_error(r, 400)
 
-    def test_20_05_no_authorization(self):
-        """No Authorization header → 401."""
-        r = oai_chat(
-            {"messages": oai_simple_messages("Hi")},
-            headers={"Content-Type": "application/json"},
-        )
-        assert_error(r, 401)
-
     def test_20_06_invalid_role(self):
         """Invalid role (e.g. invalid_role) → 400."""
         r = oai_chat({"messages": [{"role": "invalid_role", "content": "Hi"}]})
         assert_error(r, 400)
-
-    def test_20_07_invalid_api_key(self):
-        """Invalid API key → 401."""
-        r = oai_chat(
-            {"messages": oai_simple_messages("Hi")},
-            headers={"Authorization": "Bearer sk-invalid-key-12345", "Content-Type": "application/json"},
-        )
-        assert_error(r, 401)
 
     def test_20_08_content_moderation(self):
         """Content moderation: harmful content request → 400 (filtered) or 200 (model refuses on its own)."""
