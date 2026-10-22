@@ -76,10 +76,15 @@ class TestReasoningEffort:
         Thinking is forced on regardless of the effort level, so a thinking
         signal must always be present.
         """
-        r = oai_chat({
+        payload = {
             "messages": oai_simple_messages("What is 23 * 47? Think it through."),
             "reasoning_effort": effort,
-        }, stream=stream)
+        }
+        if stream:
+            # Usage (and thus reasoning_tokens) is only emitted in the final
+            # SSE chunk when include_usage is requested.
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
 
         if stream:
             assert_oai_stream_success(r)
@@ -205,6 +210,7 @@ class TestReasoningEffort:
         r = oai_chat({
             "messages": oai_simple_messages("Compute 17 * 19 step by step."),
             "reasoning_effort": effort,
+            "stream_options": {"include_usage": True},
         }, stream=True)
         assert_oai_stream_success(r)
         assert_stream_complete(r, msg=f"reasoning_effort={effort} stream")
@@ -220,7 +226,7 @@ class TestReasoningEffort:
         """Image input accepts low/max effort with thinking and a final answer,
         in both non-streaming and complete streaming responses.
         """
-        r = oai_chat({
+        payload = {
             "messages": [{"role": "user", "content": [
                 {"type": "image_url", "image_url": {
                     "url": make_png_base64(672, 672, r=255, g=0, b=0),
@@ -232,7 +238,10 @@ class TestReasoningEffort:
                 )},
             ]}],
             "reasoning_effort": effort,
-        }, stream=stream)
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+        r = oai_chat(payload, stream=stream)
 
         context = f"image + reasoning_effort={effort}, stream={stream}"
         if stream:

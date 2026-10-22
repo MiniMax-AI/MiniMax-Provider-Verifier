@@ -729,6 +729,12 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
     if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
         payload["max_tokens"] = DEFAULT_MAX_TOKENS
     payload["stream"] = stream
+    # For every streaming request, request the terminal usage chunk so token
+    # accounting (prompt/completion/cached tokens) is always available and
+    # streamed requests are never under-billed. Cases that already set their own
+    # stream_options are left untouched.
+    if stream:
+        payload.setdefault("stream_options", {"include_usage": True})
 
     started = time.time()
     status = 0
