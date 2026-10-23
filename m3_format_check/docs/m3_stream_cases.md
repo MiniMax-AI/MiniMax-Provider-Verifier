@@ -1,7 +1,7 @@
 # M3 Stream 分包质量测试
 
 > 对应文件：`m3_format_check/m3_stream_tests.py`
-> `02_09`、`02_10` 同样适用于 `m3_format_check/m3_a_stream_test.py`。
+> `02_09`、`02_10` 同样适用于 `m3_format_check/m3_1_flash_stream_test.py`。
 
 ## 测试范围
 
