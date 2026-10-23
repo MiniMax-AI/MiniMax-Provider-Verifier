@@ -42,7 +42,7 @@ The primary metrics are:
 
 The evaluation results below are computed using our initial release of test prompts, each executed 10 times per provider, with all metrics reported as the mean over the 10-run distribution. As a baseline, `minimax` represents the performance of our [official MiniMax Open Platform](https://platform.minimax.io/ ) deployment, providing a reference point for interpreting other providers' results.
 
-### MiniMax-M3.1-Flash Model – September 2026 Data
+### MiniMax-M3.1-Flash Model
 
 | Metric | Query-Success-Rate | ToolCalls-Match-Rate | ToolCalls-Schema-Accuracy | Error-Only-Reasoning-Rate | Language-Following-Success-Rate | Scenario-Check-Pass-Rate |
 |--------|--------------------|-----------------------------|--------------------|--------------------------------------------|----------------------------------|--------------------------|
