@@ -2,7 +2,7 @@
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
-> Module count: **13**; case function count: **65**; pytest collected items: **110**
+> Module count: **13**; case function count: **64**; pytest collected items: **109**
 
 ## Module Overview
 
@@ -15,13 +15,13 @@
 | 05 | multiturn_multimodal | Multi-turn multimodal dialog (images interleaved) | 1 | 2 |
 | 06 | image_tool_combo | Image + tool_call combination | 3 | 4 |
 | 07 | image_thinking_combo | Image + thinking variant combinations | 4 | 4 |
-| 08 | image_stream_usage | Image + streaming usage chunk | 3 | 4 |
+| 08 | image_stream_usage | Image + streaming usage chunk | 2 | 3 |
 | 09 | image_param | Image-related params / Usage arithmetic / Error tolerance | 5 | 8 |
 | 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 17 | 34 |
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
-| | **Total** | | **65** | **110** |
+| | **Total** | | **64** | **109** |
 
 ---
 
@@ -89,7 +89,7 @@
 |:---:|:---|:---|:---|
 | 08_01 | `test_08_01_stream_include_usage` | Stream + stream_options.include_usage=true + image | HTTP 200 |
 | 08_02 | `test_08_02_multiturn_two_images[non_stream\|stream]` | Turn 1 red image + Turn 2 blue image follow-up | HTTP 200 |
-| 08_03 | `test_08_03_stream_usage_only_in_last_chunk` | Stream + stream_options.include_usage=true + image | usage non-empty with three positive token fields, present only in the final data chunk |
+| 08_03 | — | Removed (formerly `test_08_03_stream_usage_only_in_last_chunk`) | The SSE usage-placement rule now lives solely in `m3_stream_tests.py::TestSSEStream::test_02_11_image_stream_usage_only_in_last_chunk`; the ID stays retired |
 
 ## 09 image_param — Image params / Usage arithmetic / Error tolerance
 

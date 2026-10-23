@@ -141,14 +141,9 @@ class TestSSEStream:
         }, stream=True)
         assert_oai_stream_success(r)
 
-    def test_02_06_stream_usage_only_in_last_chunk(self):
-        """stream_options.include_usage=true: usage must be non-empty and only appear in the final stream chunk."""
-        r = oai_chat({
-            "messages": oai_simple_messages("Say hi"),
-            "stream_options": {"include_usage": True},
-        }, stream=True)
-        assert_oai_stream_success(r)
-        assert_stream_usage_only_in_last_chunk(r, msg="02_06 text include_usage")
+    # 02_06 (text include_usage / usage-only-in-last-chunk) moved to
+    # m3_1_flash_stream_test.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk
+    # to keep the SSE usage-placement rule in a single place.
 
     def test_02_07_stream_no_utf8_replacement_char_in_emoji(self):
         """流式 delta.content 不得出现 U+FFFD(�)替换字符。

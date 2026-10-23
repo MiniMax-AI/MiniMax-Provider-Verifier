@@ -24,6 +24,7 @@ from helpers import (
     assert_stream_usage_only_in_last_chunk,
     oai_chat,
     oai_simple_messages,
+    png_base64,
 )
 from stream_protocol import inspect_stream_tool_calls
 
@@ -999,6 +1000,28 @@ class TestSSEStream:
         calls_by_choice = Counter(call["choice_index"] for call in tracker.id_history)
         if not any(count >= 2 for count in calls_by_choice.values()):
             pytest.skip(f"{context}: parallel tool calls not observed")
+
+    def test_02_11_image_stream_usage_only_in_last_chunk(self):
+        """Same usage-placement rule as 02_06, exercised on the multimodal path.
+
+        Moved here from the image suite (former 08_03). Image requests build
+        usage through a separate vision path that reports
+        ``prompt_tokens_details.image_tokens``, so a provider can place usage
+        correctly for plain text yet leak it into intermediate deltas when an
+        image is attached. 02_06 and 02_11 therefore cover different code paths
+        under the same assertion.
+        """
+        result = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": png_base64()}},
+                {"type": "text", "text": "What color?"},
+            ]}],
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_oai_stream_success(result)
+        assert_stream_usage_only_in_last_chunk(
+            result, msg="02_11 image include_usage"
+        )
 
 
 class TestContentStreamPacketLengthDistribution:

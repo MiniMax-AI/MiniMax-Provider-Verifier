@@ -2,7 +2,7 @@
 
 > 对应文件:`data/m3_api_test/m3_image_tests.py`
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
-> 模块数:**13**;case 函数数:**65**;pytest 收集 items 数:**110**
+> 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**109**
 
 ## 模块总览
 
@@ -15,13 +15,13 @@
 | 05 | multiturn_multimodal | 多轮多模态对话(图穿插) | 1 | 2 |
 | 06 | image_tool_combo | 图 + tool_call 组合 | 3 | 4 |
 | 07 | image_thinking_combo | 图 + thinking 各形态组合 | 4 | 4 |
-| 08 | image_stream_usage | 图 + 流式 usage chunk | 3 | 4 |
+| 08 | image_stream_usage | 图 + 流式 usage chunk | 2 | 3 |
 | 09 | image_param | 图相关参数 / Usage 算术 / 异常容错 | 5 | 8 |
 | 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比 | 17 | 34 |
 | 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
-| | **合计** | | **65** | **110** |
+| | **合计** | | **64** | **109** |
 
 ---
 
@@ -89,7 +89,7 @@
 |:---:|:---|:---|:---|
 | 08_01 | `test_08_01_stream_include_usage` | 流式 + stream_options.include_usage=true + 图 | HTTP 200 |
 | 08_02 | `test_08_02_multiturn_two_images[non_stream\|stream]` | 第一轮红图 + 第二轮蓝图 follow-up | HTTP 200 |
-| 08_03 | `test_08_03_stream_usage_only_in_last_chunk` | 流式 + stream_options.include_usage=true + 图 | usage 非空且三字段 > 0,且只出现在流式最后一个 data chunk |
+| 08_03 | — | 已移出(原 `test_08_03_stream_usage_only_in_last_chunk`) | 同一条 SSE usage 位置规则统一收口到 `m3_stream_tests.py::TestSSEStream::test_02_11_image_stream_usage_only_in_last_chunk`;编号保留空位不回收 |
 
 ## 09 image_param — 图相关参数 / Usage 算术 / 异常容错
 

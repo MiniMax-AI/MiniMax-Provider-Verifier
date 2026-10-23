@@ -677,17 +677,9 @@ class TestImageStreamUsage:
         }, stream=stream)
         assert r["status"] == 200
 
-    def test_08_03_stream_usage_only_in_last_chunk(self):
-        """08_03 — image + stream_options.include_usage=true: usage must be non-empty and only appear in the final stream chunk."""
-        r = oai_chat({
-            "messages": [{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": png_base64()}},
-                {"type": "text", "text": "What color?"},
-            ]}],
-            "stream_options": {"include_usage": True},
-        }, stream=True)
-        assert_oai_stream_success(r)
-        assert_stream_usage_only_in_last_chunk(r, msg="08_03 image include_usage")
+    # 08_03 (image include_usage / usage-only-in-last-chunk) moved to
+    # m3_1_flash_stream_test.py::TestSSEStream::test_02_11_image_stream_usage_only_in_last_chunk
+    # to keep the SSE usage-placement rule in a single place.
 
 
 

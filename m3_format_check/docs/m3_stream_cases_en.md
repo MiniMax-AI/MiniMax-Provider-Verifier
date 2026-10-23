@@ -1,11 +1,11 @@
 # M3 Streaming Packet-Quality Tests
 
 > Corresponding file: `m3_format_check/m3_stream_tests.py`
-> Cases `02_09` and `02_10` also apply to `m3_format_check/m3_1_flash_stream_test.py`.
+> Cases `02_09`, `02_10`, and `02_11` also apply to `m3_format_check/m3_1_flash_stream_test.py`.
 
 ## Scope
 
-- `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true`, and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests.
+- `TestSSEStream`: verifies that usage appears only in the final chunk when `stream_options.include_usage=true` (`02_06` for plain text and `02_11` for an image request — same assertion, different usage-assembly paths), and that non-empty `content` and `reasoning_content` never coexist in a `delta` across 20 requests. The former `m3_text_tests.py::02_06` was an exact duplicate of `02_06` here and has been deleted; the former `m3_image_tests.py::08_03` moved here and was renumbered to `02_11` to follow this file's `02_xx` sequence.
 - `02_09` and `02_10` each send one parallel `bash` + `glob` request: ask `bash` to inspect repository status and recent commits, and `glob` to find `**/AGENTS.md` under `/app`. Use `tool_choice="auto"`, `parallel_tool_calls=true`, `max_tokens=64000`, and `reasoning_split=true`, then inspect the complete response as raw deltas. Fail on a protocol violation with response/trace IDs and fragment positions; skip without retrying if parallel calls are not observed. The tests receive tool calls without executing shell commands or file searches.
 - These protocol rules are asserted only by `02_09` and `02_10`, respectively. `oai_chat`, generic success assertions, and tool-argument extraction do not validate call identities, so one protocol defect does not cause unrelated functional cases to fail.
 - `TestContentStreamPacketLengthDistribution`: each pure-content scenario runs five times by default. All non-empty `delta.content` fragments from the five runs are merged and evaluated once. Override the run count with `M3_STREAM_CONTENT_RUNS`.
@@ -54,6 +54,7 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 | 02_07 | `test_02_07_content_and_reasoning_content_not_coexist_in_chunk` | Run a long-reasoning, long-answer request 20 times and verify that non-empty `content` and `reasoning_content` never coexist in one `delta` | Independent SSE protocol check; not part of packet-quality rules |
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | Send one parallel `bash` + `glob` request and verify unique `index` values within `delta.tool_calls` for every chunk and choice in the response | Independent SSE protocol check; not part of packet-quality rules |
 | 02_10 | `test_02_10_tool_call_identity_stable` | Send one parallel `bash` + `glob` request and inspect all raw deltas before merging: new indices in each choice first appear consecutively from zero; every call eventually has a non-empty ID; IDs stay stable and are not reused by another call (later fragments may omit the ID) | Independent SSE protocol check; not part of packet-quality rules |
+| 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | Multimodal request with `stream_options.include_usage=true` plus a 672×672 base64 image (migrated from the image suite's former `08_03`) | Independent SSE protocol check; not part of packet-quality rules |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
 | 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
 | 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |

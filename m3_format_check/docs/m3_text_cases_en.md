@@ -2,14 +2,14 @@
 
 > Corresponds to: `data/m3_api_test/m3_text_tests.py`
 > Naming convention: `test_<module_id>_<intra_module_seq>_<scene>`
-> Modules: **20**; Test functions: **108**; Pytest collected items: **140**
+> Modules: **20**; Test functions: **107**; Pytest collected items: **139**
 
 ## Module Overview
 
 | Module ID | Module Name | Theme | Functions |
 |:---:|:---|:---|:---:|
 | 01 | basic_text | Basic text conversation (non-stream) | 3 |
-| 02 | sse_stream | SSE streaming protocol fields | 7 |
+| 02 | sse_stream | SSE streaming protocol fields | 6 |
 | 03 | multiturn | Multi-turn conversation | 2 |
 | 04 | thinking | thinking toggle | 4 |
 | 05 | sampling | Sampling params (temperature / top_p / seed) | 3 |
@@ -48,7 +48,7 @@
 | 02_03 | `test_02_03_sse_done_marker` | SSE `[DONE]` end marker | xfail if missing (known BUG) |
 | 02_04 | `test_02_04_stream_chunk_fields` | Stream chunk required fields | id / choices / object all present |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` (text) | Stream should return usage chunk |
-| 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` (text) | usage non-empty with three positive token fields, present only in the final data chunk |
+| 02_06 | — | Removed (formerly `test_02_06_stream_usage_only_in_last_chunk`) | Exact duplicate of `m3_stream_tests.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk`; de-duplicated, the ID stays retired |
 | 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | Emoji-dense streaming request run 20 times | No `U+FFFD` (`�`) replacement char in any `delta.content`; guards against a 4-byte emoji being truncated mid-UTF-8-frame |
 
 ## 03 multiturn — Multi-turn conversation

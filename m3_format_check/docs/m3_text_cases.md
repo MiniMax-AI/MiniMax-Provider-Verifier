@@ -2,14 +2,14 @@
 
 > 对应文件:`data/m3_api_test/m3_text_tests.py`
 > 命名规范:`test_<模块编号>_<模块内顺序编号>_<场景说明>`
-> 模块数:**20**;case 函数数:**108**;pytest 收集 items 数:**140**
+> 模块数:**20**;case 函数数:**107**;pytest 收集 items 数:**139**
 
 ## 模块总览
 
 | 模块编号 | 模块名 | 主题 | 函数数 |
 |:---:|:---|:---|:---:|
 | 01 | basic_text | 基础文本对话(非流式) | 3 |
-| 02 | sse_stream | SSE 流式协议字段 | 7 |
+| 02 | sse_stream | SSE 流式协议字段 | 6 |
 | 03 | multiturn | 多轮对话 | 2 |
 | 04 | thinking | thinking 思考开关 | 4 |
 | 05 | sampling | 采样参数(temperature / top_p / seed) | 3 |
@@ -48,7 +48,7 @@
 | 02_03 | `test_02_03_sse_done_marker` | SSE 结束 `[DONE]` 标记 | 缺失则 xfail(已知 BUG) |
 | 02_04 | `test_02_04_stream_chunk_fields` | 流式 chunk 必带字段 | id / choices / object 全部存在 |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` 文本场景 | 流应正常返回 usage chunk |
-| 02_06 | `test_02_06_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` 文本场景 | usage 非空且三字段 > 0,且只出现在流式最后一个 data chunk |
+| 02_06 | — | 已移出(原 `test_02_06_stream_usage_only_in_last_chunk`) | 与 `m3_stream_tests.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk` 完全重复,已去重;编号保留空位不回收 |
 | 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | 高密度 emoji 流式请求连续执行 20 次 | 任意 `delta.content` 中都不出现 `U+FFFD`（`�`）替换字符;防止四字节 emoji 被 UTF-8 分帧从中间截断 |
 
 ## 03 multiturn — 多轮对话
