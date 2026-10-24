@@ -283,6 +283,7 @@ class ValidatorRunner:
             request_id = None
             created = None
             full_content = []
+            reasoning_parts = []
             tool_calls: dict[int, dict] = {}
             finish_reason = None
             usage = None
@@ -311,6 +312,14 @@ class ValidatorRunner:
                 if hasattr(choice, 'delta') and choice.delta:
                     if hasattr(choice.delta, 'content') and choice.delta.content:
                         full_content.append(choice.delta.content)
+
+                    # Same field order as _is_error_only_reasoning_response
+                    reasoning = (
+                        getattr(choice.delta, 'reasoning_content', None)
+                        or getattr(choice.delta, 'reasoning', None)
+                    )
+                    if reasoning:
+                        reasoning_parts.append(reasoning)
 
                     if hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
                         for tc in choice.delta.tool_calls:
@@ -343,6 +352,7 @@ class ValidatorRunner:
                         "message": {
                             "role": "assistant",
                             "content": "".join(full_content),
+                            "reasoning_content": "".join(reasoning_parts) or None,
                             "tool_calls": (
                                 list(tool_calls.values()) if tool_calls else None
                             ),
