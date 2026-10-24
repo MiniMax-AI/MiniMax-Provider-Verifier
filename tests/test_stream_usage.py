@@ -14,6 +14,7 @@ These tests build a spec-accurate fake stream out of the real openai SDK
 types and drive it through the actual ValidatorRunner._handle_stream_request.
 """
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -99,8 +100,9 @@ def test_stream_usage_captured_from_terminal_empty_choices_chunk():
     assert status == "success"
     assert response["choices"][0]["message"]["content"] == "Hello"
     assert response["choices"][0]["finish_reason"] == "stop"
-    assert response["usage"] is not None
-    assert response["usage"].model_dump() == real_usage.model_dump()
+    assert response["usage"] == real_usage.model_dump()
+    # validate_file writes each result with json.dumps
+    json.dumps(response)
 
 
 def test_stream_without_usage_chunk_yields_none_and_does_not_crash():
