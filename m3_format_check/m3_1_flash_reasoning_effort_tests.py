@@ -65,6 +65,10 @@ Requirement  | Case                                     | Checkpoints asserted
              | consistent (may skip)                    | → EITHER thinking-on OR
              |                                          | thinking-off contract,
              |                                          | never a mix
+             | test_01_08_thinking_adaptive_with_tools  | 200 + tool called, same
+             | (may skip; the branch that actually      | self-consistency check.
+             |  reaches "skipped")                      | Tools are what make the
+             |                                          | skip branch reachable.
 1.3 disabled | test_01_06_effort_with_thinking_disabled  | 200; no reasoning_
              |                                          | content; reasoning_
              |                                          | tokens present and == 0
@@ -86,6 +90,12 @@ Notes:
   - 01_01 sends no `thinking` field, so it runs under the default (adaptive)
     mode and proves acceptance only; 01_10 removes that confound by forcing
     thinking on.
+  - Under thinking.type=adaptive the model's decision is measured, not
+    dictated. On plain text prompts it was observed to think every time; with a
+    tool attached, reasoning collapses (~800 → ~30 tokens) and one deployment
+    skips it entirely on most tool-call turns while another never does. Hence
+    01_05 (hard prompt, must think), 01_07 (trivial prompt) and 01_08 (tools)
+    assert self-consistency rather than presence, and log the branch taken.
   - NOT covered: that reasoning_effort actually *changes* thinking depth. A
     provider dropping the field and always using its default depth passes the
     whole suite. Proving effect needs a differential comparison of the
@@ -213,6 +223,31 @@ def _assert_thinking_off(r: dict, context: str = ""):
     explicitly reported as 0."""
     assert_thinking_absent(r, msg=context)
     _assert_reasoning_tokens(r, expect_positive=False, context=context)
+
+
+def _assert_thinking_self_consistent(r: dict, context: str = ""):
+    """thinking.type=adaptive: the model decides, so assert CONSISTENCY rather
+    than presence or absence.
+
+      - it thought      → thinking-on contract  (reasoning_content + tokens > 0)
+      - it did not think → thinking-off contract (no signal + tokens == 0)
+
+    Asserting presence would be wrong (adaptive may legitimately skip) and
+    asserting absence would be wrong too (it may legitimately think). What must
+    never happen is a mix: reasoning text billed as 0 tokens, or a leftover
+    non-zero reasoning_tokens with no reasoning payload.
+
+    The branch taken is printed so a run records whether adaptive actually
+    skipped. Observed behaviour differs sharply per deployment and per request
+    shape (see test_01_08), and a silently never-taken branch would look like
+    coverage it is not.
+    """
+    thought = get_thinking_signals(r)["any"]
+    print(f"[adaptive] {context} → {'THOUGHT' if thought else 'SKIPPED'}")
+    if thought:
+        _assert_thinking_on(r, f"{context} → model chose to think")
+    else:
+        _assert_thinking_off(r, f"{context} → model chose not to think")
 
 
 def _assert_ok(r: dict, stream: bool):
@@ -403,14 +438,14 @@ class TestReasoningEffort:
         Covers the "skipped" half of requirement 1.2, which no case asserted
         before:
 
-          - thought     → reasoning_content non-empty AND reasoning_tokens > 0
+          - thought       → reasoning_content non-empty AND reasoning_tokens > 0
           - did not think → no thinking signal AND reasoning_tokens explicitly 0
 
-        Asserting presence here would be wrong (adaptive is allowed to skip) and
-        asserting absence would be wrong too (it is allowed to think), so the
-        contract under test is consistency between the reasoning payload and the
-        reported token count. A leftover non-zero reasoning_tokens with no
-        reasoning_content, or reasoning text billed as 0 tokens, fails.
+        Measured note: on plain text prompts the model was observed to think
+        every time (50/50 trials across two deployments, including on "Hi" and
+        on an explicit "Do not think"), so in practice this case exercises the
+        thought branch only. test_01_08 is the variant that actually reaches the
+        skipped branch.
         """
         context = f"thinking.adaptive (trivial prompt), stream={stream}"
         r = oai_chat({
@@ -419,10 +454,52 @@ class TestReasoningEffort:
         }, stream=stream)
 
         _assert_ok(r, stream)
-        if get_thinking_signals(r)["any"]:
-            _assert_thinking_on(r, f"{context} → model chose to think")
-        else:
-            _assert_thinking_off(r, f"{context} → model chose not to think")
+        _assert_thinking_self_consistent(r, context)
+
+    @STREAM_MODES
+    def test_01_08_thinking_adaptive_with_tools(self, stream):
+        """thinking.type=adaptive alongside a tool definition: the tool must be
+        called, and the thinking decision must stay self-consistent either way.
+
+        This is the case that actually reaches the "adaptive skipped thinking"
+        branch. Supplying tools collapses reasoning dramatically — on a plain
+        prompt the same model produced ~800 reasoning tokens, with a tool
+        attached it drops to ~30 — and one deployment skips thinking outright on
+        a large share of tool-call turns (observed 4/5 non-stream, 5/5 stream on
+        this exact payload), while another still thinks every time (0/50). So the
+        outcome is genuinely deployment- and shape-dependent and must not be
+        asserted in either direction.
+
+        What IS asserted: the tool still fires, and the reasoning payload agrees
+        with the reported reasoning_tokens. Skipping thinking must not come with
+        a stale non-zero count, and thinking must not be billed as 0. The skip
+        path is also where `reasoning_content` disappears as a KEY rather than
+        arriving empty, so callers must null-check — this case pins that the
+        token accounting stays correct through that path.
+
+        Payload mirrors test_15_05_system_thinking_tools_combo in the text suite
+        (system + tools + "Think step by step"), which is the shape where the
+        skip was first seen.
+        """
+        context = f"thinking.adaptive + tools, stream={stream}"
+        r = oai_chat({
+            "messages": [
+                {"role": "system", "content": "You are a weather expert."},
+                {"role": "user", "content": "What's the weather in Tokyo? Think step by step."},
+            ],
+            "tools": [WEATHER_TOOL_OAI],
+            "thinking": {"type": "adaptive"},
+        }, stream=stream)
+
+        _assert_ok(r, stream)
+        assert_tool_called(
+            r,
+            expected_name="get_weather",
+            expected_args_subset={"location": "Tokyo"},
+            schema=WEATHER_TOOL_OAI["function"]["parameters"],
+            msg=context,
+        )
+        _assert_thinking_self_consistent(r, context)
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     @STREAM_MODES
