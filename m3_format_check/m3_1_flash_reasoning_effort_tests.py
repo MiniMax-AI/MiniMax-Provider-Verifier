@@ -61,14 +61,12 @@ Requirement  | Case                                     | Checkpoints asserted
              | (hard prompt, must trigger)              | unsolvable without
              |                                          | multi-step reasoning →
              |                                          | thinking-on contract
-             | test_01_07_thinking_adaptive_self_       | 200 on a trivial prompt
-             | consistent (may skip)                    | → EITHER thinking-on OR
-             |                                          | thinking-off contract,
-             |                                          | never a mix
+             | test_01_07_thinking_adaptive_self_       | 200 + EITHER thinking-on
+             | consistent (suppressing zh system)       | OR thinking-off
+             |                                          | contract, never a mix
              | test_01_08_thinking_adaptive_with_tools  | 200 + tool called, same
-             | (may skip; the branch that actually      | self-consistency check.
-             |  reaches "skipped")                      | Tools are what make the
-             |                                          | skip branch reachable.
+             | (zh system + tools; most reliably        | self-consistency check
+             |  reaches the "skipped" branch)           |
 1.3 disabled | test_01_06_effort_with_thinking_disabled  | 200; no reasoning_
              |                                          | content; reasoning_
              |                                          | tokens present and == 0
@@ -91,11 +89,12 @@ Notes:
     mode and proves acceptance only; 01_10 removes that confound by forcing
     thinking on.
   - Under thinking.type=adaptive the model's decision is measured, not
-    dictated. On plain text prompts it was observed to think every time; with a
-    tool attached, reasoning collapses (~800 → ~30 tokens) and one deployment
-    skips it entirely on most tool-call turns while another never does. Hence
-    01_05 (hard prompt, must think), 01_07 (trivial prompt) and 01_08 (tools)
-    assert self-consistency rather than presence, and log the branch taken.
+    dictated. Reaching the "skipped" branch is prompt-specific: trivial English
+    prompts never skip, tools collapse reasoning ~20x but do not by themselves
+    cause a skip, and only a Chinese suppressing system prompt skips reliably
+    (its English equivalent does not). Hence 01_05 (hard prompt, must think),
+    01_07 and 01_08 assert self-consistency rather than presence, and log the
+    branch taken. See the constant block for the measured rates.
   - NOT covered: that reasoning_effort actually *changes* thinking depth. A
     provider dropping the field and always using its default depth passes the
     whole suite. Proving effect needs a differential comparison of the
@@ -139,10 +138,33 @@ ADAPTIVE_HARD_PROMPT = (
     "the prize?"
 )
 
-# Trivial lookup used for the "adaptive may skip" case: a single fact, nothing
-# to work out. Whether the model thinks here is its own call, so the case
-# asserts internal consistency in BOTH directions instead of presence/absence.
-ADAPTIVE_TRIVIAL_PROMPT = "What is the capital of France? Reply with the city name only."
+# Payloads for the two "adaptive may skip" cases. Reaching the skipped branch
+# turned out to be hard and highly prompt-specific. Measured skip rates over
+# 8 trials × {non_stream, stream} × two deployments:
+#
+#   prompt                                              lithosai   open-platform
+#   "What is the capital of France?..."                   0/16          0/16
+#   zh user "你好" alone (no system)                       0/16          0/16
+#   en system "Do not think, just greet" + "Hello"        0/16          0/16
+#   zh system "不要思考，只做简单问候" + "你好"                 7/16          2/16
+#   zh system "不要思考，直接调用工具" + "Tokyo weather"       11/16          7/15
+#
+# Two findings drive the choice below. First, the English instruction has no
+# effect while its Chinese counterpart does, so this is not the model obeying
+# "do not think" — the suppression is language-specific. Second, a plain trivial
+# prompt never skips: every earlier attempt (including "Hi", "2" and an explicit
+# "Do not think. Just output the word: done") thought 100% of the time.
+ADAPTIVE_SUPPRESSED_SYSTEM = "不要思考，只做简单问候"
+ADAPTIVE_SUPPRESSED_USER = "你好"
+
+# Tool variant. The system line asks for a direct tool call and the user turn
+# stays English so `location` comes back as "Tokyo" and can be asserted. This is
+# the most reliable skip trigger found and, unlike the
+# test_15_05_system_thinking_tools_combo payload, it still skips when
+# X-MM-Root-Role-Message is present (that header otherwise suppresses skipping
+# entirely — 0/12 with it vs 7/9 without).
+ADAPTIVE_TOOL_SUPPRESSED_SYSTEM = "不要思考，直接调用工具"
+ADAPTIVE_TOOL_SUPPRESSED_USER = "Tokyo weather"
 
 
 def _usage(r: dict) -> dict:
@@ -432,24 +454,30 @@ class TestReasoningEffort:
 
     @STREAM_MODES
     def test_01_07_thinking_adaptive_self_consistent(self, stream):
-        """thinking.type=adaptive on a trivial lookup: the model may or may not
-        think, and BOTH outcomes must be internally consistent.
-
-        Covers the "skipped" half of requirement 1.2, which no case asserted
-        before:
+        """thinking.type=adaptive with a system prompt that discourages
+        thinking: the model may or may not think, and BOTH outcomes must be
+        internally consistent.
 
           - thought       → reasoning_content non-empty AND reasoning_tokens > 0
           - did not think → no thinking signal AND reasoning_tokens explicitly 0
 
-        Measured note: on plain text prompts the model was observed to think
-        every time (50/50 trials across two deployments, including on "Hi" and
-        on an explicit "Do not think"), so in practice this case exercises the
-        thought branch only. test_01_08 is the variant that actually reaches the
-        skipped branch.
+        Covers the "skipped" half of requirement 1.2. Asserting presence would
+        be wrong (adaptive may legitimately skip) and asserting absence would be
+        wrong too (it may legitimately think), so what is pinned is agreement
+        between the reasoning payload and the reported token count.
+
+        Payload selection is measured, not guessed: a trivial lookup prompt
+        ("What is the capital of France?") never skipped in 16 trials, and
+        neither did the English instruction "Do not think, just give a simple
+        greeting". The Chinese system line does (7/16 and 2/16 on the two
+        deployments), which is why it is used here. See the constant block for
+        the full comparison.
         """
-        context = f"thinking.adaptive (trivial prompt), stream={stream}"
+        context = f"thinking.adaptive (suppressing system prompt), stream={stream}"
         r = oai_chat({
-            "messages": oai_simple_messages(ADAPTIVE_TRIVIAL_PROMPT),
+            "messages": oai_simple_messages(
+                ADAPTIVE_SUPPRESSED_USER, system_text=ADAPTIVE_SUPPRESSED_SYSTEM
+            ),
             "thinking": {"type": "adaptive"},
         }, stream=stream)
 
@@ -461,32 +489,34 @@ class TestReasoningEffort:
         """thinking.type=adaptive alongside a tool definition: the tool must be
         called, and the thinking decision must stay self-consistent either way.
 
-        This is the case that actually reaches the "adaptive skipped thinking"
-        branch. Supplying tools collapses reasoning dramatically — on a plain
-        prompt the same model produced ~800 reasoning tokens, with a tool
-        attached it drops to ~30 — and one deployment skips thinking outright on
-        a large share of tool-call turns (observed 4/5 non-stream, 5/5 stream on
-        this exact payload), while another still thinks every time (0/50). So the
-        outcome is genuinely deployment- and shape-dependent and must not be
-        asserted in either direction.
+        This is the case that most reliably reaches the "adaptive skipped
+        thinking" branch (11/16 and 7/15 measured across the two deployments)
+        while still firing the tool (16/16 and 15/15), so the skip is observed
+        on a real tool-call turn rather than on a degenerate response.
 
-        What IS asserted: the tool still fires, and the reasoning payload agrees
-        with the reported reasoning_tokens. Skipping thinking must not come with
-        a stale non-zero count, and thinking must not be billed as 0. The skip
-        path is also where `reasoning_content` disappears as a KEY rather than
-        arriving empty, so callers must null-check — this case pins that the
-        token accounting stays correct through that path.
+        Two measured facts shaped this payload:
 
-        Payload mirrors test_15_05_system_thinking_tools_combo in the text suite
-        (system + tools + "Think step by step"), which is the shape where the
-        skip was first seen.
+          - Tools collapse reasoning. On a bare "Tokyo weather" the model spends
+            ~800 reasoning tokens; with a tool attached it drops to ~30. Tools
+            alone are not enough to make it skip, though.
+          - The test_15_05_system_thinking_tools_combo shape (English system +
+            "Think step by step") skips 4/5 non-stream and 5/5 stream on one
+            deployment, but only when X-MM-Root-Role-Message is absent; with
+            that header it is 0/16. The payload below skips with the header
+            present, so it does not depend on run-level header configuration.
+
+        The user turn stays English so `location` comes back as "Tokyo" and can
+        be asserted; a Chinese city name makes the argument check ambiguous.
+
+        The skip path is also where `reasoning_content` disappears as a KEY
+        rather than arriving empty, so callers must null-check. This case pins
+        that the token accounting stays correct through that path.
         """
         context = f"thinking.adaptive + tools, stream={stream}"
         r = oai_chat({
-            "messages": [
-                {"role": "system", "content": "You are a weather expert."},
-                {"role": "user", "content": "What's the weather in Tokyo? Think step by step."},
-            ],
+            "messages": oai_simple_messages(
+                ADAPTIVE_TOOL_SUPPRESSED_USER, system_text=ADAPTIVE_TOOL_SUPPRESSED_SYSTEM
+            ),
             "tools": [WEATHER_TOOL_OAI],
             "thinking": {"type": "adaptive"},
         }, stream=stream)
