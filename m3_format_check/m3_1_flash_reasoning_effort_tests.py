@@ -1,20 +1,25 @@
 """
 M3 API Test — reasoning_effort (thinking-depth) case collection
 
-reasoning_effort controls thinking depth. Per the spec
-(/api-reference/text-chat-openai):
+This suite validates two capability groups for MiniMax-M3.1-Flash:
 
-  - reasoning_effort adjusts thinking depth. Models that do not support it
-    ignore the field entirely.
-  - Valid enum: low / medium / high / xhigh / max.
-  - When thinking is forced on, `none` is outside the accepted enum: the
-    request is either rejected with HTTP 4xx, or the value is ignored and
-    thinking stays adaptive.
+Group 1 — thinking.type must support ["enabled", "adaptive", "disabled"]
+          simultaneously, responding with reasoning content per the parameter:
+  1.1 enabled : forced thinking → return reasoning_content AND
+                reasoning_tokens > 0 (counted truthfully).
+  1.2 adaptive: model decides whether to think; when triggered → return
+                reasoning_content AND reasoning_tokens > 0.
+  1.3 disabled: forced off → NO reasoning_content AND reasoning_tokens == 0.
+
+Group 2 — reasoning_effort controls thinking depth:
+  2.1 accepted enum: low / medium / high / xhigh / max.
+
+Additional spec notes (/api-reference/text-chat-openai):
+  - Models that do not support reasoning_effort ignore the field entirely.
   - `minimal` is mapped to `low`.
   - Out-of-enum values are ignored; the model falls back to default depth.
-  - When thinking is forced on, thinking runs regardless of reasoning_effort,
-    and the thinking content is split into `reasoning_content`
-    (reasoning_split defaults to true for such a model).
+  - reasoning_split defaults to true for such a model, so thinking is returned
+    in the dedicated `reasoning_content` field (not an inline <think> tag).
 
 This is a standalone suite (deliberately separate from the general M3 case
 set). There is no in-file model gating: whatever M3_MODEL you provide is used
@@ -25,7 +30,32 @@ as-is, so point it at a model that supports reasoning_effort. Run with:
 
 Case naming convention: test_<module_id>_<index_within_module>_<scenario>
 Module id / topic:
-    01  reasoning_effort     reasoning_effort thinking-depth control
+    01  reasoning_effort     reasoning_effort + thinking-depth control
+
+============================================================================
+Case ↔ checkpoint mapping
+============================================================================
+Requirement | Case                                   | Checkpoints asserted
+------------+----------------------------------------+-------------------------
+1.1 enabled | test_01_02_thinking_enabled_forced     | 200; reasoning_content
+            |                                        | non-empty; reasoning_tokens>0
+1.2 adaptive| test_01_05_effort_with_thinking_adaptive| 200; thinking present;
+            |                                        | reasoning_tokens>0
+            | test_01_07_reasoning_content_split     | 200; IF thinking → split
+            |                                        | into reasoning_content &
+            |                                        | reasoning_tokens>0 (adaptive
+            |                                        | may skip → null-check)
+1.3 disabled| test_01_06_effort_with_thinking_disabled| 200 with no
+            |                                        | reasoning_content AND
+            |                                        | reasoning_tokens==0
+2.1 enum    | test_01_01_valid_effort_accepted       | each of low/medium/high/
+            | (low,medium,high,xhigh,max ×           | xhigh/max → 200; thinking
+            |  non_stream,stream)                    | present; reasoning_tokens>0
+------------+----------------------------------------+-------------------------
+Supplementary coverage (not a strict requirement):
+  - test_01_04_out_of_enum_ignored : out-of-enum value → ignored/default or 4xx
+  - test_01_08_effort_stream_thinking : effort under SSE streaming completes
+  - test_01_09_effort_with_image : image input + effort, stream & non-stream
 
 All cases go through helpers.oai_chat() against /v1/chat/completions; jsonl is
 written to RUN_LOG_PATH (injected by conftest).
@@ -66,6 +96,29 @@ def _reasoning_tokens(r: dict) -> int:
 class TestReasoningEffort:
     """reasoning_effort field: valid-enum acceptance, forced thinking,
     out-of-enum fallback, and streaming coexistence."""
+
+    def test_01_02_thinking_enabled_forced(self):
+        """thinking.type=enabled: thinking is FORCED on. The response must carry
+        reasoning_content (reasoning_split defaults to true) AND report
+        reasoning_tokens > 0, counted truthfully.
+
+        Covers requirement 1.1 (enabled → forced thinking, reasoning_content
+        present, reasoning_tokens > 0).
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages("What is 23 * 47? Think it through."),
+            "thinking": {"type": "enabled"},
+        })
+        assert_oai_success(r)
+        sig = get_thinking_signals(r)
+        assert sig["reasoning_content"].strip(), (
+            "thinking.type=enabled: expected non-empty reasoning_content "
+            "(reasoning_split defaults to true), got empty"
+        )
+        assert _reasoning_tokens(r) > 0, (
+            f"thinking.type=enabled: expected reasoning_tokens > 0, "
+            f"got {_reasoning_tokens(r)}"
+        )
 
     @pytest.mark.parametrize("effort", REASONING_EFFORT_ENUM)
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
@@ -117,9 +170,11 @@ class TestReasoningEffort:
             )
 
     def test_01_05_effort_with_thinking_adaptive(self):
-        """reasoning_effort combined with thinking.type=adaptive (the only
-        thinking value accepted when thinking is forced on) → HTTP 200 +
-        thinking present."""
+        """reasoning_effort combined with thinking.type=adaptive. adaptive lets
+        the model decide whether to think; paired with effort=high it is
+        expected to think here → HTTP 200 + thinking present +
+        reasoning_tokens > 0. (Requirement 1.2: adaptive, when triggered,
+        returns reasoning_content with reasoning_tokens > 0.)"""
         r = oai_chat({
             "messages": oai_simple_messages("Explain why the sky is blue, briefly."),
             "reasoning_effort": "high",
@@ -133,14 +188,12 @@ class TestReasoningEffort:
         )
 
     def test_01_06_effort_with_thinking_disabled(self):
-        """reasoning_effort=high + thinking.type=disabled. Two outcomes pass:
-
-          - HTTP 400: thinking is forced on, so `disabled` is rejected.
-          - HTTP 200: the request is accepted, in which case thinking must
-            actually be off — no <think> tag and no reasoning_content.
+        """reasoning_effort=high + thinking.type=disabled → HTTP 200 with
+        thinking genuinely off: no <think> tag, no reasoning_content, and
+        reasoning_tokens == 0.
 
         A 200 that still returns thinking means `disabled` was silently
-        swallowed, which fails.
+        swallowed, which fails. Covers requirement 1.3.
         """
         r = oai_chat({
             "messages": oai_simple_messages("Hi"),
@@ -148,12 +201,14 @@ class TestReasoningEffort:
             "thinking": {"type": "disabled"},
         })
 
-        if r["status"] == 400:
-            return
-
         assert_oai_success(r)
         # Accepted → thinking must be genuinely suppressed.
         assert_thinking_absent(r, msg="reasoning_effort=high + thinking.disabled")
+        # Requirement 1.3: disabled must also report reasoning_tokens == 0.
+        assert _reasoning_tokens(r) == 0, (
+            f"reasoning_effort=high + thinking.disabled: expected "
+            f"reasoning_tokens == 0, got {_reasoning_tokens(r)}"
+        )
 
     def test_01_07_reasoning_content_split(self):
         """reasoning_split defaults to true, so WHEN the model thinks, the
