@@ -61,12 +61,15 @@ Requirement  | Case                                     | Checkpoints asserted
              | (hard prompt, must trigger)              | unsolvable without
              |                                          | multi-step reasoning →
              |                                          | thinking-on contract
-             | test_01_07_thinking_adaptive_self_       | 200 + EITHER thinking-on
-             | consistent (suppressing zh system)       | OR thinking-off
-             |                                          | contract, never a mix
-             | test_01_08_thinking_adaptive_with_tools  | 200 + tool called, same
-             | (zh system + tools; most reliably        | self-consistency check
-             |  reaches the "skipped" branch)           |
+             | test_01_07_thinking_adaptive_branch_     | per trial: EITHER
+             | coverage (drives both branches, then     | thinking-on OR
+             |  FAILS if either went unobserved)        | thinking-off, never a
+             |                                          | mix; SKIPPED driver also
+             |                                          | asserts its tool fires;
+             |                                          | then both branches must
+             |                                          | have been exercised
+             | test_01_08_thinking_adaptive_suppressed_ | same per-trial check on
+             | no_tools                                 | the tool-free path
 1.3 disabled | test_01_06_effort_with_thinking_disabled  | 200; no reasoning_
              |                                          | content; reasoning_
              |                                          | tokens present and == 0
@@ -88,13 +91,10 @@ Notes:
   - 01_01 sends no `thinking` field, so it runs under the default (adaptive)
     mode and proves acceptance only; 01_10 removes that confound by forcing
     thinking on.
-  - Under thinking.type=adaptive the model's decision is measured, not
-    dictated. Reaching the "skipped" branch is prompt-specific: trivial English
-    prompts never skip, tools collapse reasoning ~20x but do not by themselves
-    cause a skip, and only a Chinese suppressing system prompt skips reliably
-    (its English equivalent does not). Hence 01_05 (hard prompt, must think),
-    01_07 and 01_08 assert self-consistency rather than presence, and log the
-    branch taken. See the constant block for the measured rates.
+  - Under thinking.type=adaptive the decision belongs to the model, so no
+    single request asserts a branch. 01_07 instead drives each branch with a
+    dedicated payload and FAILS if either branch went unobserved, because a
+    one-sided run is otherwise indistinguishable from a passing one.
   - NOT covered: that reasoning_effort actually *changes* thinking depth. A
     provider dropping the field and always using its default depth passes the
     whole suite. Proving effect needs a differential comparison of the
@@ -123,13 +123,28 @@ REASONING_EFFORT_ENUM = ("low", "medium", "high", "xhigh", "max")
 # genuinely turned off rather than simply never triggered.
 THINKING_TRIGGER_PROMPT = "What is 23 * 47? Think it through."
 
-# Multi-step constraint puzzle used for the "adaptive must trigger" case. It is
-# NOT solvable without enumerating the three candidates (the unique answer is
-# box C), and it deliberately carries no "think step by step" instruction, so
-# what is under test is the model's own decision to think rather than its
-# instruction-following. Any prompt containing a suppressor such as "briefly"
-# is unusable here: adaptive would legitimately skip thinking and the case
-# would fail for the wrong reason.
+# ---------------------------------------------------------------------------
+# adaptive branch drivers
+# ---------------------------------------------------------------------------
+# thinking.type=adaptive has two legal outcomes and both must be exercised, so
+# each one gets a payload shaped to land on it.
+#
+# What pushes the model off thinking is `tools` together with
+# `reasoning_effort=low` — either on its own leaves thinking on. A Chinese
+# system line asking for no reasoning stacks on top of that pair; the same
+# instruction in English does not, so the effect is language-specific rather
+# than the model obeying "do not think".
+#
+# The test_15_05_system_thinking_tools_combo shape (English system + "Think
+# step by step" + tools, no effort) is not used as a driver: its outcome flips
+# with the X-MM-Root-Role-Message header, which would tie branch coverage to
+# run-level header configuration instead of to the case.
+
+# THOUGHT driver: multi-step constraint puzzle, unsolvable without enumerating
+# the three candidates (the unique answer is box C). It carries no "think step
+# by step" instruction, so what is exercised is the model's own decision rather
+# than its instruction-following, and it supplies neither tools nor
+# effort=low so it stays clear of the suppressing pair.
 ADAPTIVE_HARD_PROMPT = (
     "Three boxes are labelled A, B and C, and exactly one of them holds a "
     "prize. Box A's label reads 'the prize is not in this box'. Box B's label "
@@ -138,33 +153,23 @@ ADAPTIVE_HARD_PROMPT = (
     "the prize?"
 )
 
-# Payloads for the two "adaptive may skip" cases. Reaching the skipped branch
-# turned out to be hard and highly prompt-specific. Measured skip rates over
-# 8 trials × {non_stream, stream} × two deployments:
-#
-#   prompt                                              lithosai   open-platform
-#   "What is the capital of France?..."                   0/16          0/16
-#   zh user "你好" alone (no system)                       0/16          0/16
-#   en system "Do not think, just greet" + "Hello"        0/16          0/16
-#   zh system "不要思考，只做简单问候" + "你好"                 7/16          2/16
-#   zh system "不要思考，直接调用工具" + "Tokyo weather"       11/16          7/15
-#
-# Two findings drive the choice below. First, the English instruction has no
-# effect while its Chinese counterpart does, so this is not the model obeying
-# "do not think" — the suppression is language-specific. Second, a plain trivial
-# prompt never skips: every earlier attempt (including "Hi", "2" and an explicit
-# "Do not think. Just output the word: done") thought 100% of the time.
-ADAPTIVE_SUPPRESSED_SYSTEM = "不要思考，只做简单问候"
-ADAPTIVE_SUPPRESSED_USER = "你好"
-
-# Tool variant. The system line asks for a direct tool call and the user turn
-# stays English so `location` comes back as "Tokyo" and can be asserted. This is
-# the most reliable skip trigger found and, unlike the
-# test_15_05_system_thinking_tools_combo payload, it still skips when
-# X-MM-Root-Role-Message is present (that header otherwise suppresses skipping
-# entirely — 0/12 with it vs 7/9 without).
+# SKIPPED driver: every suppressor stacked — zh system line + tools +
+# reasoning_effort=low. The user turn stays English so `location` comes back as
+# "Tokyo" and the tool argument stays assertable; a Chinese city name makes that
+# check ambiguous.
 ADAPTIVE_TOOL_SUPPRESSED_SYSTEM = "不要思考，直接调用工具"
 ADAPTIVE_TOOL_SUPPRESSED_USER = "Tokyo weather"
+
+# Tool-free variant. Without tools the suppressing pair is incomplete, so the
+# outcome here is genuinely mixed and this payload cannot drive coverage — that
+# job belongs to the two drivers above.
+ADAPTIVE_SUPPRESSED_SYSTEM = "不要思考，不要解释，直接回答"
+ADAPTIVE_SUPPRESSED_USER = "你好"
+
+# Trials per driver. More than one so a driver that only sometimes lands on its
+# branch still gets there, kept small because each trial is a live request.
+ADAPTIVE_THINK_TRIALS = 2
+ADAPTIVE_SKIP_TRIALS = 3
 
 
 def _usage(r: dict) -> dict:
@@ -247,9 +252,9 @@ def _assert_thinking_off(r: dict, context: str = ""):
     _assert_reasoning_tokens(r, expect_positive=False, context=context)
 
 
-def _assert_thinking_self_consistent(r: dict, context: str = ""):
+def _assert_thinking_self_consistent(r: dict, context: str = "") -> str:
     """thinking.type=adaptive: the model decides, so assert CONSISTENCY rather
-    than presence or absence.
+    than presence or absence. Returns the branch taken ("THOUGHT"/"SKIPPED").
 
       - it thought      → thinking-on contract  (reasoning_content + tokens > 0)
       - it did not think → thinking-off contract (no signal + tokens == 0)
@@ -259,17 +264,39 @@ def _assert_thinking_self_consistent(r: dict, context: str = ""):
     never happen is a mix: reasoning text billed as 0 tokens, or a leftover
     non-zero reasoning_tokens with no reasoning payload.
 
-    The branch taken is printed so a run records whether adaptive actually
-    skipped. Observed behaviour differs sharply per deployment and per request
-    shape (see test_01_08), and a silently never-taken branch would look like
-    coverage it is not.
+    The branch is returned so a caller can enforce that BOTH are exercised
+    (test_01_07), and printed so a run records what the model actually chose.
     """
-    thought = get_thinking_signals(r)["any"]
-    print(f"[adaptive] {context} → {'THOUGHT' if thought else 'SKIPPED'}")
-    if thought:
+    branch = "THOUGHT" if get_thinking_signals(r)["any"] else "SKIPPED"
+    print(f"[adaptive] {context} → {branch}")
+    if branch == "THOUGHT":
         _assert_thinking_on(r, f"{context} → model chose to think")
     else:
         _assert_thinking_off(r, f"{context} → model chose not to think")
+    return branch
+
+
+def _assert_both_branches_covered(observed: dict, context: str):
+    """Fail when either adaptive branch went unexercised.
+
+    `observed` maps driver label → list of branches seen. A one-sided run leaves
+    half the self-consistency contract unchecked, and a silently never-taken
+    branch is indistinguishable from a passing one, so this is a hard failure
+    rather than a warning.
+    """
+    seen = {b for branches in observed.values() for b in branches}
+    breakdown = "\n".join(
+        f"    {label:<28} {', '.join(branches)}" for label, branches in observed.items()
+    )
+    for branch in ("THOUGHT", "SKIPPED"):
+        assert branch in seen, (
+            f"{context}: adaptive branch {branch!r} was NEVER exercised, so its half of\n"
+            f"  the self-consistency contract went unchecked.\n"
+            f"  observed:\n{breakdown}\n"
+            f"  Each driver is shaped to land on one branch, so a miss means the model's\n"
+            f"  adaptive behaviour moved. Re-check the drivers in the constant block\n"
+            f"  before relaxing this."
+        )
 
 
 def _assert_ok(r: dict, stream: bool):
@@ -406,12 +433,12 @@ class TestReasoningEffort:
         reasoning_content with reasoning_tokens > 0.
 
         Covers the "triggered" half of requirement 1.2. Prompt choice matters:
-        the earlier wording ("Explain why the sky is blue, briefly.") was a
-        commonsense question with an explicit brevity suppressor, so adaptive
-        could legitimately skip thinking and the case failed for the wrong
-        reason. ADAPTIVE_HARD_PROMPT forces genuine case enumeration and gives
-        no "think step by step" hint, so what is measured is the model's own
-        decision. The "skipped" half is test_01_07.
+        a commonsense question, or any wording carrying a brevity suppressor
+        such as "briefly", lets adaptive legitimately skip thinking and the case
+        would then fail for the wrong reason. ADAPTIVE_HARD_PROMPT forces
+        genuine case enumeration and gives no "think step by step" hint, so what
+        is exercised is the model's own decision. The "skipped" half is
+        test_01_07.
         """
         context = f"thinking.adaptive + effort=high (hard prompt), stream={stream}"
         r = oai_chat({
@@ -453,83 +480,93 @@ class TestReasoningEffort:
         _assert_thinking_off(r, context)
 
     @STREAM_MODES
-    def test_01_07_thinking_adaptive_self_consistent(self, stream):
-        """thinking.type=adaptive with a system prompt that discourages
-        thinking: the model may or may not think, and BOTH outcomes must be
-        internally consistent.
+    def test_01_07_thinking_adaptive_branch_coverage(self, stream):
+        """thinking.type=adaptive: BOTH legal outcomes must be exercised and
+        each must be internally consistent.
 
-          - thought       → reasoning_content non-empty AND reasoning_tokens > 0
-          - did not think → no thinking signal AND reasoning_tokens explicitly 0
+          - thought       -> reasoning_content non-empty AND reasoning_tokens > 0
+          - did not think -> no thinking signal AND reasoning_tokens explicitly 0
 
-        Covers the "skipped" half of requirement 1.2. Asserting presence would
-        be wrong (adaptive may legitimately skip) and asserting absence would be
-        wrong too (it may legitimately think), so what is pinned is agreement
-        between the reasoning payload and the reported token count.
+        Per trial only consistency is asserted, never a branch: adaptive hands
+        the decision to the model, so demanding "must think" or "must skip" on
+        any single request would be a flaky false negative.
 
-        Payload selection is measured, not guessed: a trivial lookup prompt
-        ("What is the capital of France?") never skipped in 16 trials, and
-        neither did the English instruction "Do not think, just give a simple
-        greeting". The Chinese system line does (7/16 and 2/16 on the two
-        deployments), which is why it is used here. See the constant block for
-        the full comparison.
+        What IS demanded is coverage. The case drives each branch with its own
+        payload (see the constant block) and then fails if either branch went
+        unobserved, since a one-sided run is otherwise indistinguishable from a
+        passing one.
+
+        The SKIPPED driver also asserts its tool call still fires, so the skip
+        is observed on a real tool-call turn rather than on a degenerate reply.
+        That path is additionally where `reasoning_content` vanishes as a KEY
+        rather than arriving empty, so callers must null-check; this pins that
+        the token accounting survives it.
         """
-        context = f"thinking.adaptive (suppressing system prompt), stream={stream}"
-        r = oai_chat({
-            "messages": oai_simple_messages(
-                ADAPTIVE_SUPPRESSED_USER, system_text=ADAPTIVE_SUPPRESSED_SYSTEM
-            ),
-            "thinking": {"type": "adaptive"},
-        }, stream=stream)
+        observed = {}
 
-        _assert_ok(r, stream)
-        _assert_thinking_self_consistent(r, context)
+        label = "hard_puzzle (THOUGHT driver)"
+        observed[label] = []
+        for trial in range(ADAPTIVE_THINK_TRIALS):
+            context = f"{label} #{trial + 1}, stream={stream}"
+            r = oai_chat({
+                "messages": oai_simple_messages(ADAPTIVE_HARD_PROMPT),
+                "thinking": {"type": "adaptive"},
+            }, stream=stream)
+            _assert_ok(r, stream)
+            observed[label].append(_assert_thinking_self_consistent(r, context))
+
+        label = "zh+tools+low (SKIPPED driver)"
+        observed[label] = []
+        for trial in range(ADAPTIVE_SKIP_TRIALS):
+            context = f"{label} #{trial + 1}, stream={stream}"
+            r = oai_chat({
+                "messages": oai_simple_messages(
+                    ADAPTIVE_TOOL_SUPPRESSED_USER,
+                    system_text=ADAPTIVE_TOOL_SUPPRESSED_SYSTEM,
+                ),
+                "tools": [WEATHER_TOOL_OAI],
+                "reasoning_effort": "low",
+                "thinking": {"type": "adaptive"},
+            }, stream=stream)
+            _assert_ok(r, stream)
+            assert_tool_called(
+                r,
+                expected_name="get_weather",
+                expected_args_subset={"location": "Tokyo"},
+                schema=WEATHER_TOOL_OAI["function"]["parameters"],
+                msg=context,
+            )
+            observed[label].append(_assert_thinking_self_consistent(r, context))
+
+        _assert_both_branches_covered(observed, f"adaptive branch coverage, stream={stream}")
 
     @STREAM_MODES
-    def test_01_08_thinking_adaptive_with_tools(self, stream):
-        """thinking.type=adaptive alongside a tool definition: the tool must be
-        called, and the thinking decision must stay self-consistent either way.
+    def test_01_08_thinking_adaptive_suppressed_no_tools(self, stream):
+        """thinking.type=adaptive on a suppressed plain-text turn (no tools):
+        every outcome must be self-consistent.
 
-        This is the case that most reliably reaches the "adaptive skipped
-        thinking" branch (11/16 and 7/15 measured across the two deployments)
-        while still firing the tool (16/16 and 15/15), so the skip is observed
-        on a real tool-call turn rather than on a degenerate response.
+        Branch coverage is owned by test_01_07. This case holds the tool-free
+        shape, where the outcome is genuinely mixed, so requiring a specific
+        branch here would be flaky. It asserts consistency on each trial and
+        logs the branch taken.
 
-        Two measured facts shaped this payload:
-
-          - Tools collapse reasoning. On a bare "Tokyo weather" the model spends
-            ~800 reasoning tokens; with a tool attached it drops to ~30. Tools
-            alone are not enough to make it skip, though.
-          - The test_15_05_system_thinking_tools_combo shape (English system +
-            "Think step by step") skips 4/5 non-stream and 5/5 stream on one
-            deployment, but only when X-MM-Root-Role-Message is absent; with
-            that header it is 0/16. The payload below skips with the header
-            present, so it does not depend on run-level header configuration.
-
-        The user turn stays English so `location` comes back as "Tokyo" and can
-        be asserted; a Chinese city name makes the argument check ambiguous.
-
-        The skip path is also where `reasoning_content` disappears as a KEY
-        rather than arriving empty, so callers must null-check. This case pins
-        that the token accounting stays correct through that path.
+        Worth keeping separate because attaching a tool changes how much the
+        model reasons, and that path is covered by 01_07; this one pins the
+        contract when no tool is in play.
         """
-        context = f"thinking.adaptive + tools, stream={stream}"
-        r = oai_chat({
-            "messages": oai_simple_messages(
-                ADAPTIVE_TOOL_SUPPRESSED_USER, system_text=ADAPTIVE_TOOL_SUPPRESSED_SYSTEM
-            ),
-            "tools": [WEATHER_TOOL_OAI],
-            "thinking": {"type": "adaptive"},
-        }, stream=stream)
-
-        _assert_ok(r, stream)
-        assert_tool_called(
-            r,
-            expected_name="get_weather",
-            expected_args_subset={"location": "Tokyo"},
-            schema=WEATHER_TOOL_OAI["function"]["parameters"],
-            msg=context,
-        )
-        _assert_thinking_self_consistent(r, context)
+        observed = []
+        for trial in range(ADAPTIVE_SKIP_TRIALS):
+            context = f"adaptive suppressed, no tools #{trial + 1}, stream={stream}"
+            r = oai_chat({
+                "messages": oai_simple_messages(
+                    ADAPTIVE_SUPPRESSED_USER, system_text=ADAPTIVE_SUPPRESSED_SYSTEM
+                ),
+                "reasoning_effort": "low",
+                "thinking": {"type": "adaptive"},
+            }, stream=stream)
+            _assert_ok(r, stream)
+            observed.append(_assert_thinking_self_consistent(r, context))
+        print(f"[adaptive] no-tools branches, stream={stream}: {observed}")
 
     @pytest.mark.parametrize("effort", ["low", "max"])
     @STREAM_MODES
