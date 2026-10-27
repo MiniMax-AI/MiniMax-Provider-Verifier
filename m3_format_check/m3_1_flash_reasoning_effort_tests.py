@@ -6,13 +6,20 @@ This suite validates two capability groups for MiniMax-M3.1-Flash:
 Group 1 — thinking.type must support ["enabled", "adaptive", "disabled"]
           simultaneously, responding with reasoning content per the parameter:
   1.1 enabled : forced thinking → return reasoning_content AND
-                reasoning_tokens > 0 (counted truthfully).
+                reasoning_tokens > 0.
   1.2 adaptive: model decides whether to think; when triggered → return
                 reasoning_content AND reasoning_tokens > 0.
   1.3 disabled: forced off → NO reasoning_content AND reasoning_tokens == 0.
 
 Group 2 — reasoning_effort controls thinking depth:
-  2.1 accepted enum: low / medium / high / xhigh / max.
+  2.1 `none` is NOT accepted.
+  2.2 accepted enum: low / medium / high / xhigh / max.
+
+reasoning_tokens is always asserted through _assert_reasoning_tokens(), which
+requires usage.completion_tokens_details.reasoning_tokens to be PRESENT in both
+directions — a missing field would let the "== 0" branch pass vacuously. The
+magnitude is deliberately not sanity-checked against the reasoning text: no
+tokenizer is introduced, so > 0 is sufficient.
 
 Additional spec notes (/api-reference/text-chat-openai):
   - Models that do not support reasoning_effort ignore the field entirely.
@@ -38,20 +45,27 @@ Case ↔ checkpoint mapping
 Requirement | Case                                   | Checkpoints asserted
 ------------+----------------------------------------+-------------------------
 1.1 enabled | test_01_02_thinking_enabled_forced     | 200; reasoning_content
-            |                                        | non-empty; reasoning_tokens>0
+            |                                        | non-empty; reasoning_tokens
+            |                                        | present and > 0
 1.2 adaptive| test_01_05_effort_with_thinking_adaptive| 200; thinking present;
-            |                                        | reasoning_tokens>0
+            |                                        | reasoning_tokens > 0
             | test_01_07_reasoning_content_split     | 200; IF thinking → split
             |                                        | into reasoning_content &
             |                                        | reasoning_tokens>0 (adaptive
             |                                        | may skip → null-check)
-1.3 disabled| test_01_06_effort_with_thinking_disabled| 200 with no
-            |                                        | reasoning_content AND
-            |                                        | reasoning_tokens==0
-2.1 enum    | test_01_01_valid_effort_accepted       | each of low/medium/high/
+1.3 disabled| test_01_06_effort_with_thinking_disabled| 200; no reasoning_content;
+            |                                        | reasoning_tokens present
+            |                                        | and explicitly == 0
+2.1 none    | test_01_03_none_rejected_or_thinking_off| 400/422, OR 200 under the
+            |                                        | exact thinking-off
+            |                                        | contract of 1.3
+2.2 enum    | test_01_01_valid_effort_accepted       | each of low/medium/high/
             | (low,medium,high,xhigh,max ×           | xhigh/max → 200; thinking
             |  non_stream,stream)                    | present; reasoning_tokens>0
 ------------+----------------------------------------+-------------------------
+Note: 01_02 (enabled) / 01_03 (none) / 01_06 (disabled) share one strong prompt
+(THINKING_TRIGGER_PROMPT) so they form an enabled-vs-off contrast on identical
+input. A trivial prompt would make the thinking-off branches vacuous.
 Supplementary coverage (not a strict requirement):
   - test_01_04_out_of_enum_ignored : out-of-enum value → ignored/default or 4xx
   - test_01_08_effort_stream_thinking : effort under SSE streaming completes
@@ -68,25 +82,85 @@ from image_tools import make_png_base64
 
 REASONING_EFFORT_ENUM = ("low", "medium", "high", "xhigh", "max")
 
+# Shared prompt for the enabled/disabled contrast pair (01_02 vs 01_06) and the
+# `none` case (01_03). It explicitly asks for step-by-step work, so whenever
+# thinking is NOT suppressed a thinking signal is expected; conversely a
+# response with no thinking on this prompt is strong evidence that thinking was
+# genuinely turned off rather than simply never triggered.
+THINKING_TRIGGER_PROMPT = "What is 23 * 47? Think it through."
+
+
+def _usage(r: dict) -> dict:
+    """Raw usage object: non-stream reads body.usage, stream reads the last
+    chunk carrying usage (`stream_options.include_usage` is injected for every
+    streamed request by helpers.oai_chat)."""
+    if r.get("stream"):
+        for chunk in reversed(r.get("chunks") or []):
+            if isinstance(chunk, dict) and chunk.get("usage"):
+                return chunk["usage"]
+        return {}
+    return (r.get("body") or {}).get("usage") or {}
+
 
 def _reasoning_tokens(r: dict) -> int:
     """usage.completion_tokens_details.reasoning_tokens (0 when absent).
 
-    Non-stream reads body.usage; stream reads the last chunk carrying usage.
+    Lenient reader kept for diagnostics / message formatting only. Assertions
+    must go through _assert_reasoning_tokens(), which refuses to treat a missing
+    field as 0.
     """
-    if r.get("stream"):
-        usage = {}
-        for chunk in reversed(r.get("chunks") or []):
-            if isinstance(chunk, dict) and chunk.get("usage"):
-                usage = chunk["usage"]
-                break
-    else:
-        usage = (r.get("body") or {}).get("usage") or {}
-    details = usage.get("completion_tokens_details") or {}
+    details = _usage(r).get("completion_tokens_details") or {}
     try:
         return int(details.get("reasoning_tokens") or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _assert_reasoning_tokens(r: dict, expect_positive: bool, context: str = ""):
+    """Assert the provider genuinely reports reasoning accounting.
+
+    `usage.completion_tokens_details.reasoning_tokens` must be PRESENT and an
+    int, then be > 0 (thinking on) or == 0 (thinking off).
+
+    Field presence is asserted on purpose: the spec requires reasoning_tokens to
+    be *set* to 0 when thinking is off, and a lenient `== 0` read would pass
+    vacuously against a provider that cannot report the field at all. Requiring
+    it in both directions is what proves the capability exists.
+
+    Per project decision the magnitude is NOT sanity-checked against the
+    reasoning text (no tokenizer is introduced): > 0 is sufficient.
+    """
+    usage = _usage(r)
+    assert usage, f"{context}: response carries no usage object"
+    assert "completion_tokens_details" in usage, (
+        f"{context}: usage.completion_tokens_details is missing, so "
+        f"reasoning_tokens cannot be reported at all. usage={usage}"
+    )
+    details = usage["completion_tokens_details"]
+    assert isinstance(details, dict), (
+        f"{context}: usage.completion_tokens_details must be an object, "
+        f"got {type(details).__name__}: {details!r}"
+    )
+    assert "reasoning_tokens" in details, (
+        f"{context}: usage.completion_tokens_details.reasoning_tokens is "
+        f"missing; it must be reported explicitly. details={details}"
+    )
+    tokens = details["reasoning_tokens"]
+    assert isinstance(tokens, int) and not isinstance(tokens, bool), (
+        f"{context}: reasoning_tokens must be an integer, "
+        f"got {type(tokens).__name__}: {tokens!r}"
+    )
+    if expect_positive:
+        assert tokens > 0, f"{context}: expected reasoning_tokens > 0, got {tokens}"
+    else:
+        assert tokens == 0, f"{context}: expected reasoning_tokens == 0, got {tokens}"
+
+
+def _assert_thinking_off(r: dict, context: str = ""):
+    """Thinking is off: no thinking signal at all AND reasoning_tokens
+    explicitly reported as 0."""
+    assert_thinking_absent(r, msg=context)
+    _assert_reasoning_tokens(r, expect_positive=False, context=context)
 
 
 # ============================================================
@@ -106,7 +180,7 @@ class TestReasoningEffort:
         present, reasoning_tokens > 0).
         """
         r = oai_chat({
-            "messages": oai_simple_messages("What is 23 * 47? Think it through."),
+            "messages": oai_simple_messages(THINKING_TRIGGER_PROMPT),
             "thinking": {"type": "enabled"},
         })
         assert_oai_success(r)
@@ -115,10 +189,7 @@ class TestReasoningEffort:
             "thinking.type=enabled: expected non-empty reasoning_content "
             "(reasoning_split defaults to true), got empty"
         )
-        assert _reasoning_tokens(r) > 0, (
-            f"thinking.type=enabled: expected reasoning_tokens > 0, "
-            f"got {_reasoning_tokens(r)}"
-        )
+        _assert_reasoning_tokens(r, expect_positive=True, context="thinking.type=enabled")
 
     @pytest.mark.parametrize("effort", REASONING_EFFORT_ENUM)
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
@@ -147,6 +218,36 @@ class TestReasoningEffort:
             f"reasoning_effort={effort}: expected reasoning_tokens > 0, "
             f"got {_reasoning_tokens(r)}"
         )
+
+    def test_01_03_none_rejected_or_thinking_off(self):
+        """reasoning_effort="none" is OUTSIDE the accepted enum
+        (low/medium/high/xhigh/max) and must not be honoured as a normal effort
+        level. Two outcomes pass:
+
+          - HTTP 400/422: the value is rejected outright.
+          - HTTP 200: acceptable only if `none` was honoured as "no thinking",
+            i.e. the response satisfies exactly the same contract as
+            thinking.type=disabled — no <think> tag, no reasoning_content, and
+            reasoning_tokens explicitly reported as 0.
+
+        A 200 that still returns thinking means `none` was silently swallowed
+        and the caller got an unrequested effort level → fail. Anything outside
+        {200, 400, 422} (e.g. 5xx) also fails.
+
+        The prompt is the shared strong trigger: on a trivial prompt the 200
+        branch would pass vacuously because the model would not have thought
+        anyway. Covers requirement 2.1.
+        """
+        r = oai_chat({
+            "messages": oai_simple_messages(THINKING_TRIGGER_PROMPT),
+            "reasoning_effort": "none",
+        })
+
+        if r["status"] in (400, 422):
+            return
+
+        assert_oai_success(r)
+        _assert_thinking_off(r, 'reasoning_effort="none" accepted with HTTP 200')
 
     def test_01_04_out_of_enum_ignored(self):
         """Out-of-enum value is ignored; the model falls back to default depth
@@ -190,25 +291,29 @@ class TestReasoningEffort:
     def test_01_06_effort_with_thinking_disabled(self):
         """reasoning_effort=high + thinking.type=disabled → HTTP 200 with
         thinking genuinely off: no <think> tag, no reasoning_content, and
-        reasoning_tokens == 0.
+        reasoning_tokens explicitly reported as 0.
 
         A 200 that still returns thinking means `disabled` was silently
         swallowed, which fails. Covers requirement 1.3.
+
+        The prompt is deliberately identical to test_01_02 (which forces
+        thinking on with the same input): a trivial prompt such as "Hi" would
+        not trigger thinking anyway, so a provider ignoring thinking.disabled
+        would still pass and the case would assert nothing. Sharing one prompt
+        across 01_02/01_06 turns the pair into an enabled-vs-disabled contrast
+        on identical input, which is what proves reasoning_tokens tracks the
+        thinking switch instead of being hardcoded.
         """
         r = oai_chat({
-            "messages": oai_simple_messages("Hi"),
+            "messages": oai_simple_messages(THINKING_TRIGGER_PROMPT),
             "reasoning_effort": "high",
             "thinking": {"type": "disabled"},
         })
 
         assert_oai_success(r)
-        # Accepted → thinking must be genuinely suppressed.
-        assert_thinking_absent(r, msg="reasoning_effort=high + thinking.disabled")
-        # Requirement 1.3: disabled must also report reasoning_tokens == 0.
-        assert _reasoning_tokens(r) == 0, (
-            f"reasoning_effort=high + thinking.disabled: expected "
-            f"reasoning_tokens == 0, got {_reasoning_tokens(r)}"
-        )
+        # Accepted → thinking must be genuinely suppressed, and the provider
+        # must still report reasoning_tokens (explicitly 0).
+        _assert_thinking_off(r, "reasoning_effort=high + thinking.disabled")
 
     def test_01_07_reasoning_content_split(self):
         """reasoning_split defaults to true, so WHEN the model thinks, the
