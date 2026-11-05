@@ -2,6 +2,7 @@
 
 > Corresponds to: `data/m3_api_test/m3_text_tests.py`
 > Tool-call cases added to `m3_1_flash_text_test.py` are listed under "M3.1-Flash tool-call contract cases".
+> Rows whose scenario starts with `M3.1-Flash:` correspond to `m3_format_check/m3_1_flash_text_test.py`; all other rows correspond to the file above.
 > Naming convention: `test_<module_id>_<intra_module_seq>_<scene>`
 > Modules: **20**; Test functions: **107**; Pytest collected items: **139**
 
@@ -37,6 +38,7 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 01_01 | `test_01_01_text_non_stream` | Most basic non-stream text conversation | HTTP 200 + non-empty content |
+| 01_01 | `test_01_01_text_non_stream` | M3.1-Flash: Basic non-stream text conversation | `assert_chat_completion_ok` (JSON `Content-Type`, one ChatCompletion object) + `finish_reason=stop` + string `content` + valid usage arithmetic + `prompt_tokens_details` absent or an object |
 | 01_02 | `test_01_02_content_string` | `user.content` as plain string | HTTP 200 |
 | 01_03 | `test_01_03_content_array` | `user.content` as parts array `[{type:text,text:...}]` | HTTP 200 |
 
@@ -45,9 +47,12 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 02_01 | `test_02_01_text_stream` | Text streaming response | Stream can rebuild content correctly |
+| 02_01 | `test_02_01_text_stream` | M3.1-Flash: Text streaming response | `assert_sse_stream_ok` (defined in `m3_stream_cases_en.md`) |
 | 02_02 | `test_02_02_stream_usage` | Last usage chunk in stream | total == prompt + completion + stream finishes properly |
 | 02_03 | `test_02_03_sse_done_marker` | SSE `[DONE]` end marker | xfail if missing (known BUG) |
+| 02_03 | `test_02_03_sse_done_marker` | M3.1-Flash: Reads raw SSE lines | The last data line is `[DONE]`, followed by a blank line, with no `event: done`; a missing marker fails instead of xfail |
 | 02_04 | `test_02_04_stream_chunk_fields` | Stream chunk required fields | id / choices / object all present |
+| 02_04 | `test_02_04_stream_chunk_fields` | M3.1-Flash: `include_usage=true`; checks every chunk including the usage chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` have the right types, and `id` and `created` stay constant within a stream |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` (text) | Stream should return usage chunk |
 | 02_06 | — | Removed (formerly `test_02_06_stream_usage_only_in_last_chunk`) | Exact duplicate of `m3_stream_tests.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk`; de-duplicated, the ID stays retired |
 | 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | Emoji-dense streaming request run 20 times | No `U+FFFD` (`�`) replacement char in any `delta.content`; guards against a 4-byte emoji being truncated mid-UTF-8-frame |
@@ -131,10 +136,18 @@
 | 10_02 | `test_10_02_usage_token_math` | usage arithmetic | total == prompt + completion; cached <= prompt |
 | 10_03 | `test_10_03_usage_field_types` | usage three field types | int and >= 0 |
 | 10_04 | `test_10_04_cached_tokens_presence` | cached_tokens hard presence | Same prompt twice; second cached > 0 |
+| 10_04 | `test_10_04_cached_tokens_presence` | M3.1-Flash: Long prompt with a unique prefix, sent twice | First `cached_tokens` is at most half of `prompt_tokens`; second request hits the cache |
 | 10_05 | `test_10_05_usage_arithmetic_tool_call` | usage arithmetic under tool_call | total == prompt + completion |
+| 10_05 | `test_10_05_usage_arithmetic_tool_call` | M3.1-Flash: usage under tool_call | Existing arithmetic check + `completion_tokens > 0` |
 | 10_06 | `test_10_06_length_truncation_completion_equals_limit` | finish_reason=length → completion == max | Strict equality |
 | 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | stream vs non-stream prompt_tokens consistent | Equal pt + stream arithmetic holds |
+| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | M3.1-Flash: stream vs non-stream `prompt_tokens` | Strictly equal + `assert_sse_stream_ok` + exactly one usage object in the stream |
 | 10_08 | `test_10_08_usage_fields_populated` | All three usage fields > 0 | prompt/completion/total all positive |
+| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | M3.1-Flash: Stream, long essay cut by `max_completion_tokens=20` | `assert_sse_stream_ok` + exactly one usage object + `completion_tokens <= 20` |
+| 10_12 | `test_10_12_stream_small_budget_finish_length` | M3.1-Flash: Stream with `max_completion_tokens=1` | `assert_sse_stream_ok` + `finish_reason=length`; visible text is not required; skip on `content_filter` |
+| 10_14 | `test_10_14_prompt_tokens_accounting[input_length\|system_and_history\|tool_result]` | M3.1-Flash: Extends input text, system and history turns, or tool results | `prompt_tokens` grows by more than the threshold (100 / 50 / 100); exact values are not checked |
+| 10_15 | `test_10_15_cache_hit_keeps_prompt_tokens` | M3.1-Flash: Long prompt with a unique prefix, sent twice | `prompt_tokens` differ by at most the larger of 8 or 1%; cached tokens are not deducted |
+| 10_16 | `test_10_16_reasoning_tokens_within_completion` | M3.1-Flash: Non-stream with `reasoning_effort="high"` | `reasoning_tokens` stays within `completion_tokens` and is not counted twice in `total_tokens`; skip when the field is not returned |
 
 ## 11 role_root — role=root protocol acceptance & identity adherence
 
@@ -162,6 +175,7 @@
 |:---:|:---|:---|:---|
 | 13_01 | `test_13_01_tool_call_non_stream` | Non-stream tool_call | get_weather + Beijing + finish_reason=tool_calls |
 | 13_02 | `test_13_02_tool_call_stream` | Stream tool_call | Stream rebuild + last chunk finish_reason=tool_calls |
+| 13_02 | `test_13_02_tool_call_stream` | M3.1-Flash: Stream tool_call with `tool_choice="required"` | Existing checks + `assert_sse_stream_ok` |
 | 13_03 | `test_13_03_complex_agent_6tools` | Pick get_weather from 6-tool pool | Model selects correct tool |
 | 13_04 | `test_13_04_param_type_coverage` | 6 parameter types | Valid JSON + schema compliant + str_param='hello' |
 | 13_05 | `test_13_05_tool_without_parameters` | function.parameters omitted | Triggers if accepted; xfail if rejected |
@@ -239,6 +253,7 @@
 |:---:|:---|:---|:---|
 | 19_01 | `test_19_01_finish_reason_tool_calls` | Tool-triggered scenario | finish_reason ∈ {tool_calls, stop} + tool actually called |
 | 19_02 | `test_19_02_finish_reason_length` | max_tokens=10 forced truncation | finish_reason ∈ {length, stop} |
+| 19_02 | `test_19_02_finish_reason_length` | M3.1-Flash: Non-stream with `max_completion_tokens=20` | Valid usage arithmetic; `completion_tokens <= 20` when truncated; skip when not truncated |
 
 ## 20 error_codes — Error codes (text-only)
 
@@ -321,31 +336,3 @@ Functions decorated with `@pytest.mark.parametrize("stream", [False, True], ids=
 | `mt ∈ {524289, 1000000}` | 06_10 |
 
 Total items = 117 functions - 34 two-value `stream` functions - 1 `ctx_tokens × stream` function - 2 two-value `mt` functions + 34×2 + 1×4 + 2×2 = **156**.
-
-## M3.1-Flash Response and Stream Contract Additions
-
-> Corresponds to: `m3_format_check/m3_1_flash_text_test.py`. These cases apply to the M3.1-Flash suite only. `m3_text_tests.py`, described by the tables above, is unchanged; for cases with the same ID in the M3.1-Flash suite, this section applies.
-
-### Strengthened cases
-
-| Case ID | Function | Scenario | Assertion |
-|:---:|:---|:---|:---|
-| 01_01 | `test_01_01_text_non_stream` | Basic non-stream text conversation | `assert_chat_completion_ok` (JSON `Content-Type`, one ChatCompletion object) + `finish_reason=stop` + string `content` + valid usage arithmetic + `prompt_tokens_details` absent or an object |
-| 02_01 | `test_02_01_text_stream` | Text streaming response | `assert_sse_stream_ok` (defined in `m3_stream_cases_en.md`) |
-| 02_03 | `test_02_03_sse_done_marker` | Reads raw SSE lines | The last data line is `[DONE]`, followed by a blank line, with no `event: done`; a missing marker fails instead of xfail |
-| 02_04 | `test_02_04_stream_chunk_fields` | `include_usage=true`; checks every chunk including the usage chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` have the right types, and `id` and `created` stay constant within a stream |
-| 10_04 | `test_10_04_cached_tokens_presence` | Long prompt with a unique prefix, sent twice | First `cached_tokens` is at most half of `prompt_tokens`; second request hits the cache |
-| 10_05 | `test_10_05_usage_arithmetic_tool_call` | usage under tool_call | Existing arithmetic check + `completion_tokens > 0` |
-| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | stream vs non-stream `prompt_tokens` | Strictly equal + `assert_sse_stream_ok` + exactly one usage object in the stream |
-| 13_02 | `test_13_02_tool_call_stream` | Stream tool_call with `tool_choice="required"` | Existing checks + `assert_sse_stream_ok` |
-
-### New cases
-
-| Case ID | Function | Scenario | Assertion |
-|:---:|:---|:---|:---|
-| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | Stream, long essay cut by `max_completion_tokens=20` | `assert_sse_stream_ok` + exactly one usage object + `completion_tokens <= 20` |
-| 10_12 | `test_10_12_stream_small_budget_finish_length` | Stream with `max_completion_tokens=1` | `assert_sse_stream_ok` + `finish_reason=length`; visible text is not required; skip on `content_filter` |
-| 10_14 | `test_10_14_prompt_tokens_accounting[input_length\|system_and_history\|tool_result]` | Extends input text, system and history turns, or tool results | `prompt_tokens` grows by more than the threshold (100 / 50 / 100); exact values are not checked |
-| 10_15 | `test_10_15_cache_hit_keeps_prompt_tokens` | Long prompt with a unique prefix, sent twice | `prompt_tokens` differ by at most the larger of 8 or 1%; cached tokens are not deducted |
-| 10_16 | `test_10_16_reasoning_tokens_within_completion` | Non-stream with `reasoning_effort="high"` | `reasoning_tokens` stays within `completion_tokens` and is not counted twice in `total_tokens`; skip when the field is not returned |
-| 19_02 | `test_19_02_finish_reason_length` | Non-stream with `max_completion_tokens=20` | Valid usage arithmetic; `completion_tokens <= 20` when truncated; skip when not truncated |

@@ -1,6 +1,7 @@
 # M3 Image Modality Format Check Case List
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
+> Module 14 applies to `m3_format_check/m3_1_flash_image_test.py` only.
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
 > Module count: **13**; case function count: **64**; pytest collected items: **109**
 
@@ -21,6 +22,7 @@
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
+| 14 | image_usage | Image tokens counted in prompt_tokens (M3.1-Flash only) | 1 | 1 |
 | | **Total** | | **64** | **109** |
 
 ---
@@ -159,9 +161,7 @@ spec 1.3.6: "Each request supports up to 200 images." at_max uses 200 (spec cap)
 | 13_03 | `test_13_03_mime_uppercase` | MIME uppercase `data:image/PNG;base64,...` | HTTP 200 (MIME case-insensitive) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
 
-## M3.1-Flash Image Usage Additions
-
-> Corresponds to: `m3_format_check/m3_1_flash_image_test.py`. This case applies to the M3.1-Flash suite only.
+## 14 image_usage — Image token accounting
 
 | Case ID | Function | Scenario | Assertion |
 |:---:|:---|:---|:---|

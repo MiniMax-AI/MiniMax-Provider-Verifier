@@ -2,6 +2,7 @@
 
 > Corresponding file: `m3_format_check/m3_stream_tests.py`
 > Cases `02_09`, `02_10`, and `02_11` also apply to `m3_format_check/m3_1_flash_stream_test.py`.
+> Cases `02_12` to `02_16` apply to `m3_format_check/m3_1_flash_stream_test.py` only.
 
 ## Scope
 
@@ -12,6 +13,7 @@
 - `TestToolCallStreamPacketLengthDistribution`: each tool-call scenario runs once and uses its own thresholds for non-empty `delta.tool_calls[].function.arguments` fragments. The parallel-tool scenario evaluates both the combined distribution and every observed `tool_call.index` distribution.
 - The packet-quality scenarios evaluate packet-size quality only. They do not validate output length, JSON validity, tool names, argument contents, or tool-call counts.
 - Packet-quality scenarios report only `PASS` or `FAIL`, with no `WARN` state. Cases `02_09` and `02_10` report `SKIP` when parallel calls are not observed; any observed protocol violation still reports `FAIL`.
+- `assert_sse_stream_ok` (`helpers.py`) is the shared stream assertion of the M3.1-Flash suite: HTTP 200, `Content-Type` is `text/event-stream`, every data frame is valid JSON with no `error` frame, `finish_reason` is valid, and exactly one `[DONE]` is the last data frame.
 
 ## Buckets and Decision
 
@@ -55,6 +57,11 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | Send one parallel `bash` + `glob` request and verify unique `index` values within `delta.tool_calls` for every chunk and choice in the response | Independent SSE protocol check; not part of packet-quality rules |
 | 02_10 | `test_02_10_tool_call_identity_stable` | Send one parallel `bash` + `glob` request and inspect all raw deltas before merging: new indices in each choice first appear consecutively from zero; every call eventually has a non-empty ID; IDs stay stable and are not reused by another call (later fragments may omit the ID) | Independent SSE protocol check; not part of packet-quality rules |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | Multimodal request with `stream_options.include_usage=true` plus a 672×672 base64 image (migrated from the image suite's former `08_03`) | Independent SSE protocol check; not part of packet-quality rules |
+| 02_12 | `test_02_12_stream_mime_and_json_frames` | Plain text request with `stream=true`, passing the shared assertion `assert_sse_stream_ok` | Independent SSE protocol check; not part of packet-quality rules |
+| 02_13 | `test_02_13_stream_finish_reason_stop` | The model finishes normally, passing the shared assertion, with final `finish_reason=stop` and non-empty concatenated `content` | Independent SSE protocol check; not part of packet-quality rules |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | Request body has no `stream` key, sent as is via `oai_chat_verbatim`; returns one JSON ChatCompletion rather than SSE (`assert_chat_completion_ok`) | Independent protocol check; not part of packet-quality rules |
+| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` calling `echo` with `include_usage=true`, passing the shared assertion, with exactly one usage object, valid arithmetic and `completion_tokens > 0` | Independent SSE protocol check; not part of packet-quality rules |
+| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"` with `include_usage=true`, passing the shared assertion, with `0 <= reasoning_tokens <= completion_tokens`; `SKIP` when the field is not returned | Independent SSE protocol check; not part of packet-quality rules |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
 | 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
 | 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |
@@ -65,17 +72,3 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 | 01_08 | `01_08_reasoning_then_tool_call` | Adaptive reasoning followed by `write_file(path: string, content: string)` with a plan of at least 500 characters | `arguments` fragments |
 
 Each JSONL record retains per-packet character counts, exact length distributions, the six display buckets, the three decision buckets, packet and character ratios, and every threshold-check result.
-
-## M3.1-Flash Stream Contract Additions
-
-> Corresponding file: `m3_format_check/m3_1_flash_stream_test.py`. These cases apply to the M3.1-Flash suite only.
-
-Shared assertion `assert_sse_stream_ok` (`helpers.py`): HTTP 200, `Content-Type` is `text/event-stream`, every data frame is valid JSON with no `error` frame, `finish_reason` is valid, and exactly one `[DONE]` is the last data frame.
-
-| Case ID | Function | Scenario | Assertion |
-|:---:|:---|:---|:---|
-| 02_12 | `test_02_12_stream_mime_and_json_frames` | Plain text request with `stream=true` | Shared assertion |
-| 02_13 | `test_02_13_stream_finish_reason_stop` | The model finishes its answer normally | Shared assertion + final `finish_reason=stop` + non-empty concatenated `content` |
-| 02_14 | `test_02_14_stream_omitted_returns_json` | Request body has no `stream` key, sent as is via `oai_chat_verbatim` | One JSON ChatCompletion rather than SSE (`assert_chat_completion_ok`) |
-| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` calling `echo`, with `include_usage=true` | Shared assertion + exactly one usage object with valid arithmetic + `completion_tokens > 0` |
-| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"` with `include_usage=true` | Shared assertion + `0 <= reasoning_tokens <= completion_tokens`; `SKIP` when the field is not returned |

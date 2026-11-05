@@ -2,6 +2,7 @@
 
 > 对应文件：`m3_format_check/m3_stream_tests.py`
 > `02_09`、`02_10`、`02_11` 同样适用于 `m3_format_check/m3_1_flash_stream_test.py`。
+> `02_12`～`02_16` 只适用于 `m3_format_check/m3_1_flash_stream_test.py`。
 
 ## 测试范围
 
@@ -12,6 +13,7 @@
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
 - 分包质量场景的结果严格为 `PASS` 或 `FAIL`，不使用 `WARN`。`02_09`、`02_10` 未覆盖并行调用时记为 `SKIP`；已观察到的协议违规仍记为 `FAIL`。
+- `assert_sse_stream_ok`（`helpers.py`）是 M3.1-Flash 套件的流式公共断言：HTTP 200、`Content-Type` 为 `text/event-stream`、所有 data 帧均为合法 JSON 且不含 `error` 帧、`finish_reason` 合法、`[DONE]` 恰好一个且是最后一个 data 帧。
 
 ## 分档与判定
 
@@ -55,6 +57,11 @@
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | 单次 `bash` + `glob` 并行工具调用，检查响应中每个 chunk、每个 choice 的 `delta.tool_calls` 内 `index` 不重复 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_10 | `test_02_10_tool_call_identity_stable` | 单次 `bash` + `glob` 并行工具调用，在合并前检查全部原始 `delta.tool_calls`：每个 choice 的新 `index` 首次出现时从 0 连续递增；每个调用最终具有非空 `id`；同一调用的 `id` 稳定，且不被其他调用复用（后续分片允许省略 `id`） | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` + 672×672 base64 图片的多模态场景（由原图片套件 `08_03` 迁入） | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_12 | `test_02_12_stream_mime_and_json_frames` | `stream=true` 的普通文本请求，通过公共断言 `assert_sse_stream_ok` | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_13 | `test_02_13_stream_finish_reason_stop` | 模型正常答完，通过公共断言，最终 `finish_reason=stop`，拼接后的 `content` 非空 | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送，返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_ok`） | 独立协议校验，不属于分包质量规则 |
+| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` 调用 `echo`，`include_usage=true`，通过公共断言，恰好一个 usage 对象且算术成立，`completion_tokens > 0` | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true`，通过公共断言，`0 <= reasoning_tokens <= completion_tokens`；未返回该字段时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |
@@ -65,17 +72,3 @@
 | 01_08 | `01_08_reasoning_then_tool_call` | adaptive reasoning 后调用 `write_file(path: string, content: string)` 写入不少于 500 字的计划 | `arguments` 分包 |
 
 JSONL 记录保留逐包字符数、精确长度分布、六档命中次数，以及用于最终判定的三档包数量/字符量占比和每项阈值检查结果。
-
-## M3.1-Flash 流式契约补充
-
-> 对应文件：`m3_format_check/m3_1_flash_stream_test.py`，只适用于 M3.1-Flash 套件。
-
-公共断言 `assert_sse_stream_ok`（`helpers.py`）：HTTP 200、`Content-Type` 为 `text/event-stream`、所有 data 帧均为合法 JSON 且不含 `error` 帧、`finish_reason` 合法、`[DONE]` 恰好一个且是最后一个 data 帧。
-
-| Case ID | 函数名 | 场景说明 | 主要校验点 |
-|:---:|:---|:---|:---|
-| 02_12 | `test_02_12_stream_mime_and_json_frames` | `stream=true` 的普通文本请求 | 公共断言 |
-| 02_13 | `test_02_13_stream_finish_reason_stop` | 模型正常答完 | 公共断言 + 最终 `finish_reason=stop` + 拼接后的 `content` 非空 |
-| 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送 | 返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_ok`） |
-| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` 调用 `echo`，`include_usage=true` | 公共断言 + 恰好一个 usage 对象、算术成立 + `completion_tokens > 0` |
-| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true` | 公共断言 + `0 <= reasoning_tokens <= completion_tokens`；未返回该字段时 `SKIP` |

@@ -1,6 +1,7 @@
 # M3 图片模态格式校验 case 清单
 
 > 对应文件:`data/m3_api_test/m3_image_tests.py`
+> 模块 14 只适用于 `m3_format_check/m3_1_flash_image_test.py`。
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
 > 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**109**
 
@@ -21,6 +22,7 @@
 | 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
+| 14 | image_usage | 图片 token 计入 prompt_tokens(仅 M3.1-Flash) | 1 | 1 |
 | | **合计** | | **64** | **109** |
 
 ---
@@ -159,9 +161,7 @@ spec 1.3.6:"每条请求最多支持 200 张图片"。at_max 取 200(spec 上限
 | 13_03 | `test_13_03_mime_uppercase` | MIME 大写 `data:image/PNG;base64,...` | HTTP 200(MIME 大小写不敏感) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
 
-## M3.1-Flash 图片 usage 补充
-
-> 对应文件:`m3_format_check/m3_1_flash_image_test.py`,只适用于 M3.1-Flash 套件。
+## 14 image_usage — 图片 token 计费
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
