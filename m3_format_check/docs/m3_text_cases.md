@@ -1,6 +1,7 @@
 # M3 文本模态格式校验 case 清单
 
 > 对应文件:`data/m3_api_test/m3_text_tests.py`
+> `m3_1_flash_text_test.py` 新增的工具调用 case 见「M3.1-Flash 工具调用契约 case」一节。
 > 命名规范:`test_<模块编号>_<模块内顺序编号>_<场景说明>`
 > 模块数:**20**;case 函数数:**107**;pytest 收集 items 数:**139**
 
@@ -250,6 +251,60 @@
 | 20_06 | `test_20_06_invalid_role` | 非法 role | HTTP 400 |
 | 20_07 | `test_20_07_invalid_api_key` | 非法 API key | HTTP 401 |
 | 20_08 | `test_20_08_content_moderation` | 内容审核:有害内容请求 | 400(过滤)或 200(拒答) |
+
+---
+
+## M3.1-Flash 工具调用契约 case
+
+> 对应文件:`m3_format_check/m3_1_flash_text_test.py`(模块 24 为该文件的 `TestToolContract`)。以下 case 不在 `m3_text_tests.py` 中,不计入本文开头的统计。
+> `TC-xxx` 是 OpenAI Chat Completions 校验设计中的编号,共 60 个。
+
+判定规则:
+
+- 新增的公共断言只把响应的 HTTP 状态和可解析性作为硬条件。缺 `message.content` 键、`tool_calls` 元素有多余键等公共格式问题只记录,不判失败。设置 `M3_FORMAT_ISSUES` 可写入 jsonl 文件,同时作为 pytest warning 输出。
+- 新增的公共断言遇到 401、403、429、5xx 响应时跳过测试,不算通过也不算失败。
+- 非 strict 的 case 不校验 `arguments` 的取值。
+
+07_03、14_01、14_10、15_01、15_04、15_06、16_05 在原有校验之外补充了公共响应校验。
+
+| Case ID | 函数名 | TC | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|:---|
+| 01_01 | `test_01_01_text_non_stream` | TC-040 | 未声明 tools | finish_reason=stop,无 tool_calls,content 非空 |
+| 07_03b | `test_07_03b_echo_history_content_omitted` | TC-192 | 历史 assistant 带 tool_calls 且省略 content,tool_choice=none | 受理并返回文本,不再调用工具 |
+| 13_01b | `test_13_01b_tool_choice_omitted_auto` | TC-036 | 声明 echo + get_time,省略 tool_choice | 按 auto 处理:返回文本,或只调用已声明的函数 |
+| 13_06b | `test_13_06b_echo_without_description_required` | TC-002 | echo 省略 description,tool_choice=required | finish_reason=tool_calls,每个调用都是 echo,arguments 为字符串 |
+| 13_07 | `test_13_07_stream_multi_tool_call` | TC-154 | 流式同名多调用 | 按 index 重组后各自符合 schema,参数互不串线 |
+| 13_07b | `test_13_07b_stream_multi_distinct_tools` | TC-070 | 流式 echo + get_time,required,parallel=true | id 互不相同,函数名已声明,arguments 各自符合 schema;允许只有一个调用 |
+| 13_07c | `test_13_07c_same_name_parallel_non_stream` | TC-152 | 非流式同名 get_weather,required,parallel=true | 每个调用符合 schema;出现两个调用时城市不同且覆盖北京、上海 |
+| 14_01b | `test_14_01b_multi_tools_required_parallel_fields` | TC-151 | 非流式 echo + get_time,required,parallel=true | 字段完整,arguments 各自符合 schema,id 互不相同 |
+| 14_07b | `test_14_07b_non_strict_property_oneof_accepted` | TC-135 | strict=false,属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
+| 14_11 | `test_14_11_strict_2d_bool_array` | TC-118 | strict 二维布尔数组(非流式/流式) | 恰好一个调用,m 保持二维,元素是布尔值 |
+| 14_12 | `test_14_12_strict_tool_schema` | TC-101~115、TC-117 | strict 支持的 schema:anyOf、enum、nullable、嵌套、$ref、长度、format 等(按 TC 参数化) | 恰好一个调用,arguments 完整符合 schema;提示词指定取值的 case 同时校验取值 |
+| 14_12b | `test_14_12b_non_strict_omit_required_and_additional` | TC-138 | strict=false,省略 required 和 additionalProperties | 受理;arguments 是 JSON 对象,不校验取值 |
+| 14_14 | `test_14_14_custom_tool_formats` | TC-033、TC-034 | custom 工具语法缺 definition / syntax 非法 | HTTP 400 |
+| 14_15 | `test_14_15_tool_declaration_invalid` | TC-004、TC-006 | function 缺容器 / name 类型错误 | HTTP 400 |
+| 14_16 | `test_14_16_schema_capability_negative` | TC-125、TC-136 | strict 下 patternProperties 与 properties 并存 / strict=false 的 allOf | 受理;strict 时 arguments 符合 schema,非 strict 时只要求是 JSON 对象 |
+| 15_01b | `test_15_01b_history_content_null` | TC-191 | 历史 assistant 的 content=null,tool_choice=none | 受理并返回文本 |
+| 15_04b | `test_15_04b_mixed_tool_and_plain_turns` | TC-204 | 历史中工具轮和普通轮混合,tool_choice=none | 受理并返回文本,不再调用工具 |
+| 15_06b | `test_15_06b_real_call_string_roundtrip` | TC-059 | 用第一轮真实返回的 id 和 arguments 回填字符串结果 | 第二轮返回文本,不再调用工具 |
+| 16_02 / 16_02b | `test_16_02_tool_result_empty_string` / `test_16_02b_real_loop_tool_content_variants` | TC-060 | tool.content 为空串或 text 数组 | 必须受理并返回合法响应(本文件中 16_02 不再接受 400) |
+| 16_05b | `test_16_05b_tool_result_json_string` | TC-195 | tool.content 是 JSON 字符串,tool_choice=none | 受理并返回文本 |
+| 24_013 | `test_24_013_strict_true` | TC-013 | strict=true | 恰好一个调用,arguments 只含 text |
+| 24_014 | `test_24_014_strict_false_null_omitted` | TC-014、TC-015、TC-016 | strict 为 false / null / 省略 | 受理,每个调用都是 echo,arguments 为字符串 |
+| 24_023 | `test_24_023_strict_value_constraints` | TC-023、TC-024、TC-026 | strict 的 pattern / email / 数组长度 | arguments 满足约束关键字 |
+| 24_161 | `test_24_161_function_name_charset` | TC-161 | 函数名含 a-z、A-Z、0-9、_、- | 受理 |
+| 24_165 | `test_24_165_long_description` | TC-165 | description 超长 | 受理 |
+| 24_166 | `test_24_166_description_not_string` | TC-166 | description=123 | HTTP 400 |
+| 24_170 | `test_24_170_tools_element_not_object` | TC-170 | tools 元素不是对象 | HTTP 400 |
+| 24_171 | `test_24_171_duplicate_function_names` | TC-171 | 两个同名函数声明 | 受理 |
+| 24_180 | `test_24_180_128_tools_boundary` | TC-180 | 声明 128 个函数,tool_choice=none | 受理并返回文本 |
+| 24_048 | `test_24_048_tool_choice_null` | TC-048 | tool_choice=null | 按省略处理:返回文本,或调用已声明的 echo |
+| 24_143 | `test_24_143_tool_call_id_unique_across_requests` | TC-143 | 两次独立请求指定 echo | 调用 id 不重复,不校验格式 |
+| 24_144 | `test_24_144_no_arg_function_arguments_braces` | TC-144 | 无参函数 get_time,tool_choice=required | arguments 是空对象的 JSON 字符串,不是空串或 null |
+| 24_062 | `test_24_062_tool_content_array_variants` | TC-062、TC-063 | 真实回填时 tool.content 为空数组 / 含图片 part | 受理并返回文本 |
+| 24_094 | `test_24_094_stream_answer_after_tool_result` | TC-094 | 工具结果回填后流式作答,tool_choice=none | finish_reason=stop,无 tool_calls 增量,正文非空 |
+| 24_193 | `test_24_193_assistant_tool_call_content_variants` | TC-193、TC-194 | 历史 assistant 带 tool_calls,content 为空串 / 文字(非流式/流式) | 受理并返回文本 |
+| 24_197 | `test_24_197_tool_message_before_assistant_call` | TC-197 | tool 消息前没有 assistant 调用 | HTTP 400 |
 
 ---
 

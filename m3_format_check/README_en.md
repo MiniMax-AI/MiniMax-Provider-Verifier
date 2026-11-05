@@ -15,7 +15,7 @@ m3_format_check/
 ├── m3_image_tests.py        # Image modality, 99 cases (base64, URL, multi-image, resolution tiers, ...)
 ├── m3_video_tests.py        # Video modality, 85 cases (base64, URL, MOV/MKV, fps, resolution, ...)
 ├── pytest.ini               # python_files=m3_*_tests.py / timeout=1800s
-├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist
+├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist + jsonschema
 ├── logs/                    # Per-run jsonl output (auto-created, git-ignored)
 ├── docs/                    # Per-case explanations (bilingual zh/en, one-to-one with m3_*_tests.py)
 │   ├── m3_text_cases.md   / m3_text_cases_en.md    # Text modality case reference
@@ -50,6 +50,7 @@ export M3_API_KEY="sk-xxx"
 | `M3_MODEL_MINI` | `MiniMax-M2-mini` | Mini model ID (used by the model-name compatibility case; if no such model is registered on the endpoint, that case is xfailed) |
 | `M3_RUN_LOG` | `logs/run_<UTC-ts>.jsonl` | Override the jsonl output path |
 | `M3_EXTRA_HEADERS` | (empty) | JSON string of extra request headers to inject, e.g. `'{"X-Custom-Header": "value"}'` |
+| `M3_FORMAT_ISSUES` | (empty) | jsonl path for shared format issues (used by the checks added to `m3_1_flash_text_test.py`); without it they are only raised as pytest warnings |
 | `M3_SKIP_REASONING_SPLIT` | `0` | Set to `1` to skip cases that depend on `reasoning_split` (some implementations do not pass through this OAI extension) |
 | `M3_LONG_VIDEO_DIR` | `fixtures/m3_test_videos` | Long-video (D_*s.mp4) directory. Defaults to the in-repo fixtures; override to point at a different set. |
 
@@ -70,6 +71,8 @@ pytest
 pytest m3_text_tests.py
 pytest m3_image_tests.py
 pytest m3_video_tests.py
+# The M3.1-Flash text suite is not collected by default (pytest.ini only collects m3_*_tests.py), so name it explicitly
+pytest m3_1_flash_text_test.py
 
 # 3c. Parallelize within a modality via pytest-xdist
 pytest m3_text_tests.py -n 8

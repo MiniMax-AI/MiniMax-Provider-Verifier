@@ -14,7 +14,7 @@ m3_format_check/
 ├── m3_image_tests.py        # 图像模态 99 case  (base64/URL/多图/分辨率档位 等)
 ├── m3_video_tests.py        # 视频模态 85 case  (base64/URL/MOV/MKV/fps/分辨率 等)
 ├── pytest.ini               # python_files=m3_*_tests.py / timeout=1800s
-├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist
+├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist + jsonschema
 ├── logs/                    # 每次运行的 jsonl 日志输出目录(运行时自动生成,已 git 排除)
 ├── docs/                    # case 解释(中/英文双语,与 m3_*_tests.py 一一对应)
 │   ├── m3_text_cases.md   / m3_text_cases_en.md    # 文本模态 case 详解
@@ -49,6 +49,7 @@ export M3_API_KEY="sk-xxx"
 | `M3_MODEL_MINI` | `MiniMax-M2-mini` | mini 模型(模型名兼容 case 用;若 endpoint 未注册同名模型该 case 会 xfail) |
 | `M3_RUN_LOG` | `logs/run_<UTC-ts>.jsonl` | 自定义 jsonl 路径 |
 | `M3_EXTRA_HEADERS` | (空) | JSON 串,额外注入请求头,例如 `'{"X-Custom-Header": "value"}'` |
+| `M3_FORMAT_ISSUES` | (空) | 公共格式问题的 jsonl 输出路径(`m3_1_flash_text_test.py` 新增的断言使用);不设置时只输出 pytest warning |
 | `M3_SKIP_REASONING_SPLIT` | `0` | `1` 时跳过依赖 `reasoning_split` 的 case(部分实现不放行该 OAI extension) |
 | `M3_LONG_VIDEO_DIR` | `fixtures/m3_test_videos` | 长视频(D_*s.mp4)目录,默认走仓内 fixtures;需要换一组时改这里 |
 
@@ -69,6 +70,8 @@ pytest
 pytest m3_text_tests.py
 pytest m3_image_tests.py
 pytest m3_video_tests.py
+# M3.1-Flash 文本套件不在默认收集范围(pytest.ini 只收集 m3_*_tests.py),需显式指定
+pytest m3_1_flash_text_test.py
 
 # 3c. pytest-xdist 并发(单 modality 内部多 worker)
 pytest m3_text_tests.py -n 8

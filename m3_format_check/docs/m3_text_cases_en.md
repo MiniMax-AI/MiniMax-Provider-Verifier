@@ -1,6 +1,7 @@
 # M3 Text Modality Format Validation Case List
 
 > Corresponds to: `data/m3_api_test/m3_text_tests.py`
+> Tool-call cases added to `m3_1_flash_text_test.py` are listed under "M3.1-Flash tool-call contract cases".
 > Naming convention: `test_<module_id>_<intra_module_seq>_<scene>`
 > Modules: **20**; Test functions: **107**; Pytest collected items: **139**
 
@@ -251,6 +252,60 @@
 | 20_06 | `test_20_06_invalid_role` | Invalid role | HTTP 400 |
 | 20_07 | `test_20_07_invalid_api_key` | Invalid API key | HTTP 401 |
 | 20_08 | `test_20_08_content_moderation` | Content moderation: harmful request | 400 (filtered) or 200 (refused) |
+
+---
+
+## M3.1-Flash tool-call contract cases
+
+> Corresponds to: `m3_format_check/m3_1_flash_text_test.py` (module 24 is `TestToolContract` in that file). These cases are not in `m3_text_tests.py` and are not included in the counts at the top of this document.
+> `TC-xxx` ids refer to the OpenAI Chat Completions verification design; there are 60 of them.
+
+Verdict rules:
+
+- The new shared checks only treat the HTTP status and a parsable response as hard conditions. Shared format problems, such as a missing `message.content` key or extra keys on a `tool_calls` item, are recorded and do not fail the case. Set `M3_FORMAT_ISSUES` to write them to a jsonl file; they are also raised as pytest warnings.
+- The new shared checks skip the test on a 401, 403, 429 or 5xx response, so it neither passes nor fails.
+- Non-strict cases do not check `arguments` values.
+
+07_03, 14_01, 14_10, 15_01, 15_04, 15_06 and 16_05 also run the shared reply checks on top of their existing assertions.
+
+| Case ID | Function Name | TC | Scene Description | Key Assertions |
+|:---:|:---|:---|:---|:---|
+| 01_01 | `test_01_01_text_non_stream` | TC-040 | No tools declared | finish_reason=stop, no tool_calls, non-empty content |
+| 07_03b | `test_07_03b_echo_history_content_omitted` | TC-192 | History assistant with tool_calls and no content key, tool_choice=none | Accepted with a text answer and no new tool call |
+| 13_01b | `test_13_01b_tool_choice_omitted_auto` | TC-036 | echo + get_time declared, tool_choice omitted | Behaves as auto: a text answer, or calls to declared names only |
+| 13_06b | `test_13_06b_echo_without_description_required` | TC-002 | echo without description, tool_choice=required | finish_reason=tool_calls, every call is echo, arguments is a string |
+| 13_07 | `test_13_07_stream_multi_tool_call` | TC-154 | Streamed calls to the same function | Each call reassembled by index satisfies the schema; arguments do not bleed across calls |
+| 13_07b | `test_13_07b_stream_multi_distinct_tools` | TC-070 | Stream, echo + get_time, required, parallel=true | Distinct ids, declared names, arguments valid per schema; a single call is allowed |
+| 13_07c | `test_13_07c_same_name_parallel_non_stream` | TC-152 | Non-stream, one get_weather tool, required, parallel=true | Every call valid per schema; when two fire, cities differ and cover Beijing and Shanghai |
+| 14_01b | `test_14_01b_multi_tools_required_parallel_fields` | TC-151 | Non-stream, echo + get_time, required, parallel=true | Complete fields, arguments valid per schema, distinct ids |
+| 14_07b | `test_14_07b_non_strict_property_oneof_accepted` | TC-135 | strict=false with a property-level oneOf | Accepted; arguments is a JSON object, values not checked |
+| 14_11 | `test_14_11_strict_2d_bool_array` | TC-118 | Strict 2-D boolean array (non-stream/stream) | Exactly one call, m stays 2-D with real booleans |
+| 14_12 | `test_14_12_strict_tool_schema` | TC-101..115, TC-117 | Strict schemas: anyOf, enum, nullable, nesting, $ref, length, format and others (parametrized by TC) | Exactly one call, arguments fully valid; prompt-fixed values are checked where set |
+| 14_12b | `test_14_12b_non_strict_omit_required_and_additional` | TC-138 | strict=false without required / additionalProperties | Accepted; arguments is a JSON object, values not checked |
+| 14_14 | `test_14_14_custom_tool_formats` | TC-033, TC-034 | Custom tool grammar missing definition / with an invalid syntax | HTTP 400 |
+| 14_15 | `test_14_15_tool_declaration_invalid` | TC-004, TC-006 | Missing function container / wrong name type | HTTP 400 |
+| 14_16 | `test_14_16_schema_capability_negative` | TC-125, TC-136 | Strict patternProperties next to properties / strict=false allOf | Accepted; strict arguments valid per schema, non-strict only need to be a JSON object |
+| 15_01b | `test_15_01b_history_content_null` | TC-191 | History assistant with content=null, tool_choice=none | Accepted with a text answer |
+| 15_04b | `test_15_04b_mixed_tool_and_plain_turns` | TC-204 | History mixing tool and plain turns, tool_choice=none | Accepted with a text answer and no new tool call |
+| 15_06b | `test_15_06b_real_call_string_roundtrip` | TC-059 | String result replayed with the real id and arguments from turn 1 | Turn 2 answers with text and no new tool call |
+| 16_02 / 16_02b | `test_16_02_tool_result_empty_string` / `test_16_02b_real_loop_tool_content_variants` | TC-060 | tool.content is an empty string or a text array | Must be accepted with a well-formed reply (in this file 16_02 no longer accepts 400) |
+| 16_05b | `test_16_05b_tool_result_json_string` | TC-195 | tool.content is a JSON string, tool_choice=none | Accepted with a text answer |
+| 24_013 | `test_24_013_strict_true` | TC-013 | strict=true | Exactly one call; arguments carry only text |
+| 24_014 | `test_24_014_strict_false_null_omitted` | TC-014, TC-015, TC-016 | strict is false / null / omitted | Accepted; every call is echo, arguments is a string |
+| 24_023 | `test_24_023_strict_value_constraints` | TC-023, TC-024, TC-026 | Strict pattern / email / array length | Arguments satisfy the constraint keywords |
+| 24_161 | `test_24_161_function_name_charset` | TC-161 | Function name using a-z, A-Z, 0-9, _ and - | Accepted |
+| 24_165 | `test_24_165_long_description` | TC-165 | Very long description | Accepted |
+| 24_166 | `test_24_166_description_not_string` | TC-166 | description=123 | HTTP 400 |
+| 24_170 | `test_24_170_tools_element_not_object` | TC-170 | tools element is not an object | HTTP 400 |
+| 24_171 | `test_24_171_duplicate_function_names` | TC-171 | Two declarations with the same name | Accepted |
+| 24_180 | `test_24_180_128_tools_boundary` | TC-180 | 128 function declarations, tool_choice=none | Accepted with a text answer |
+| 24_048 | `test_24_048_tool_choice_null` | TC-048 | tool_choice=null | Treated as omitted: a text answer, or calls to the declared echo |
+| 24_143 | `test_24_143_tool_call_id_unique_across_requests` | TC-143 | Two independent requests naming echo | Call ids differ; format not checked |
+| 24_144 | `test_24_144_no_arg_function_arguments_braces` | TC-144 | No-argument get_time, tool_choice=required | arguments is the JSON string of an empty object, never "" or null |
+| 24_062 | `test_24_062_tool_content_array_variants` | TC-062, TC-063 | Real loop with tool.content as an empty array / an image part | Accepted with a text answer |
+| 24_094 | `test_24_094_stream_answer_after_tool_result` | TC-094 | Streamed answer after a tool result, tool_choice=none | finish_reason=stop, no tool_calls deltas, non-empty content |
+| 24_193 | `test_24_193_assistant_tool_call_content_variants` | TC-193, TC-194 | History assistant with tool_calls and content "" / text (non-stream/stream) | Accepted with a text answer |
+| 24_197 | `test_24_197_tool_message_before_assistant_call` | TC-197 | Tool message with no preceding assistant call | HTTP 400 |
 
 ---
 
