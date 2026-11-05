@@ -20,14 +20,34 @@ import pytest
 
 import helpers
 from helpers import (
+    assert_chat_completion_ok,
     assert_oai_stream_success,
+    assert_sse_stream_ok,
     assert_stream_usage_only_in_last_chunk,
     oai_chat,
+    oai_chat_verbatim,
     oai_simple_messages,
     png_base64,
+    stream_final_finish_reason,
+    stream_text,
+    stream_usage,
 )
 from stream_protocol import inspect_stream_tool_calls
 
+
+ECHO_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "echo",
+        "description": "Return the input text.",
+        "parameters": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 CONTENT_STRING_TOOL = {
     "type": "function",
@@ -977,6 +997,55 @@ class TestSSEStream:
         assert_stream_usage_only_in_last_chunk(
             result, msg="02_11 image include_usage"
         )
+
+    def test_02_12_stream_mime_and_json_frames(self):
+        """A successful stream uses the SSE MIME type and JSON data frames."""
+        result = oai_chat({"messages": oai_simple_messages("只回复：hello")}, stream=True)
+        assert_sse_stream_ok(result, msg="02_12")
+
+    def test_02_13_stream_finish_reason_stop(self):
+        """A normal answer ends with finish_reason=stop and non-empty content."""
+        result = oai_chat({"messages": oai_simple_messages("只回复：hello")}, stream=True)
+        assert_sse_stream_ok(result, msg="02_13")
+        finish_reason = stream_final_finish_reason(result)
+        assert finish_reason == "stop", f"02_13 expected stop, got {finish_reason!r}"
+        assert stream_text(result), "02_13 concatenated content is empty"
+
+    def test_02_18_stream_tool_call_terminal_usage(self):
+        """A streaming tool call also reports usage with positive completion tokens."""
+        result = oai_chat({
+            "messages": oai_simple_messages("请调用echo，text=hello。"),
+            "tools": [ECHO_TOOL],
+            "tool_choice": "required",
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_sse_stream_ok(result, msg="02_18")
+        usage = stream_usage(result, msg="02_18")
+        assert usage["completion_tokens"] > 0, f"02_18 completion_tokens: {usage!r}"
+
+    def test_contract_st_105(self):
+        """Streamed reasoning_tokens stay within completion_tokens when reported."""
+        result = oai_chat({
+            "messages": oai_simple_messages("请先思考，再简洁回答：为什么天空通常是蓝色的？"),
+            "reasoning_effort": "high",
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_sse_stream_ok(result, msg="ST-105")
+        usage = stream_usage(result, msg="ST-105")
+        details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = details.get("reasoning_tokens", usage.get("reasoning_tokens"))
+        if reasoning_tokens is None:
+            pytest.skip("ST-105: reasoning_tokens not reported")
+        assert 0 <= reasoning_tokens <= usage["completion_tokens"], (
+            f"ST-105 reasoning_tokens outside completion_tokens: {usage!r}"
+        )
+
+    def test_02_16_stream_omitted_returns_json(self):
+        """Omitting stream returns one complete JSON object."""
+        payload = {"messages": oai_simple_messages("只回复：hello")}
+        assert "stream" not in payload
+        result = oai_chat_verbatim(payload)
+        assert_chat_completion_ok(result, msg="02_16")
 
 
 class TestContentStreamPacketLengthDistribution:

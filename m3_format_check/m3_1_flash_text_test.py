@@ -160,7 +160,8 @@ class TestSSEStream:
     def test_02_01_text_stream(self):
         """Text streaming reply; assert stream can rebuild content properly."""
         r = oai_chat({"messages": oai_simple_messages("What is 1+1?")}, stream=True)
-        assert_oai_stream_success(r)
+        assert_sse_stream_ok(r, msg="02_01")
+        assert isinstance(stream_text(r), str)
 
     def test_02_02_stream_usage(self):
         """Trailing usage chunk: total = prompt + completion + stream finishes cleanly."""
@@ -183,23 +184,38 @@ class TestSSEStream:
         assert_stream_complete(r, msg="stream_usage")
 
     def test_02_03_sse_done_marker(self):
-        """SSE terminating [DONE] marker (known to be missing in some implementations; xfail if absent)."""
-        r = oai_chat({"messages": oai_simple_messages("Hi")}, stream=True)
-        assert_oai_stream_success(r)
-        done_chunks = [c for c in r["chunks"] if c.get("_done")]
-        if not done_chunks:
-            pytest.xfail("Known BUG: SSE stream missing [DONE] marker")
+        """Raw SSE ends with a literal [DONE] data line, a blank line, and no `event: done`."""
+        status, lines = oai_chat_raw_sse_lines({"messages": oai_simple_messages("Hi")})
+        assert status == 200, f"02_03 expected 200, got {status}"
+        data_lines = [line for line in lines if line.startswith("data:")]
+        assert data_lines, "02_03 no data lines in stream"
+        assert data_lines[-1][len("data:"):].strip() == "[DONE]", (
+            f"02_03 last data line is not [DONE]: {data_lines[-1]!r}"
+        )
+        done_at = len(lines) - 1 - lines[::-1].index(data_lines[-1])
+        assert done_at + 1 < len(lines) and lines[done_at + 1] == "", (
+            f"02_03 [DONE] is not terminated by a blank line: {lines[done_at:]!r}"
+        )
+        assert not any(line.startswith("event:") and "done" in line.lower() for line in lines), (
+            "02_03 stream must signal completion with [DONE], not an `event: done` line"
+        )
 
     def test_02_04_stream_chunk_fields(self):
         """Stream chunk required fields: id / choices / object."""
-        r = oai_chat({"messages": oai_simple_messages("Hi")}, stream=True)
-        assert_oai_stream_success(r)
-        for chunk in r["chunks"]:
-            if chunk.get("_done") or chunk.get("_raw"):
-                continue
-            assert "id" in chunk
-            assert "choices" in chunk
-            assert "object" in chunk
+        r = oai_chat({
+            "messages": oai_simple_messages("Hi"),
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_sse_stream_ok(r, msg="02_04")
+        chunks = stream_data_chunks(r)
+        for chunk in chunks:
+            assert isinstance(chunk.get("id"), str) and chunk["id"], f"02_04 bad id: {chunk!r}"
+            assert isinstance(chunk.get("choices"), list), f"02_04 bad choices: {chunk!r}"
+            assert chunk.get("object") == "chat.completion.chunk", f"02_04 bad object: {chunk!r}"
+            assert isinstance(chunk.get("created"), int), f"02_04 bad created: {chunk!r}"
+            assert isinstance(chunk.get("model"), str), f"02_04 bad model: {chunk!r}"
+        assert len({c["id"] for c in chunks}) == 1, "02_04 id changed within one stream"
+        assert len({c["created"] for c in chunks}) == 1, "02_04 created changed within one stream"
 
     def test_02_05_text_include_usage(self):
         """stream_options.include_usage=true in text scenario should return a usage chunk."""
@@ -737,7 +753,8 @@ class TestUsageField:
             {"messages": msgs, "stream_options": {"include_usage": True}},
             stream=True,
         )
-        assert_oai_stream_success(r_s)
+        assert_sse_stream_ok(r_s, msg="10_07")
+        stream_usage(r_s, msg="10_07")
         usage_chunks = [c for c in r_s["chunks"] if c.get("usage")]
         assert usage_chunks, "no usage chunk in stream"
         last_usage = usage_chunks[-1]["usage"]
@@ -847,6 +864,31 @@ class TestUsageField:
         assert isinstance(tt, int) and tt == pt + ct, (
             f"10_10 total_tokens={tt} != prompt({pt})+completion({ct}) (stream). usage={usage!r}"
         )
+
+    def test_10_20_stream_truncated_usage_within_budget(self):
+        """A stream cut short by max_completion_tokens still reports usage within the budget."""
+        r = oai_chat({
+            "messages": oai_simple_messages("Write a detailed 2000-word essay about the history of tea."),
+            "max_completion_tokens": 20,
+            "stream_options": {"include_usage": True},
+        }, stream=True, timeout=120)
+        assert_sse_stream_ok(r, msg="10_20")
+        usage = stream_usage(r, msg="10_20")
+        assert usage["completion_tokens"] <= 20, (
+            f"10_20 completion_tokens exceeds max_completion_tokens=20: {usage!r}"
+        )
+
+    def test_10_21_stream_small_budget_finish_length(self):
+        """A one-token budget ends the stream with finish_reason=length, which may carry no visible text."""
+        r = oai_chat({
+            "messages": oai_simple_messages("从1数到1000。"),
+            "max_completion_tokens": 1,
+        }, stream=True, timeout=120)
+        assert_sse_stream_ok(r, msg="10_21")
+        finish_reason = stream_final_finish_reason(r)
+        if finish_reason == "content_filter":
+            pytest.skip("10_21: filtered response is a separate branch")
+        assert finish_reason == "length", f"10_21 expected length, got {finish_reason!r}"
 
 
 # ============================================================
@@ -1137,6 +1179,7 @@ class TestToolCallBasic:
         r = oai_chat({
             "messages": oai_simple_messages("What's the weather in Beijing?"),
             "tools": [WEATHER_TOOL_OAI],
+            "tool_choice": "required",
         }, stream=True)
         assert_oai_stream_success(r)
         assert_tool_called(
@@ -1146,6 +1189,7 @@ class TestToolCallBasic:
             schema=WEATHER_TOOL_OAI["function"]["parameters"],
             msg="tool_call_stream",
         )
+        assert_sse_stream_ok(r, msg="13_02")
         # Trailing stream finish_reason should be tool_calls
         last_finish = None
         for c in reversed(r["chunks"]):

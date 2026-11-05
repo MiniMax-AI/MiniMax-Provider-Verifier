@@ -918,6 +918,159 @@ def assert_stream_usage_only_in_last_chunk(result, msg: str = ""):
         )
 
 
+def stream_data_chunks(result):
+    """Return JSON data chunks, excluding the [DONE] / event / raw sentinels from oai_chat."""
+    return [
+        c for c in result.get("chunks") or []
+        if isinstance(c, dict) and not any(k in c for k in ("_done", "_event", "_raw"))
+    ]
+
+
+def stream_text(result, choice_index=0):
+    """Concatenate delta.content for one choice, in arrival order."""
+    parts = []
+    for chunk in stream_data_chunks(result):
+        for choice in chunk.get("choices") or []:
+            if choice.get("index", 0) != choice_index:
+                continue
+            content = (choice.get("delta") or {}).get("content")
+            if isinstance(content, str):
+                parts.append(content)
+    return "".join(parts)
+
+
+def stream_final_finish_reason(result, choice_index=0):
+    """Return the last non-null finish_reason reported for one choice."""
+    final = None
+    for chunk in stream_data_chunks(result):
+        for choice in chunk.get("choices") or []:
+            if choice.get("index", 0) == choice_index and choice.get("finish_reason") is not None:
+                final = choice["finish_reason"]
+    return final
+
+
+def stream_usage(result, msg: str = ""):
+    """Return the single usage object in a stream, checking its token arithmetic."""
+    usages = [c["usage"] for c in stream_data_chunks(result) if isinstance(c.get("usage"), dict)]
+    assert len(usages) == 1, f"{msg}: expected exactly one usage object, got {len(usages)}"
+    usage = usages[0]
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = usage.get(key)
+        assert isinstance(value, int) and not isinstance(value, bool), (
+            f"{msg}: usage.{key} should be an int, got {value!r}. usage={usage!r}"
+        )
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], (
+        f"{msg}: usage arithmetic mismatch: {usage!r}"
+    )
+    return usage
+
+
+def assert_sse_stream_ok(result, msg: str = ""):
+    """Common SSE contract: 200, SSE MIME, JSON data frames, valid finish_reason, final [DONE]."""
+    assert_oai_stream_success(result)
+    headers = {k.lower(): v for k, v in (result.get("response_headers") or {}).items()}
+    content_type = headers.get("content-type", "")
+    assert content_type.lower().startswith("text/event-stream"), (
+        f"{msg}: expected text/event-stream, got {content_type!r}"
+    )
+    chunks = result["chunks"]
+    raw_frames = [c["_raw"] for c in chunks if "_raw" in c]
+    assert not raw_frames, f"{msg}: non-JSON data frames: {raw_frames[:3]}"
+    error_chunks = [c for c in chunks if c.get("error")]
+    assert not error_chunks, f"{msg}: error frame in a 200 stream: {error_chunks[:1]}"
+    assert stream_data_chunks(result), f"{msg}: stream has no JSON data chunks"
+    frames = [c for c in chunks if "_event" not in c]
+    assert frames[-1].get("_done"), f"{msg}: last data frame is not [DONE]: {frames[-2:]}"
+    assert sum(1 for c in frames if c.get("_done")) == 1, f"{msg}: more than one [DONE] frame"
+
+
+def oai_chat_verbatim(payload, timeout=300):
+    """POST the payload exactly as given (only `model` is filled in) and read the whole body.
+
+    oai_chat always overwrites `stream`, so it cannot put `stream: null`, an omitted
+    `stream`, or a mistyped value on the wire. Returns the same shape as a non-stream
+    oai_chat call, plus the undecoded response `text`.
+    """
+    payload = {"model": MODEL, **payload}
+    started = time.time()
+    resp = httpx.post(
+        OAI_URL, content=json.dumps(payload).encode("utf-8"), headers=OAI_HEADERS, timeout=timeout,
+    )
+    try:
+        body = resp.json()
+    except Exception:
+        body = {"_raw": resp.text}
+    response_headers = dict(resp.headers)
+    trace_id = _extract_trace_id(response_headers, body, None)
+    try:
+        _write_log_line({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "case_id": _current_case_id(),
+            "endpoint": "oai",
+            "url": OAI_URL,
+            "stream": payload.get("stream", "<omitted>"),
+            "elapsed_ms": int((time.time() - started) * 1000),
+            "status": resp.status_code,
+            "trace_id": trace_id,
+            "request": payload,
+            "response": body,
+            "chunks": None,
+            "response_headers": response_headers,
+        })
+    except Exception:
+        # Logging must never mask a real test failure.
+        pass
+    return {
+        "status": resp.status_code,
+        "body": body,
+        "text": resp.text,
+        "stream": False,
+        "response_headers": response_headers,
+        "trace_id": trace_id,
+    }
+
+
+def _content_type(result):
+    headers = {k.lower(): v for k, v in (result.get("response_headers") or {}).items()}
+    return headers.get("content-type", "").lower()
+
+
+def assert_chat_completion_ok(result, msg: str = ""):
+    """A non-stream success: 200 with one complete JSON ChatCompletion object."""
+    assert result["status"] == 200, (
+        f"{msg}: expected 200, got {result['status']}: {str(result.get('body'))[:300]}"
+    )
+    content_type = _content_type(result)
+    assert not content_type.startswith("text/event-stream"), f"{msg}: got an SSE response"
+    assert content_type.startswith("application/json"), f"{msg}: Content-Type={content_type!r}"
+    body = result["body"]
+    assert isinstance(body, dict) and "_raw" not in body, (
+        f"{msg}: body is not a single JSON object: {str(body)[:300]}"
+    )
+    assert isinstance(body.get("id"), str) and body["id"], f"{msg}: bad id: {body.get('id')!r}"
+    assert body.get("object") == "chat.completion", f"{msg}: bad object: {body.get('object')!r}"
+    assert isinstance(body.get("created"), int), f"{msg}: bad created: {body.get('created')!r}"
+    assert isinstance(body.get("model"), str), f"{msg}: bad model: {body.get('model')!r}"
+    choices = body.get("choices")
+    assert isinstance(choices, list) and choices, f"{msg}: bad choices: {choices!r}"
+    message = choices[0].get("message")
+    assert isinstance(message, dict), f"{msg}: bad message: {choices[0]!r}"
+    assert message.get("role") == "assistant", f"{msg}: bad role: {message!r}"
+    assert choices[0].get("finish_reason") is not None, f"{msg}: missing finish_reason"
+    assert isinstance(body.get("usage"), dict), f"{msg}: missing usage"
+
+
+def oai_chat_raw_sse_lines(payload, timeout=TIMEOUT):
+    """Send a streaming request and return (status, raw SSE lines) without parsing frames."""
+    payload.setdefault("model", MODEL)
+    if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
+        payload["max_tokens"] = DEFAULT_MAX_TOKENS
+    payload["stream"] = True
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", OAI_URL, json=payload, headers=OAI_HEADERS) as resp:
+            return resp.status_code, list(resp.iter_lines())
+
+
 def assert_error(result, expected_status):
     assert result["status"] == expected_status, (
         f"Expected {expected_status}, got {result['status']}: {result.get('body', result.get('chunks', ''))}"
