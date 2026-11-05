@@ -135,65 +135,65 @@
 | 11_02 | [`test_11_02_invalid_messages`](../m2_her_text_tests.py#L642) | messages missing, null, a string or an object. | The request fails and is not treated as a success. | Default |
 | 11_03 | [`test_11_03_invalid_role`](../m2_her_text_tests.py#L655) | A message role missing, an undefined value or a number. | The request fails. | Default |
 | 11_04 | [`test_11_04_invalid_content`](../m2_her_text_tests.py#L676) | content missing, null, a number, an object, or an array of text / image / video / audio parts. | The request fails (including image, video and audio content that M2-her does not support). | Default; native only |
-| 11_05 | [`test_11_05_invalid_name_type`](../m2_her_text_tests.py#L715) | A message name that is a number, an object or an array. | The request fails. | Default |
-| 11_06 | [`test_11_06_authentication_errors`](../m2_her_text_tests.py#L728) | No Authorization header, or an invalid key. | The request fails. | Default |
-| 11_07 | [`test_11_07_invalid_request_envelope`](../m2_her_text_tests.py#L747) | Truncated JSON, a top-level array, or stream as a string / number. | The request fails. | Default |
-| 11_08 | [`test_11_08_legacy_sample_role_spelling`](../m2_her_text_tests.py#L771) | Sample roles written with the legacy names user_sample_message / ai_sample_message; a request with the same content and the correct names is the control. | The correctly named control succeeds and the legacy names fail. | Default; native only; skipped if the control request fails |
-| 11_09 | [`test_11_09_invalid_message_item`](../m2_her_text_tests.py#L788) | messages is an array whose element is null, a string, a number or an array. | The request fails. | Default |
+| 11_05 | [`test_11_05_invalid_name_type`](../m2_her_text_tests.py#L714) | A message name that is a number, an object or an array. | The request fails. | Default |
+| 11_06 | [`test_11_06_authentication_errors`](../m2_her_text_tests.py#L727) | With bearer authentication configured, omit Authorization or send an invalid key. | The request fails. Skip when M2_HER_AUTH_TYPE=none; this case does not test custom authentication. | Default; bearer authentication only |
+| 11_07 | [`test_11_07_invalid_request_envelope`](../m2_her_text_tests.py#L750) | Truncated JSON, a top-level array, or stream as a string / number. | The request fails. | Default |
+| 11_08 | [`test_11_08_legacy_sample_role_spelling`](../m2_her_text_tests.py#L774) | Sample roles written with the legacy names user_sample_message / ai_sample_message; a request with the same content and the correct names is the control. | The correctly named control succeeds and the legacy names fail. | Default; native only; skipped if the control request fails |
+| 11_09 | [`test_11_09_invalid_message_item`](../m2_her_text_tests.py#L791) | messages is an array whose element is null, a string, a number or an array. | The request fails. | Default |
 
 ## 12 long_context — Long input and the 64K context
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 12_01 | [`test_12_01_long_system`](../m2_her_text_tests.py#L798) | About 500 lines of background in system, with a code word at the start, middle and end. | The request succeeds with a well-formed reply; finding the code words is not required. | --run-slow |
-| 12_02 | [`test_12_02_long_persona_and_samples`](../m2_her_text_tests.py#L816) | About 500 lines of text in user_system or a sample ai message. | The request succeeds with a well-formed reply. | --run-slow |
-| 12_03 | [`test_12_03_context_within_64k`](../m2_her_text_tests.py#L837) | At runtime, a few 1-token requests build an input close to 64K from real prompt_tokens; then the real request uses a 64-token limit. | The request succeeds and prompt_tokens matches the measured value. | --run-slow; --context-fixture can supply measured inputs |
-| 12_04 | [`test_12_04_context_over_64k`](../m2_her_text_tests.py#L854) | Reuse the input from 12_03 and raise the output limit to 2048 so that input + output limit exceeds 64K. | The request fails. | --run-slow; --context-fixture can supply measured inputs |
+| 12_01 | [`test_12_01_long_system`](../m2_her_text_tests.py#L801) | About 500 lines of background in system, with a code word at the start, middle and end. | The request succeeds with a well-formed reply; finding the code words is not required. | --run-slow |
+| 12_02 | [`test_12_02_long_persona_and_samples`](../m2_her_text_tests.py#L819) | About 500 lines of text in user_system or a sample ai message. | The request succeeds with a well-formed reply. | --run-slow |
+| 12_03 | [`test_12_03_context_within_64k`](../m2_her_text_tests.py#L840) | At runtime, a few 1-token requests build an input close to 64K from real prompt_tokens; then the real request uses a 64-token limit. | The request succeeds and prompt_tokens matches the measured value. | --run-slow; --context-fixture can supply measured inputs |
+| 12_04 | [`test_12_04_context_over_64k`](../m2_her_text_tests.py#L857) | Reuse the input from 12_03 and raise the output limit to 2048 so that input + output limit exceeds 64K. | The request fails. | --run-slow; --context-fixture can supply measured inputs |
 
 ## 13 role_combo — Seven-role combinations
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 13_01 | [`test_13_01_all_seven_roles`](../m2_her_text_tests.py#L878) | system, user_system, group, one sample dialogue, earlier Q&A and the current question in one request; test the official example as written (some messages without name) and "every message with a name". | With names the request succeeds with a well-formed reply; the official example without names fails. | Default |
-| 13_02 | [`test_13_02_persona_samples_named_history`](../m2_her_text_tests.py#L889) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name), plus item IDs from two visitors; ask for six values in RESULT: format. | The six values AI_K72\|USER_P38\|SCENE_R64\|CODE_V59\|ITEM_A73\|ITEM_B84 come back in order; the RESULT: prefix is optional. | --run-behavior (model behavior, counted separately) |
-| 13_03 | [`test_13_03_long_history_small_output`](../m2_her_text_tests.py#L913) | 20 turns of history with a 64-token output limit. | The output token count is at most 64 and exactly 64 when truncated. | Default; needs completion_tokens, reported as unverifiable if missing |
-| 13_04 | [`test_13_04_roles_with_sampling`](../m2_her_text_tests.py#L920) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name), with temperature=0.5 and top_p=0.95. | The request succeeds with a well-formed reply. | Default |
-| 13_05 | [`test_13_05_one_special_name_omitted`](../m2_her_text_tests.py#L930) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name); each time, drop the name of exactly one of user_system, group, sample user or sample ai. | Dropping any one of these names makes the request fail. | Default |
+| 13_01 | [`test_13_01_all_seven_roles`](../m2_her_text_tests.py#L881) | system, user_system, group, one sample dialogue, earlier Q&A and the current question in one request; test the official example as written (some messages without name) and "every message with a name". | With names the request succeeds with a well-formed reply; the official example without names fails. | Default |
+| 13_02 | [`test_13_02_persona_samples_named_history`](../m2_her_text_tests.py#L892) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name), plus item IDs from two visitors; ask for six values in RESULT: format. | The six values AI_K72\|USER_P38\|SCENE_R64\|CODE_V59\|ITEM_A73\|ITEM_B84 come back in order; the RESULT: prefix is optional. | --run-behavior (model behavior, counted separately) |
+| 13_03 | [`test_13_03_long_history_small_output`](../m2_her_text_tests.py#L916) | 20 turns of history with a 64-token output limit. | The output token count is at most 64 and exactly 64 when truncated. | Default; needs completion_tokens, reported as unverifiable if missing |
+| 13_04 | [`test_13_04_roles_with_sampling`](../m2_her_text_tests.py#L923) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name), with temperature=0.5 and top_p=0.95. | The request succeeds with a well-formed reply. | Default |
+| 13_05 | [`test_13_05_one_special_name_omitted`](../m2_her_text_tests.py#L933) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name); each time, drop the name of exactly one of user_system, group, sample user or sample ai. | Dropping any one of these names makes the request fail. | Default |
 
 ## 16 guide_alignment — Structures from the official guide
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 16_01 | [`test_16_01_guide_role_structures`](../m2_her_text_tests.py#L941) | Send the three structures from the official guide — basic chat, role play and sample-guided — as written (some messages without name) and with every message named. | The named versions and basic chat succeed; role play and sample-guided as written, without names, fail. | Default |
-| 16_04 | [`test_16_04_context_recall`](../m2_her_text_tests.py#L957) | 800 records with a marker at the start, middle and end; ask for the three markers in order. | The reply contains BEGIN_P38, MIDDLE_P49 and END_P50. | --run-behavior (model behavior, counted separately); --run-slow |
+| 16_01 | [`test_16_01_guide_role_structures`](../m2_her_text_tests.py#L944) | Send the three structures from the official guide — basic chat, role play and sample-guided — as written (some messages without name) and with every message named. | The named versions and basic chat succeed; role play and sample-guided as written, without names, fail. | Default |
+| 16_04 | [`test_16_04_context_recall`](../m2_her_text_tests.py#L960) | 800 records with a marker at the start, middle and end; ask for the three markers in order. | The reply contains BEGIN_P38, MIDDLE_P49 and END_P50. | --run-behavior (model behavior, counted separately); --run-slow |
 
 ## 17 candidate_count — n multiple replies
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 17_01 | [`test_17_01_n_default_single_choice`](../m2_her_text_tests.py#L975) | n omitted, null, 0 or -1. | With n omitted, one reply comes back; for null, 0 and -1, accepting or rejecting both pass (an accepted reply must be well-formed, a rejection must be a failed request, never a 5xx), and an accepted request returns one reply. | Default; native only |
-| 17_02 | [`test_17_02_n_candidate_count`](../m2_her_text_tests.py#L992) | Non-streaming requests with n=1 and n=2. | The number of choices equals n, indexes are 0..n-1 without duplicates, every reply is complete and usage is valid; replies need not differ. | Default; native only |
-| 17_03 | [`test_17_03_n_one_stream`](../m2_her_text_tests.py#L1000) | A streaming request with explicit n=1. | Same as a normal stream: a single reply. | Default; native only |
-| 17_04 | [`test_17_04_n_invalid_type`](../m2_her_text_tests.py#L1021) | n as a decimal, a string, true, false, an object, an array or an integer beyond int64. | The request fails. | Default; native only |
-| 17_05 | [`test_17_05_n_stream_conflict`](../m2_her_text_tests.py#L1026) | First confirm non-streaming n=2 works, then send stream=true with n=2. | The request fails. | Default; native only |
-| 17_06 | [`test_17_06_n_tools_conflict`](../m2_her_text_tests.py#L1036) | First confirm non-streaming n=2 works, then add valid tools to the same request. | The request fails. | Default; native only |
-| 17_07 | [`test_17_07_n_with_roles_and_parameters`](../m2_her_text_tests.py#L1056) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name) + n=2 + temperature=0.7 + top_p=0.95, with the limit sent as max_tokens=100 and as max_completion_tokens=100. | Two complete replies with valid top-level fields and usage. | Default; native only |
-| 17_08 | [`test_17_08_n_configured_boundary`](../m2_her_text_tests.py#L1079) | Non-streaming: send n=4, then n=5 (only after n=4 succeeds). --n-limit changes the limit 4. | n=4 returns 4 complete replies; n=5 fails. | Default; --n-limit changes the limit |
+| 17_01 | [`test_17_01_n_default_single_choice`](../m2_her_text_tests.py#L978) | n omitted, null, 0 or -1. | With n omitted, one reply comes back; for null, 0 and -1, accepting or rejecting both pass (an accepted reply must be well-formed, a rejection must be a failed request, never a 5xx), and an accepted request returns one reply. | Default; native only |
+| 17_02 | [`test_17_02_n_candidate_count`](../m2_her_text_tests.py#L995) | Non-streaming requests with n=1 and n=2. | The number of choices equals n, indexes are 0..n-1 without duplicates, every reply is complete and usage is valid; replies need not differ. | Default; native only |
+| 17_03 | [`test_17_03_n_one_stream`](../m2_her_text_tests.py#L1003) | A streaming request with explicit n=1. | Same as a normal stream: a single reply. | Default; native only |
+| 17_04 | [`test_17_04_n_invalid_type`](../m2_her_text_tests.py#L1024) | n as a decimal, a string, true, false, an object, an array or an integer beyond int64. | The request fails. | Default; native only |
+| 17_05 | [`test_17_05_n_stream_conflict`](../m2_her_text_tests.py#L1029) | First confirm non-streaming n=2 works, then send stream=true with n=2. | The request fails. | Default; native only |
+| 17_06 | [`test_17_06_n_tools_conflict`](../m2_her_text_tests.py#L1039) | First confirm non-streaming n=2 works, then add valid tools to the same request. | The request fails. | Default; native only |
+| 17_07 | [`test_17_07_n_with_roles_and_parameters`](../m2_her_text_tests.py#L1059) | A full seven-role conversation (system, user_system, group, sample dialogue, earlier Q&A and the current question, every message with a name) + n=2 + temperature=0.7 + top_p=0.95, with the limit sent as max_tokens=100 and as max_completion_tokens=100. | Two complete replies with valid top-level fields and usage. | Default; native only |
+| 17_08 | [`test_17_08_n_configured_boundary`](../m2_her_text_tests.py#L1082) | Non-streaming: send n=4, then n=5 (only after n=4 succeeds). --n-limit changes the limit 4. | n=4 returns 4 complete replies; n=5 fails. | Default; --n-limit changes the limit |
 
 ## 18 request_metadata — metadata / user / mask_sensitive_info
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 18_01 | [`test_18_01_request_metadata_valid`](../m2_her_text_tests.py#L1099) | metadata as a string map (including Chinese and 255-byte keys/values), user as a string, mask_sensitive_info=true/false. | The request succeeds with a well-formed response; logging and masking effects are not checked. | Default; native only |
-| 18_02 | [`test_18_02_request_metadata_invalid_type`](../m2_her_text_tests.py#L1135) | metadata as a string, an array or with numeric values; user as a number or object; mask_sensitive_info as a string or number. | The request fails. | Default; native only |
-| 18_03 | [`test_18_03_metadata_length_boundary`](../m2_her_text_tests.py#L1143) | A metadata key or value 256 bytes long (the limit is 255). | The request fails. | Default; native only |
+| 18_01 | [`test_18_01_request_metadata_valid`](../m2_her_text_tests.py#L1102) | metadata as a string map (including Chinese and 255-byte keys/values), user as a string, mask_sensitive_info=true/false. | The request succeeds with a well-formed response; logging and masking effects are not checked. | Default; native only |
+| 18_02 | [`test_18_02_request_metadata_invalid_type`](../m2_her_text_tests.py#L1138) | metadata as a string, an array or with numeric values; user as a number or object; mask_sensitive_info as a string or number. | The request fails. | Default; native only |
+| 18_03 | [`test_18_03_metadata_length_boundary`](../m2_her_text_tests.py#L1146) | A metadata key or value 256 bytes long (the limit is 255). | The request fails. | Default; native only |
 
 ## 19 language_consistency — Reply language
 
 | Case ID | Function | Scenario | Main checks | Run condition |
 |:---:|:---|:---|:---|:---|
-| 19_01 | [`test_19_01_reply_follows_user_language`](../m2_her_text_tests.py#L1166) | Ask in 11 languages: Simplified Chinese, Traditional Chinese, English, Japanese, Korean, Spanish, French, German, Portuguese, Russian and Arabic. | The reply uses the question's language without sentences in other languages. Up to 3 attempts per language, 2 must pass; a failed request fails the case at once. | --run-behavior (model behavior, counted separately) |
-| 19_04 | [`test_19_04_multiturn_language_retention`](../m2_her_text_tests.py#L1226) | The persona is in language A; the user has already spoken language B for three turns and asks again; all 12 ordered pairs of Chinese, English, Japanese and Korean. | The reply stays in the user's language B and is not pulled into the persona language. | --run-behavior (model behavior, counted separately) |
+| 19_01 | [`test_19_01_reply_follows_user_language`](../m2_her_text_tests.py#L1169) | Ask in 11 languages: Simplified Chinese, Traditional Chinese, English, Japanese, Korean, Spanish, French, German, Portuguese, Russian and Arabic. | The reply uses the question's language without sentences in other languages. Up to 3 attempts per language, 2 must pass; a failed request fails the case at once. | --run-behavior (model behavior, counted separately) |
+| 19_04 | [`test_19_04_multiturn_language_retention`](../m2_her_text_tests.py#L1229) | The persona is in language A; the user has already spoken language B for three turns and asks again; all 12 ordered pairs of Chinese, English, Japanese and Korean. | The reply stays in the user's language B and is not pulled into the persona language. | --run-behavior (model behavior, counted separately) |
 
 ---
 

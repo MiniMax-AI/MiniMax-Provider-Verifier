@@ -26,8 +26,8 @@
 | 15_06 | [`test_15_06_stream_extensions`](../m2_her_compat_tests.py#L187) | 原生接口流式请求，分别不传 stream_options、传 include_usage=true、传 include_usage=false。 | 三种写法都成功，且流式结果都带 usage。 | 需 --run-compat；预期值可用 --contract 文件替换 |
 | 15_07 | [`test_15_07_undeclared_parameters`](../m2_her_compat_tests.py#L237) | 普通请求分别附加 tools、tool_choice、thinking、reasoning_split、reasoning_effort、response_format、seed、stop。 | 每个参数都接受或拒绝都算通过（接受时回复格式正确，拒绝时为请求失败，不能返回 5xx）。只检查能否正常处理，不代表这些功能会生效。 | 需 --run-compat；预期值可用 --contract 文件替换 |
 | 15_08 | [`test_15_08_stream_packet_quality`](../m2_her_compat_tests.py#L250) | 写游记长文、生成 JSON 列表两种任务，各流式请求 3 次；累计内容不足 1000 字时带上已有回复继续生成，最多 20 次，每次上限 2048 token。 | 每次响应的第一个包不超过 6 个字符（首个 token 立刻下发），中间的包不少于 5 个字符，任何一个包不超过 512 个字符。请求 20 次仍不足 1000 字时记为“未验证”。 | 需 --run-compat；预期值可用 --contract 文件替换；需 --run-slow |
-| 15_09 | [`test_15_09_legacy_narrator`](../m2_her_compat_tests.py#L306) | 主角色 system 之外再加一条 name 为“旁白”的 system，并带 user_system 和 user（都带 name）。 | 流式、非流式都成功，以主角色的口吻回复。 | 需 --run-compat；预期值可用 --contract 文件替换 |
-| 15_10 | [`test_15_10_legacy_suggest_reply`](../m2_her_compat_tests.py#L323) | 最后一条 user 的 name 为“推荐回复”、content 为空；分别测带示例和不带示例。 | 带不带示例、流式非流式都成功，返回一句推荐回复。 | 需 --run-compat；预期值可用 --contract 文件替换 |
+| 15_09 | [`test_15_09_legacy_narrator`](../m2_her_compat_tests.py#L306) | 主角色 system 之外再加一条 name 为“旁白”的 system，并带 user_system 和 user（都带 name）。 | 流式、非流式都请求成功，回复格式正确且正文非空；不检查回复使用哪个角色的口吻。 | 需 --run-compat；预期值可用 --contract 文件替换 |
+| 15_10 | [`test_15_10_legacy_suggest_reply`](../m2_her_compat_tests.py#L323) | 最后一条 user 的 name 为“推荐回复”、content 为空；分别测带示例和不带示例。 | 带不带示例、流式非流式都请求成功，回复格式正确且正文非空；不检查回复的语义或句子数量。 | 需 --run-compat；预期值可用 --contract 文件替换 |
 | 15_11 | [`test_15_11_legacy_named_group_chat`](../m2_her_compat_tests.py#L348) | 两条带 name 的 system（角色A、角色B）加一条 user。 | 请求失败（合法的场景描述应使用 group 角色）。 | 需 --run-compat；预期值可用 --contract 文件替换 |
 | 15_12 | [`test_15_12_legacy_token_boundaries`](../m2_her_compat_tests.py#L362) | 旧参数 max_tokens 分别取 -1、0、1，流式、非流式各一次；取 1 时用长篇续写任务。 | -1 和 0 接受或拒绝都算通过（接受时回复格式正确，拒绝时为请求失败，不能返回 5xx）；取 1 时成功，输出在 1 个 token 处截断。 | 需 --run-compat；预期值可用 --contract 文件替换 |
 

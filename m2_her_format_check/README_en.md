@@ -15,7 +15,9 @@ M2-Her is an older model and its public docs diverge from the actual API in many
 | Must fail | **HTTP status is not 200, or HTTP 200 with a non-zero business code (`base_resp.status_code`) or an `error` object**, and no reply text comes back. **Error codes, messages and framing are not compared** | Wrong types, missing fields, bad auth, input over 64K, n=5, advanced roles without `name` |
 | Accept or reject | Values the docs rule out but the official API accepts: an acceptance must be a well-formed reply, a rejection must meet "must fail"; **a 5xx always fails** | temperature=0 / 1.01, top_p=0, max_completion_tokens=0 / -1 / null, n=0 / -1 / null, undeclared parameters |
 
-The official API returns HTTP 200 for every error and puts the error in the business code, and some of its codes and messages are not well designed (e.g. `unknown error, 999`). Error cases therefore only require the request to fail; providers are not expected to copy the official error format.
+The measured error scenarios all returned HTTP 200 with a business error code, sometimes with inconsistent codes or messages. Error cases therefore use the common request-failure rule without requiring providers to copy those codes or messages.
+
+Error responses may use JSON, SSE, or several consecutive complete JSON objects. Parsing must consume the complete response: invalid UTF-8, trailing JSON garbage, and malformed or incomplete SSE events fail. Non-200 plain-text or HTML error pages may also indicate rejection; responses declared as JSON / SSE or starting with a JSON object or array must parse correctly.
 
 Model-behavior cases (`--run-behavior`) are limited to core capabilities that passed in all 10 full runs against the official API. 19_01 (reply in the user's language) allows up to 3 attempts per language and needs 2 to pass.
 
@@ -54,7 +56,7 @@ export M2_HER_API_KEY="sk-xxx"
 The request URL, headers and the `model` in the request body all come from environment variables; the cases contain no hard-coded address, key or routing information:
 
 - URL = `M2_HER_BASE_URL` + `/v1/text/chatcompletion_v2` (`/v1/chat/completions` with `M2_HER_API_STYLE=openai`) + `M2_HER_QUERY_PARAMS`
-- Headers = `Content-Type` + `M2_HER_EXTRA_HEADERS` + `Authorization: Bearer $M2_HER_API_KEY`
+- Headers = `Content-Type` + `M2_HER_EXTRA_HEADERS`; when `M2_HER_AUTH_TYPE=bearer`, set `Authorization: Bearer $M2_HER_API_KEY`
 - Body `model` = `M2_HER_MODEL`
 
 ## Optional environment variables
@@ -63,7 +65,7 @@ The request URL, headers and the `model` in the request body all come from envir
 |------|------|------|
 | `M2_HER_MODEL` | `M2-her` | Model ID sent in requests; may be the provider's model name |
 | `M2_HER_RESPONSE_MODEL` | same as `M2_HER_MODEL` | Expected `model` in responses; set it when the API returns a different name |
-| `M2_HER_AUTH_TYPE` | `bearer` | `none` sends no `Authorization` (the auth case 11_06 is skipped); for endpoints without auth or with a custom auth header in `M2_HER_EXTRA_HEADERS` |
+| `M2_HER_AUTH_TYPE` | `bearer` | `none` disables automatic bearer authentication (case 11_06 is skipped); explicitly configured headers in `M2_HER_EXTRA_HEADERS`, including custom `Authorization`, are preserved. HTTP and SDK use the same rules |
 | `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`; `openai` → `/v1/chat/completions` (only the 15_* compatibility cases run) |
 | `M2_HER_TIMEOUT` | `120` | Per-request timeout in seconds |
 | `M2_HER_EXTRA_HEADERS` | (empty) | JSON string of extra request headers, e.g. `'{"X-Custom-Header": "value"}'` |

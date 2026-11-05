@@ -135,65 +135,65 @@
 | 11_02 | [`test_11_02_invalid_messages`](../m2_her_text_tests.py#L642) | messages 不传、为 null、字符串或对象。 | 请求失败，不能当作成功处理。 | 默认运行 |
 | 11_03 | [`test_11_03_invalid_role`](../m2_her_text_tests.py#L655) | 消息的 role 不传、填未定义的值或数字。 | 请求失败。 | 默认运行 |
 | 11_04 | [`test_11_04_invalid_content`](../m2_her_text_tests.py#L676) | content 不传、为 null、数字、对象，或是文本 / 图片 / 视频 / 音频组成的数组。 | 请求失败（包括 M2-her 不支持的图片、视频、音频内容）。 | 默认运行；仅原生接口 |
-| 11_05 | [`test_11_05_invalid_name_type`](../m2_her_text_tests.py#L715) | 消息的 name 为数字、对象或数组。 | 请求失败。 | 默认运行 |
-| 11_06 | [`test_11_06_authentication_errors`](../m2_her_text_tests.py#L728) | 不带 Authorization，或使用无效的 Key。 | 请求失败。 | 默认运行 |
-| 11_07 | [`test_11_07_invalid_request_envelope`](../m2_her_text_tests.py#L747) | 发送截断的 JSON、顶层为数组，或 stream 为字符串 / 数字。 | 请求失败。 | 默认运行 |
-| 11_08 | [`test_11_08_legacy_sample_role_spelling`](../m2_her_text_tests.py#L771) | 示例角色写成旧名称 user_sample_message / ai_sample_message；先用相同内容、正确名称的请求做对照。 | 正确名称的对照请求成功，旧名称请求失败。 | 默认运行；仅原生接口；对照请求失败时跳过 |
-| 11_09 | [`test_11_09_invalid_message_item`](../m2_her_text_tests.py#L788) | messages 是数组，但其中元素为 null、字符串、数字或数组。 | 请求失败。 | 默认运行 |
+| 11_05 | [`test_11_05_invalid_name_type`](../m2_her_text_tests.py#L714) | 消息的 name 为数字、对象或数组。 | 请求失败。 | 默认运行 |
+| 11_06 | [`test_11_06_authentication_errors`](../m2_her_text_tests.py#L727) | 配置 Bearer 鉴权时，分别不带 Authorization 或使用无效的 Key。 | 请求失败。M2_HER_AUTH_TYPE=none 时跳过；本用例不验证自定义鉴权。 | 默认运行；仅 Bearer 鉴权 |
+| 11_07 | [`test_11_07_invalid_request_envelope`](../m2_her_text_tests.py#L750) | 发送截断的 JSON、顶层为数组，或 stream 为字符串 / 数字。 | 请求失败。 | 默认运行 |
+| 11_08 | [`test_11_08_legacy_sample_role_spelling`](../m2_her_text_tests.py#L774) | 示例角色写成旧名称 user_sample_message / ai_sample_message；先用相同内容、正确名称的请求做对照。 | 正确名称的对照请求成功，旧名称请求失败。 | 默认运行；仅原生接口；对照请求失败时跳过 |
+| 11_09 | [`test_11_09_invalid_message_item`](../m2_her_text_tests.py#L791) | messages 是数组，但其中元素为 null、字符串、数字或数组。 | 请求失败。 | 默认运行 |
 
 ## 12 long_context — 长输入与 64K 上下文
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 12_01 | [`test_12_01_long_system`](../m2_her_text_tests.py#L798) | system 中放约 500 行背景记录，开头、中间、结尾各有一个暗号。 | 请求成功，回复格式正确；不要求找出暗号。 | 需 --run-slow |
-| 12_02 | [`test_12_02_long_persona_and_samples`](../m2_her_text_tests.py#L816) | 在 user_system 或示例 ai 消息中放约 500 行文本。 | 请求成功，回复格式正确。 | 需 --run-slow |
-| 12_03 | [`test_12_03_context_within_64k`](../m2_her_text_tests.py#L837) | 运行时先用若干次只输出 1 个 token 的请求，按真实 prompt_tokens 拼出接近 64K 的输入，再以 64 token 上限正式请求。 | 请求成功，且 prompt_tokens 与拼装时测得的值一致。 | 需 --run-slow；可用 --context-fixture 提供已测好的长输入 |
-| 12_04 | [`test_12_04_context_over_64k`](../m2_her_text_tests.py#L854) | 用 12_03 拼好的同一份长输入，把输出上限提高到 2048，使“输入 + 输出上限”超过 64K。 | 请求失败。 | 需 --run-slow；可用 --context-fixture 提供已测好的长输入 |
+| 12_01 | [`test_12_01_long_system`](../m2_her_text_tests.py#L801) | system 中放约 500 行背景记录，开头、中间、结尾各有一个暗号。 | 请求成功，回复格式正确；不要求找出暗号。 | 需 --run-slow |
+| 12_02 | [`test_12_02_long_persona_and_samples`](../m2_her_text_tests.py#L819) | 在 user_system 或示例 ai 消息中放约 500 行文本。 | 请求成功，回复格式正确。 | 需 --run-slow |
+| 12_03 | [`test_12_03_context_within_64k`](../m2_her_text_tests.py#L840) | 运行时先用若干次只输出 1 个 token 的请求，按真实 prompt_tokens 拼出接近 64K 的输入，再以 64 token 上限正式请求。 | 请求成功，且 prompt_tokens 与拼装时测得的值一致。 | 需 --run-slow；可用 --context-fixture 提供已测好的长输入 |
+| 12_04 | [`test_12_04_context_over_64k`](../m2_her_text_tests.py#L857) | 用 12_03 拼好的同一份长输入，把输出上限提高到 2048，使“输入 + 输出上限”超过 64K。 | 请求失败。 | 需 --run-slow；可用 --context-fixture 提供已测好的长输入 |
 
 ## 13 role_combo — 七种角色组合
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 13_01 | [`test_13_01_all_seven_roles`](../m2_her_text_tests.py#L878) | system、user_system、group、一组示例对话、历史问答、当前提问一次发送；分别测“按官网示例部分消息不带 name”和“每条都带 name”两种写法。 | 每条都带 name 时请求成功，回复格式正确；按官网示例不带 name 时请求失败。 | 默认运行 |
-| 13_02 | [`test_13_02_persona_samples_named_history`](../m2_her_text_tests.py#L889) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name），再加上两位访客的物品编号，要求按 RESULT: 格式依次给出六项信息。 | 依次给出 AI_K72\|USER_P38\|SCENE_R64\|CODE_V59\|ITEM_A73\|ITEM_B84 六项；带不带 RESULT: 前缀都算对。 | 需 --run-behavior（模型行为，单独统计） |
-| 13_03 | [`test_13_03_long_history_small_output`](../m2_her_text_tests.py#L913) | 20 轮历史，输出上限 64 token。 | 输出 token 数不超过 64；因达到上限结束时恰好等于 64。 | 默认运行；需返回 completion_tokens，缺失时判为无法验证 |
-| 13_04 | [`test_13_04_roles_with_sampling`](../m2_her_text_tests.py#L920) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name），同时传 temperature=0.5、top_p=0.95。 | 请求成功，回复格式正确。 | 默认运行 |
-| 13_05 | [`test_13_05_one_special_name_omitted`](../m2_her_text_tests.py#L930) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name）中，每次只去掉 user_system、group、示例 user、示例 ai 其中一条的 name。 | 去掉任何一条的 name 都会请求失败。 | 默认运行 |
+| 13_01 | [`test_13_01_all_seven_roles`](../m2_her_text_tests.py#L881) | system、user_system、group、一组示例对话、历史问答、当前提问一次发送；分别测“按官网示例部分消息不带 name”和“每条都带 name”两种写法。 | 每条都带 name 时请求成功，回复格式正确；按官网示例不带 name 时请求失败。 | 默认运行 |
+| 13_02 | [`test_13_02_persona_samples_named_history`](../m2_her_text_tests.py#L892) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name），再加上两位访客的物品编号，要求按 RESULT: 格式依次给出六项信息。 | 依次给出 AI_K72\|USER_P38\|SCENE_R64\|CODE_V59\|ITEM_A73\|ITEM_B84 六项；带不带 RESULT: 前缀都算对。 | 需 --run-behavior（模型行为，单独统计） |
+| 13_03 | [`test_13_03_long_history_small_output`](../m2_her_text_tests.py#L916) | 20 轮历史，输出上限 64 token。 | 输出 token 数不超过 64；因达到上限结束时恰好等于 64。 | 默认运行；需返回 completion_tokens，缺失时判为无法验证 |
+| 13_04 | [`test_13_04_roles_with_sampling`](../m2_her_text_tests.py#L923) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name），同时传 temperature=0.5、top_p=0.95。 | 请求成功，回复格式正确。 | 默认运行 |
+| 13_05 | [`test_13_05_one_special_name_omitted`](../m2_her_text_tests.py#L933) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name）中，每次只去掉 user_system、group、示例 user、示例 ai 其中一条的 name。 | 去掉任何一条的 name 都会请求失败。 | 默认运行 |
 
 ## 16 guide_alignment — 官网指南中的写法
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 16_01 | [`test_16_01_guide_role_structures`](../m2_her_text_tests.py#L941) | 按官网指南发送基础对话、角色扮演、示例引导三种消息结构；分别测“照官网原样（部分消息不带 name）”和“每条都带 name”。 | 每条都带 name 的写法、以及基础对话都成功；角色扮演和示例引导照官网原样不带 name 时请求失败。 | 默认运行 |
-| 16_04 | [`test_16_04_context_recall`](../m2_her_text_tests.py#L957) | 800 条记录的开头、中间、结尾各放一个标记，让模型按顺序列出这三个标记。 | 回复同时包含 BEGIN_P38、MIDDLE_P49、END_P50。 | 需 --run-behavior（模型行为，单独统计）；需 --run-slow |
+| 16_01 | [`test_16_01_guide_role_structures`](../m2_her_text_tests.py#L944) | 按官网指南发送基础对话、角色扮演、示例引导三种消息结构；分别测“照官网原样（部分消息不带 name）”和“每条都带 name”。 | 每条都带 name 的写法、以及基础对话都成功；角色扮演和示例引导照官网原样不带 name 时请求失败。 | 默认运行 |
+| 16_04 | [`test_16_04_context_recall`](../m2_her_text_tests.py#L960) | 800 条记录的开头、中间、结尾各放一个标记，让模型按顺序列出这三个标记。 | 回复同时包含 BEGIN_P38、MIDDLE_P49、END_P50。 | 需 --run-behavior（模型行为，单独统计）；需 --run-slow |
 
 ## 17 candidate_count — n 多条回复
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 17_01 | [`test_17_01_n_default_single_choice`](../m2_her_text_tests.py#L975) | n 不传、为 null、0 或 -1。 | 不传 n 时只返回一条回复；null、0、-1 接受或拒绝都算通过（接受时回复格式正确，拒绝时为请求失败，不能返回 5xx），接受时只返回一条回复。 | 默认运行；仅原生接口 |
-| 17_02 | [`test_17_02_n_candidate_count`](../m2_her_text_tests.py#L992) | 非流式请求，n=1 和 n=2。 | choices 条数等于 n，index 为 0 到 n-1 且不重复，每条回复都完整，usage 正确；不要求几条回复内容不同。 | 默认运行；仅原生接口 |
-| 17_03 | [`test_17_03_n_one_stream`](../m2_her_text_tests.py#L1000) | 流式请求，显式传 n=1。 | 和普通流式一样，只有一条回复。 | 默认运行；仅原生接口 |
-| 17_04 | [`test_17_04_n_invalid_type`](../m2_her_text_tests.py#L1021) | n 为小数、字符串、true、false、对象、数组或超大整数。 | 请求失败。 | 默认运行；仅原生接口 |
-| 17_05 | [`test_17_05_n_stream_conflict`](../m2_her_text_tests.py#L1026) | 先确认非流式 n=2 正常，再发送 stream=true、n=2。 | 请求失败。 | 默认运行；仅原生接口 |
-| 17_06 | [`test_17_06_n_tools_conflict`](../m2_her_text_tests.py#L1036) | 先确认非流式 n=2 正常，再在同一请求里加上合法的 tools。 | 请求失败。 | 默认运行；仅原生接口 |
-| 17_07 | [`test_17_07_n_with_roles_and_parameters`](../m2_her_text_tests.py#L1056) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name） + n=2 + temperature=0.7 + top_p=0.95，输出上限分别用 max_tokens=100 和 max_completion_tokens=100。 | 返回两条完整回复，外层字段和 usage 正确。 | 默认运行；仅原生接口 |
-| 17_08 | [`test_17_08_n_configured_boundary`](../m2_her_text_tests.py#L1079) | 非流式请求：先发 n=4；再发 n=5（只在 n=4 成功后发送）。可用 --n-limit 修改上限值 4。 | n=4 返回 4 条完整回复；n=5 请求失败。 | 默认运行；--n-limit 可修改上限值 |
+| 17_01 | [`test_17_01_n_default_single_choice`](../m2_her_text_tests.py#L978) | n 不传、为 null、0 或 -1。 | 不传 n 时只返回一条回复；null、0、-1 接受或拒绝都算通过（接受时回复格式正确，拒绝时为请求失败，不能返回 5xx），接受时只返回一条回复。 | 默认运行；仅原生接口 |
+| 17_02 | [`test_17_02_n_candidate_count`](../m2_her_text_tests.py#L995) | 非流式请求，n=1 和 n=2。 | choices 条数等于 n，index 为 0 到 n-1 且不重复，每条回复都完整，usage 正确；不要求几条回复内容不同。 | 默认运行；仅原生接口 |
+| 17_03 | [`test_17_03_n_one_stream`](../m2_her_text_tests.py#L1003) | 流式请求，显式传 n=1。 | 和普通流式一样，只有一条回复。 | 默认运行；仅原生接口 |
+| 17_04 | [`test_17_04_n_invalid_type`](../m2_her_text_tests.py#L1024) | n 为小数、字符串、true、false、对象、数组或超大整数。 | 请求失败。 | 默认运行；仅原生接口 |
+| 17_05 | [`test_17_05_n_stream_conflict`](../m2_her_text_tests.py#L1029) | 先确认非流式 n=2 正常，再发送 stream=true、n=2。 | 请求失败。 | 默认运行；仅原生接口 |
+| 17_06 | [`test_17_06_n_tools_conflict`](../m2_her_text_tests.py#L1039) | 先确认非流式 n=2 正常，再在同一请求里加上合法的 tools。 | 请求失败。 | 默认运行；仅原生接口 |
+| 17_07 | [`test_17_07_n_with_roles_and_parameters`](../m2_her_text_tests.py#L1059) | 完整七角色对话（system、user_system、group、示例对话、历史问答、当前提问，每条都带 name） + n=2 + temperature=0.7 + top_p=0.95，输出上限分别用 max_tokens=100 和 max_completion_tokens=100。 | 返回两条完整回复，外层字段和 usage 正确。 | 默认运行；仅原生接口 |
+| 17_08 | [`test_17_08_n_configured_boundary`](../m2_her_text_tests.py#L1082) | 非流式请求：先发 n=4；再发 n=5（只在 n=4 成功后发送）。可用 --n-limit 修改上限值 4。 | n=4 返回 4 条完整回复；n=5 请求失败。 | 默认运行；--n-limit 可修改上限值 |
 
 ## 18 request_metadata — metadata / user / mask_sensitive_info
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 18_01 | [`test_18_01_request_metadata_valid`](../m2_her_text_tests.py#L1099) | metadata 为字符串键值对（含中文、255 字节长的键和值），user 为字符串，mask_sensitive_info 为 true / false。 | 请求成功，响应格式正确；不检查日志记录或脱敏效果。 | 默认运行；仅原生接口 |
-| 18_02 | [`test_18_02_request_metadata_invalid_type`](../m2_her_text_tests.py#L1135) | metadata 为字符串、数组或值为数字；user 为数字或对象；mask_sensitive_info 为字符串或数字。 | 请求失败。 | 默认运行；仅原生接口 |
-| 18_03 | [`test_18_03_metadata_length_boundary`](../m2_her_text_tests.py#L1143) | metadata 的键或值长 256 字节（上限 255）。 | 请求失败。 | 默认运行；仅原生接口 |
+| 18_01 | [`test_18_01_request_metadata_valid`](../m2_her_text_tests.py#L1102) | metadata 为字符串键值对（含中文、255 字节长的键和值），user 为字符串，mask_sensitive_info 为 true / false。 | 请求成功，响应格式正确；不检查日志记录或脱敏效果。 | 默认运行；仅原生接口 |
+| 18_02 | [`test_18_02_request_metadata_invalid_type`](../m2_her_text_tests.py#L1138) | metadata 为字符串、数组或值为数字；user 为数字或对象；mask_sensitive_info 为字符串或数字。 | 请求失败。 | 默认运行；仅原生接口 |
+| 18_03 | [`test_18_03_metadata_length_boundary`](../m2_her_text_tests.py#L1146) | metadata 的键或值长 256 字节（上限 255）。 | 请求失败。 | 默认运行；仅原生接口 |
 
 ## 19 language_consistency — 回复语言
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|
-| 19_01 | [`test_19_01_reply_follows_user_language`](../m2_her_text_tests.py#L1166) | 分别用简体中文、繁体中文、英、日、韩、西、法、德、葡、俄、阿 11 种语言提问。 | 用提问的语言回复，不夹杂其他语言的句子。每种语言最多请求 3 次，至少 2 次符合即通过；请求本身出错时直接判失败。 | 需 --run-behavior（模型行为，单独统计） |
-| 19_04 | [`test_19_04_multiturn_language_retention`](../m2_her_text_tests.py#L1226) | 角色设定用语言 A，用户已经用语言 B 聊了三轮，再继续提问；中英日韩两两组合共 12 组。 | 继续用用户的语言 B 回复，不被设定语言带偏。 | 需 --run-behavior（模型行为，单独统计） |
+| 19_01 | [`test_19_01_reply_follows_user_language`](../m2_her_text_tests.py#L1169) | 分别用简体中文、繁体中文、英、日、韩、西、法、德、葡、俄、阿 11 种语言提问。 | 用提问的语言回复，不夹杂其他语言的句子。每种语言最多请求 3 次，至少 2 次符合即通过；请求本身出错时直接判失败。 | 需 --run-behavior（模型行为，单独统计） |
+| 19_04 | [`test_19_04_multiturn_language_retention`](../m2_her_text_tests.py#L1229) | 角色设定用语言 A，用户已经用语言 B 聊了三轮，再继续提问；中英日韩两两组合共 12 组。 | 继续用用户的语言 B 回复，不被设定语言带偏。 | 需 --run-behavior（模型行为，单独统计） |
 
 ---
 

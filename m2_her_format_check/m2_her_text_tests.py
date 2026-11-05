@@ -674,8 +674,7 @@ class TestErrors:
         ],
     )
     def test_11_04_invalid_content(self, client, variant, preflight):
-        """Observed: video parts are 2013; every other non-string content is error 1000
-        written after a status-0 placeholder envelope in the same body."""
+        """Non-string or missing content must fail, regardless of error code or framing."""
         preflight(client, stream=False)
         if client.settings.style != "native":
             pytest.skip(
@@ -727,6 +726,10 @@ class TestErrors:
     @pytest.mark.parametrize("variant", ["missing", "invalid"])
     def test_11_06_authentication_errors(self, client, stream, variant, preflight):
         """Explicit headers bypass default authorization, including extra headers."""
+        if client.settings.auth_type != "bearer":
+            pytest.skip(
+                "Bearer authentication is not configured; authentication not validated"
+            )
         preflight(client, stream=stream)
         headers = {
             k: v
@@ -1237,4 +1240,3 @@ class TestLanguageConsistency:
             stream=stream,
         )
         assert_language(result, language)
-

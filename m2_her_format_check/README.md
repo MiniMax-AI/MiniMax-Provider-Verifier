@@ -15,7 +15,9 @@ M2-Her 是较早发布的模型，官网文档与实际接口行为有不少出�
 | 必须请求失败 | **HTTP 状态码非 200，或 HTTP 200 但响应中业务码（`base_resp.status_code`）非 0 / 带 `error` 对象**，且没有返回回复内容。**不比对具体的错误码、错误信息和返回形态** | 类型错误、缺字段、鉴权失败、超出 64K、n=5、高级角色省略 name |
 | 接受或拒绝都可以 | 文档不允许、但官方接口接受的取值：接受时回复格式须正确，拒绝时按“请求失败”判定；**不能返回 5xx** | temperature=0 / 1.01、top_p=0、max_completion_tokens=0 / -1 / null、n=0 / -1 / null、未声明的参数 |
 
-官方接口所有错误都返回 HTTP 200，错误写在业务码里，且部分错误码、错误信息并不规范（如 `unknown error, 999`），因此报错类用例只要求“请求失败”，不要求供应商照搬。
+实测的错误场景均返回 HTTP 200，错误写在业务码里，且部分错误码、错误信息并不规范，因此报错类用例按“请求失败”判定，不要求供应商照搬错误码或文案。
+
+错误响应可以使用 JSON、SSE 或多个连续的完整 JSON 对象；解析必须完整，损坏的 UTF-8、JSON 尾部垃圾、不完整或损坏的 SSE 事件都会失败。非 200 的纯文本或 HTML 错误页也可表示拒绝；声明为 JSON / SSE 或以 JSON 对象、数组开头的响应必须正确解析。
 
 模型行为类用例（`--run-behavior`）只保留核心能力，且对官方接口 10 轮全量执行均稳定通过；其中 19_01（用提问的语言回复）每个语种最多请求 3 次、至少 2 次符合即通过。
 
@@ -54,7 +56,7 @@ export M2_HER_API_KEY="sk-xxx"
 请求地址、请求头和请求体中的 `model` 都来自环境变量，用例代码里没有写死任何地址、密钥或路由信息：
 
 - URL = `M2_HER_BASE_URL` + `/v1/text/chatcompletion_v2`（`M2_HER_API_STYLE=openai` 时为 `/v1/chat/completions`）+ `M2_HER_QUERY_PARAMS`
-- 请求头 = `Content-Type` + `M2_HER_EXTRA_HEADERS` + `Authorization: Bearer $M2_HER_API_KEY`
+- 请求头 = `Content-Type` + `M2_HER_EXTRA_HEADERS`；`M2_HER_AUTH_TYPE=bearer` 时再设置 `Authorization: Bearer $M2_HER_API_KEY`
 - 请求体 `model` = `M2_HER_MODEL`
 
 ## 可选环境变量
@@ -63,7 +65,7 @@ export M2_HER_API_KEY="sk-xxx"
 |------|------|------|
 | `M2_HER_MODEL` | `M2-her` | 请求中的模型 ID，可改为供应商的模型名 |
 | `M2_HER_RESPONSE_MODEL` | 同 `M2_HER_MODEL` | 响应 `model` 字段的期望值；接口返回的名称与请求不同时填写 |
-| `M2_HER_AUTH_TYPE` | `bearer` | `none` 时不发送 `Authorization`（鉴权用例 11_06 跳过），用于无鉴权或用 `M2_HER_EXTRA_HEADERS` 自定义鉴权头的端点 |
+| `M2_HER_AUTH_TYPE` | `bearer` | `none` 时不自动添加 Bearer 鉴权（鉴权用例 11_06 跳过）；`M2_HER_EXTRA_HEADERS` 中显式配置的鉴权头仍会发送，包括自定义 `Authorization`。HTTP 与 SDK 使用相同规则 |
 | `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`；`openai` → `/v1/chat/completions`（此时只运行 15_* 兼容项） |
 | `M2_HER_TIMEOUT` | `120` | 单次请求超时（秒） |
 | `M2_HER_EXTRA_HEADERS` | (空) | JSON 串，额外注入请求头，例如 `'{"X-Custom-Header": "value"}'` |
@@ -144,4 +146,3 @@ pytest -v 'm2_her_text_tests.py::TestCombinations::test_13_01_all_seven_roles[no
 
 - **stdout**：pytest 标准输出，开头打印 jsonl 路径，如 `[m2_her_api_test] run log → .../logs/run_20261105T120000Z.jsonl`；`--junitxml` 可保存每项的 `validation_tier`。
 - **jsonl 日志**：与 M3 套件相同的机制（`helpers.RUN_LOG_PATH` + `_write_log_line`），默认写入 `logs/run_<UTC-ts>.jsonl`，xdist 并发时为 `run_<UTC-ts>_gw<N>.jsonl`。每行一条请求记录：`ts`、`case_id`、`endpoint`、`url`、`model`、`stream`、`elapsed_ms`、`status`、`trace_id`、`request`、`request_headers`（Authorization 只保留首尾字符）、`response`（含原始响应字节与 SSE 事件），以及异常信息；分包、校准等测量记录以 `kind` 区分，统计请求数时只计带 `request_number` 的记录。日志含真实响应，不要提交。
-

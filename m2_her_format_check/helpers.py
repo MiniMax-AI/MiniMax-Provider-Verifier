@@ -518,14 +518,27 @@ def assert_envelope(result: Response, *, model: str | None = None):
 
 
 def response_documents(result: Response) -> list[dict]:
-    """Every JSON object on the wire, tolerant of how an endpoint frames errors.
+    """Read complete error responses without pinning codes or framing.
 
-    SSE responses contribute their data events. Other bodies may hold several
-    back-to-back JSON documents; anything that does not parse is ignored here
-    because the caller only looks for error markers and completion text.
+    JSON may contain several complete objects, as the native endpoint does.
+    Malformed bytes, JSON tails and SSE events must never disappear from the
+    verdict. Non-200 plain-text/HTML errors remain valid HTTP rejections.
     """
-    if result.events:
+    media_type = result.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type == "text/event-stream" or result.events:
+        assert not result.errors, f"invalid error response: {result.errors}"
+        assert result.chunks, "error SSE response contains no JSON events"
         return result.chunks
+    assert not any(error.startswith("invalid UTF-8:") for error in result.errors), (
+        f"invalid error response: {result.errors}"
+    )
+    json_media = media_type == "application/json" or media_type.endswith("+json")
+    if (
+        result.status != 200
+        and not json_media
+        and not result.raw_text.lstrip().startswith(("{", "["))
+    ):
+        return []
     decoder, text, index, documents = json.JSONDecoder(), result.raw_text, 0, []
     while index < len(text):
         while index < len(text) and text[index].isspace():
@@ -534,10 +547,13 @@ def response_documents(result: Response) -> list[dict]:
             break
         try:
             document, index = decoder.raw_decode(text, index)
-        except ValueError:
-            break
-        if isinstance(document, dict):
-            documents.append(document)
+        except ValueError as exc:
+            raise AssertionError(
+                f"invalid JSON error response at offset {index}: {exc}"
+            ) from exc
+        assert isinstance(document, dict), "error JSON response must contain objects"
+        documents.append(document)
+    assert documents, "error JSON response is empty"
     return documents
 
 
@@ -803,10 +819,12 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
 
     def forward(request: httpx.Request):
         assert str(request.url) == client.settings.url, request.url
-        headers = dict(request.headers)
-        if client.settings.auth_type == "none":
-            headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
-        result = client.request(json.loads(request.content), headers=headers)
+        # Drop the SDK's automatic bearer header, then apply exactly the same
+        # configured headers as direct HTTP (including custom Authorization).
+        headers = httpx.Headers(request.headers)
+        headers.pop("authorization", None)
+        headers.update(client.settings.headers)
+        result = client.request(json.loads(request.content), headers=dict(headers))
         responses.append(result)
         # iter_bytes decoded Content-Encoding already; don't decompress twice.
         headers = {
