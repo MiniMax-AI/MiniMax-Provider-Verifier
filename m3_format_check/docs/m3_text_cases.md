@@ -320,3 +320,31 @@
 | `mt ∈ {524289, 1000000}` | 06_10 |
 
 总 items = 117 函数 - 34 (`stream` 双值函数) - 1 (`ctx_tokens × stream` 函数) - 2 (`mt` 双值函数) + 34×2 + 1×4 + 2×2 = **156**。
+
+## M3.1-Flash 响应与流式契约补充
+
+> 对应文件:`m3_format_check/m3_1_flash_text_test.py`,只适用于 M3.1-Flash 套件。上方表格描述的 `m3_text_tests.py` 未改动,同编号用例以本节为准。
+
+### 加强的用例
+
+| Case ID | 函数名 | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|
+| 01_01 | `test_01_01_text_non_stream` | 非流式基础文本对话 | `assert_chat_completion_ok`(`Content-Type` 为 JSON、响应为单个 ChatCompletion)+ `finish_reason=stop` + `content` 为字符串 + usage 算术成立 + `prompt_tokens_details` 缺省或为对象 |
+| 02_01 | `test_02_01_text_stream` | 文本流式回复 | `assert_sse_stream_ok`(定义见 `m3_stream_cases.md`) |
+| 02_03 | `test_02_03_sse_done_marker` | 读取原始 SSE 行 | 最后一个 data 行是 `[DONE]`,其后紧跟空行,不出现 `event: done`;缺失直接失败,不再 xfail |
+| 02_04 | `test_02_04_stream_chunk_fields` | `include_usage=true`,遍历含 usage 尾块在内的全部 chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` 类型正确,且同一条流内 `id`、`created` 不变 |
+| 10_04 | `test_10_04_cached_tokens_presence` | 唯一前缀的长 prompt 跑两次 | 第一次 `cached_tokens` 不超过 `prompt_tokens` 的一半,第二次命中缓存 |
+| 10_05 | `test_10_05_usage_arithmetic_tool_call` | tool_call 下的 usage | 原有算术校验 + `completion_tokens > 0` |
+| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | 流式与非流式 `prompt_tokens` 对比 | 两者严格相等 + `assert_sse_stream_ok` + 流中恰好一个 usage 对象 |
+| 13_02 | `test_13_02_tool_call_stream` | `tool_choice="required"` 的流式 tool_call | 原有校验 + `assert_sse_stream_ok` |
+
+### 新增的用例
+
+| Case ID | 函数名 | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|
+| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | 流式,`max_completion_tokens=20` 截断长文 | `assert_sse_stream_ok` + 恰好一个 usage 对象 + `completion_tokens <= 20` |
+| 10_12 | `test_10_12_stream_small_budget_finish_length` | 流式,`max_completion_tokens=1` | `assert_sse_stream_ok` + `finish_reason=length`,不要求有可见文本;`content_filter` 时 skip |
+| 10_14 | `test_10_14_prompt_tokens_accounting[input_length\|system_and_history\|tool_result]` | 分别加长输入文本、system 与历史轮次、工具结果 | `prompt_tokens` 增量超过阈值(100 / 50 / 100),不校验精确值 |
+| 10_15 | `test_10_15_cache_hit_keeps_prompt_tokens` | 唯一前缀的长 prompt 跑两次 | 两次 `prompt_tokens` 差值不超过 8 或 1% 中的较大者,缓存不从 `prompt_tokens` 扣除 |
+| 10_16 | `test_10_16_reasoning_tokens_within_completion` | 非流式,`reasoning_effort="high"` | `reasoning_tokens` 不超过 `completion_tokens`,且不重复计入 `total_tokens`;未返回该字段时 skip |
+| 19_02 | `test_19_02_finish_reason_length` | 非流式,`max_completion_tokens=20` | usage 算术成立;发生截断时 `completion_tokens <= 20`,未截断时 skip |

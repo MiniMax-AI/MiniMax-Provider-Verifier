@@ -65,3 +65,17 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 | 01_08 | `01_08_reasoning_then_tool_call` | Adaptive reasoning followed by `write_file(path: string, content: string)` with a plan of at least 500 characters | `arguments` fragments |
 
 Each JSONL record retains per-packet character counts, exact length distributions, the six display buckets, the three decision buckets, packet and character ratios, and every threshold-check result.
+
+## M3.1-Flash Stream Contract Additions
+
+> Corresponding file: `m3_format_check/m3_1_flash_stream_test.py`. These cases apply to the M3.1-Flash suite only.
+
+Shared assertion `assert_sse_stream_ok` (`helpers.py`): HTTP 200, `Content-Type` is `text/event-stream`, every data frame is valid JSON with no `error` frame, `finish_reason` is valid, and exactly one `[DONE]` is the last data frame.
+
+| Case ID | Function | Scenario | Assertion |
+|:---:|:---|:---|:---|
+| 02_12 | `test_02_12_stream_mime_and_json_frames` | Plain text request with `stream=true` | Shared assertion |
+| 02_13 | `test_02_13_stream_finish_reason_stop` | The model finishes its answer normally | Shared assertion + final `finish_reason=stop` + non-empty concatenated `content` |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | Request body has no `stream` key, sent as is via `oai_chat_verbatim` | One JSON ChatCompletion rather than SSE (`assert_chat_completion_ok`) |
+| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` calling `echo`, with `include_usage=true` | Shared assertion + exactly one usage object with valid arithmetic + `completion_tokens > 0` |
+| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"` with `include_usage=true` | Shared assertion + `0 <= reasoning_tokens <= completion_tokens`; `SKIP` when the field is not returned |

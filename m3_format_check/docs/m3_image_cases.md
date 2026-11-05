@@ -158,3 +158,11 @@ spec 1.3.6:"每条请求最多支持 200 张图片"。at_max 取 200(spec 上限
 | 13_02 | `test_13_02_base64_no_padding` | base64 去掉 `=` padding | HTTP ≠ 500(允许 200/400) |
 | 13_03 | `test_13_03_mime_uppercase` | MIME 大写 `data:image/PNG;base64,...` | HTTP 200(MIME 大小写不敏感) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
+
+## M3.1-Flash 图片 usage 补充
+
+> 对应文件:`m3_format_check/m3_1_flash_image_test.py`,只适用于 M3.1-Flash 套件。
+
+| Case ID | 函数名 | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|
+| 14_01 | `test_14_01_image_counted_in_prompt_tokens` | 同一问题分别不带图和带 512×512 PNG(`detail="high"`) | 带图的 `prompt_tokens` 更大;返回 `image_tokens` 时不超过 `prompt_tokens` |

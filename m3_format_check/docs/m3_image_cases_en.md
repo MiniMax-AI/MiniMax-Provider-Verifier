@@ -158,3 +158,11 @@ spec 1.3.6: "Each request supports up to 200 images." at_max uses 200 (spec cap)
 | 13_02 | `test_13_02_base64_no_padding` | base64 with `=` padding stripped | HTTP ≠ 500 (200 / 400 allowed) |
 | 13_03 | `test_13_03_mime_uppercase` | MIME uppercase `data:image/PNG;base64,...` | HTTP 200 (MIME case-insensitive) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
+
+## M3.1-Flash Image Usage Additions
+
+> Corresponds to: `m3_format_check/m3_1_flash_image_test.py`. This case applies to the M3.1-Flash suite only.
+
+| Case ID | Function | Scenario | Assertion |
+|:---:|:---|:---|:---|
+| 14_01 | `test_14_01_image_counted_in_prompt_tokens` | Same question without an image and with a 512×512 PNG (`detail="high"`) | `prompt_tokens` grows with the image; `image_tokens`, when returned, stays within `prompt_tokens` |

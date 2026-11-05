@@ -1,7 +1,7 @@
 """
 M3_1_Flash API Test — image modality format validation case suite
 
-Organized into 13 modules by what they validate:
+Organized into 14 modules by what they validate:
   01 base64_image          — base64 image basic acceptance
   02 url_image             — URL image acceptance / public-URL image SDK compatibility
   03 multi_image           — multi-image stacking / multi-image recognition / multi-image description
@@ -15,6 +15,7 @@ Organized into 13 modules by what they validate:
   11 image_size_limit      — single-image size limit (10MB / 30MB / 65MB request-body limit / size gradient)
   12 image_count_limit     — multi-image count upper bound (spec 1.3.6: 200 images per request, URL form)
   13 base64_compat         — base64 edge-case tolerance (linebreaks / no padding / uppercase MIME / extra data URI params)
+  14 image_usage           — image tokens counted in prompt_tokens
 
 Naming convention: `test_<2-digit module id>_<2-digit in-module order>_<scenario description>`
 

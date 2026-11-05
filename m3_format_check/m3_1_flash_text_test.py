@@ -911,30 +911,30 @@ class TestUsageField:
             f"10_10 total_tokens={tt} != prompt({pt})+completion({ct}) (stream). usage={usage!r}"
         )
 
-    def test_10_20_stream_truncated_usage_within_budget(self):
+    def test_10_11_stream_truncated_usage_within_budget(self):
         """A stream cut short by max_completion_tokens still reports usage within the budget."""
         r = oai_chat({
             "messages": oai_simple_messages("Write a detailed 2000-word essay about the history of tea."),
             "max_completion_tokens": 20,
             "stream_options": {"include_usage": True},
         }, stream=True, timeout=120)
-        assert_sse_stream_ok(r, msg="10_20")
-        usage = stream_usage(r, msg="10_20")
+        assert_sse_stream_ok(r, msg="10_11")
+        usage = stream_usage(r, msg="10_11")
         assert usage["completion_tokens"] <= 20, (
-            f"10_20 completion_tokens exceeds max_completion_tokens=20: {usage!r}"
+            f"10_11 completion_tokens exceeds max_completion_tokens=20: {usage!r}"
         )
 
-    def test_10_21_stream_small_budget_finish_length(self):
+    def test_10_12_stream_small_budget_finish_length(self):
         """A one-token budget ends the stream with finish_reason=length, which may carry no visible text."""
         r = oai_chat({
-            "messages": oai_simple_messages("从1数到1000。"),
+            "messages": oai_simple_messages("Count from 1 to 1000."),
             "max_completion_tokens": 1,
         }, stream=True, timeout=120)
-        assert_sse_stream_ok(r, msg="10_21")
+        assert_sse_stream_ok(r, msg="10_12")
         finish_reason = stream_final_finish_reason(r)
         if finish_reason == "content_filter":
-            pytest.skip("10_21: filtered response is a separate branch")
-        assert finish_reason == "length", f"10_21 expected length, got {finish_reason!r}"
+            pytest.skip("10_12: filtered response is a separate branch")
+        assert finish_reason == "length", f"10_12 expected length, got {finish_reason!r}"
 
     _LONG_TEXT = "The quick brown fox jumps over the lazy dog. " * 45
     _TOOL_CALL_TURN = {

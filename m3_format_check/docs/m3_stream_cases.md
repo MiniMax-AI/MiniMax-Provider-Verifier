@@ -65,3 +65,17 @@
 | 01_08 | `01_08_reasoning_then_tool_call` | adaptive reasoning 后调用 `write_file(path: string, content: string)` 写入不少于 500 字的计划 | `arguments` 分包 |
 
 JSONL 记录保留逐包字符数、精确长度分布、六档命中次数，以及用于最终判定的三档包数量/字符量占比和每项阈值检查结果。
+
+## M3.1-Flash 流式契约补充
+
+> 对应文件：`m3_format_check/m3_1_flash_stream_test.py`，只适用于 M3.1-Flash 套件。
+
+公共断言 `assert_sse_stream_ok`（`helpers.py`）：HTTP 200、`Content-Type` 为 `text/event-stream`、所有 data 帧均为合法 JSON 且不含 `error` 帧、`finish_reason` 合法、`[DONE]` 恰好一个且是最后一个 data 帧。
+
+| Case ID | 函数名 | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|
+| 02_12 | `test_02_12_stream_mime_and_json_frames` | `stream=true` 的普通文本请求 | 公共断言 |
+| 02_13 | `test_02_13_stream_finish_reason_stop` | 模型正常答完 | 公共断言 + 最终 `finish_reason=stop` + 拼接后的 `content` 非空 |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送 | 返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_ok`） |
+| 02_15 | `test_02_15_stream_tool_call_terminal_usage` | `tool_choice="required"` 调用 `echo`，`include_usage=true` | 公共断言 + 恰好一个 usage 对象、算术成立 + `completion_tokens > 0` |
+| 02_16 | `test_02_16_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true` | 公共断言 + `0 <= reasoning_tokens <= completion_tokens`；未返回该字段时 `SKIP` |
