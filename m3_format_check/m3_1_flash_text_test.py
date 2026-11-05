@@ -39,6 +39,7 @@ written to RUN_LOG_PATH (injected by conftest).
 import json
 import os
 import re
+import uuid
 
 import pytest
 
@@ -56,6 +57,24 @@ def _has_chinese(text: str) -> bool:
     if not text:
         return False
     return bool(re.search(r"[一-鿿]", text))
+
+
+def _is_json_int(value) -> bool:
+    """Return True for a JSON integer; bool is an int subclass in Python but not in JSON."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _assert_usage_totals(usage, msg: str):
+    """Assert usage is an object with non-negative integer totals that add up."""
+    assert isinstance(usage, dict), f"{msg}: usage should be an object, got {usage!r}"
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = usage.get(key)
+        assert _is_json_int(value) and value >= 0, (
+            f"{msg}: usage.{key} should be a non-negative integer, got {value!r}"
+        )
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], (
+        f"{msg}: total_tokens should equal prompt_tokens + completion_tokens, got {usage!r}"
+    )
 
 
 # --------------- Tool-call contract helpers (TC-xxx cases) ---------------
@@ -125,7 +144,7 @@ class TestBasicText:
     """Basic text chat: validates the minimal usable path of non-stream chat completion."""
 
     def test_01_01_text_non_stream(self):
-        """Most basic non-stream text chat; assert HTTP 200 + non-empty content.
+        """Most basic non-stream text chat; assert non-empty content and the core response fields.
 
         [TC-040] No tools declared → tool_choice defaults to none: full chat.completion
         contract, finish_reason=stop, tool_calls absent/null (not []), non-empty content."""
@@ -134,6 +153,24 @@ class TestBasicText:
         assert len(get_oai_content(r)) > 0
         assert_chat_completion_ok(r, msg="01_01")
         assert_text_reply(r, msg="01_01 [TC-040] no tools")
+        body = r["body"]
+        assert isinstance(body.get("id"), str), f"id should be a string, got {body.get('id')!r}"
+        assert body.get("object") == "chat.completion", f"unexpected object {body.get('object')!r}"
+        assert _is_json_int(body.get("created")), f"created should be an integer, got {body.get('created')!r}"
+        assert isinstance(body.get("model"), str), f"model should be a string, got {body.get('model')!r}"
+        choice = body["choices"][0]
+        assert choice.get("finish_reason") == "stop", f"unexpected finish_reason {choice.get('finish_reason')!r}"
+        message = choice.get("message")
+        assert isinstance(message, dict), f"message should be an object, got {message!r}"
+        assert message.get("role") == "assistant", f"unexpected role {message.get('role')!r}"
+        assert "content" in message, f"message.content key is missing: {message!r}"
+        assert isinstance(message["content"], str), f"content should be a string, got {message['content']!r}"
+        usage = body["usage"]
+        _assert_usage_totals(usage, "01_01")
+        details = usage.get("prompt_tokens_details")
+        assert details is None or isinstance(details, dict), (
+            f"usage.prompt_tokens_details should be an object, got {details!r}"
+        )
 
     def test_01_02_content_string(self):
         """user.content as plain string."""
@@ -690,14 +727,22 @@ class TestUsageField:
             assert v >= 0, f"usage.{k} should be >= 0, got {v}"
 
     def test_10_04_cached_tokens_presence(self):
-        """cached_tokens hard presence: run the same long prompt twice; second run should hit cache (cached_tokens > 0)."""
+        """cached_tokens hard presence: a unique long prompt is cold on the first run and hits cache on the second."""
+        # The unique prefix keeps the first call cold across repeated runs
         msgs = [
-            {"role": "system", "content": long_system_text(10000)},
+            {"role": "system", "content": f"{uuid.uuid4().hex}\n{long_system_text(10000)}"},
             {"role": "user", "content": "Reply with exactly: ACK"},
         ]
         # First call: warm up cache
         r1 = oai_chat({"messages": msgs})
         assert_oai_success(r1)
+        cold_usage = r1["body"]["usage"]
+        cold_cached = (cold_usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+        # Platform-level shared prefixes may still hit, so only a majority hit counts as not cold
+        assert cold_cached <= cold_usage["prompt_tokens"] / 2, (
+            f"first request should be cold, got cached_tokens={cold_cached} "
+            f"prompt_tokens={cold_usage['prompt_tokens']}"
+        )
         # Second call: should hit cache
         r2 = oai_chat({"messages": msgs})
         assert_oai_success(r2)
@@ -735,6 +780,7 @@ class TestUsageField:
             msg="usage_arithmetic_tool_call",
         )
         usage = r["body"]["usage"]
+        assert usage["completion_tokens"] > 0, f"tool call should count as completion, got {usage!r}"
         assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], (
             f"tool_call usage math: total={usage['total_tokens']} != "
             f"prompt={usage['prompt_tokens']}+completion={usage['completion_tokens']}"
@@ -889,6 +935,103 @@ class TestUsageField:
         if finish_reason == "content_filter":
             pytest.skip("10_21: filtered response is a separate branch")
         assert finish_reason == "length", f"10_21 expected length, got {finish_reason!r}"
+
+    _LONG_TEXT = "The quick brown fox jumps over the lazy dog. " * 45
+    _TOOL_CALL_TURN = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "call_usage_1",
+            "type": "function",
+            "function": {"name": "get_weather", "arguments": '{"location": "Beijing"}'},
+        }],
+    }
+
+    def _tool_result_messages(self, tool_output):
+        return [
+            {"role": "user", "content": "What's the weather in Beijing?"},
+            self._TOOL_CALL_TURN,
+            {"role": "tool", "tool_call_id": "call_usage_1", "content": tool_output},
+        ]
+
+    def _prompt_tokens_cases(self):
+        """Return {scenario: (baseline payload, extended payload, minimum prompt_tokens growth)}."""
+        question = oai_simple_messages("Reply with OK.")
+        return {
+            "input_length": (
+                {"messages": question},
+                {"messages": oai_simple_messages(f"Reply with OK. {self._LONG_TEXT}")},
+                100,
+            ),
+            "system_and_history": (
+                {"messages": question},
+                {"messages": [
+                    {"role": "system", "content": "You are a concise assistant. " * 10},
+                    {"role": "user", "content": "Name three primary colors."},
+                    {"role": "assistant", "content": "Red, yellow and blue."},
+                    {"role": "user", "content": "Reply with OK."},
+                ]},
+                50,
+            ),
+            "tool_result": (
+                {"messages": self._tool_result_messages("Sunny."), "tools": [WEATHER_TOOL_OAI]},
+                {"messages": self._tool_result_messages(self._LONG_TEXT), "tools": [WEATHER_TOOL_OAI]},
+                100,
+            ),
+        }
+
+    @pytest.mark.parametrize("scenario", ["input_length", "system_and_history", "tool_result"])
+    def test_10_14_prompt_tokens_accounting(self, scenario):
+        """prompt_tokens grows with input text, system/history turns and tool results; exact values are not checked."""
+        baseline, extended, min_growth = self._prompt_tokens_cases()[scenario]
+        r_base = oai_chat(dict(baseline, max_completion_tokens=256))
+        assert_oai_success(r_base)
+        r_ext = oai_chat(dict(extended, max_completion_tokens=256))
+        assert_oai_success(r_ext)
+        base_tokens = r_base["body"]["usage"]["prompt_tokens"]
+        ext_tokens = r_ext["body"]["usage"]["prompt_tokens"]
+        assert ext_tokens - base_tokens > min_growth, (
+            f"{scenario}: prompt_tokens should grow by more than {min_growth}, "
+            f"got {base_tokens} -> {ext_tokens}"
+        )
+
+    def test_10_15_cache_hit_keeps_prompt_tokens(self):
+        """A cache hit stays inside prompt_tokens: identical requests report nearly identical prompt_tokens."""
+        msgs = [
+            {"role": "system", "content": f"{uuid.uuid4().hex}\n{long_system_text(10000)}"},
+            {"role": "user", "content": "Reply with exactly: ACK"},
+        ]
+        r1 = oai_chat({"messages": msgs})
+        assert_oai_success(r1)
+        r2 = oai_chat({"messages": msgs})
+        assert_oai_success(r2)
+        first = r1["body"]["usage"]["prompt_tokens"]
+        second = r2["body"]["usage"]["prompt_tokens"]
+        assert abs(first - second) <= max(8, first * 0.01), (
+            f"cached tokens should not be deducted from prompt_tokens, got {first} -> {second}"
+        )
+
+    def test_10_16_reasoning_tokens_within_completion(self):
+        """reasoning_tokens is a subset of completion_tokens and is not added to total_tokens again."""
+        r = oai_chat({
+            "messages": oai_simple_messages("Explain how to compute 23 * 47."),
+            "reasoning_effort": "high",
+        })
+        assert_oai_success(r)
+        usage = r["body"]["usage"]
+        details = usage.get("completion_tokens_details") or {}
+        reasoning = details.get("reasoning_tokens")
+        if reasoning is None:
+            pytest.skip("10_16 reasoning_tokens not returned")
+        assert _is_json_int(reasoning) and reasoning >= 0, (
+            f"reasoning_tokens should be a non-negative integer, got {reasoning!r}"
+        )
+        assert reasoning <= usage["completion_tokens"], (
+            f"reasoning_tokens={reasoning} should be <= completion_tokens={usage['completion_tokens']}"
+        )
+        assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], (
+            f"total_tokens should not count reasoning twice, got {usage!r}"
+        )
 
 
 # ============================================================
@@ -3209,6 +3352,21 @@ class TestFinishReason:
             schema=WEATHER_TOOL_OAI["function"]["parameters"],
             msg="finish_reason=tool_calls",
         )
+
+    def test_19_02_finish_reason_length(self):
+        """max_completion_tokens is an upper bound: a truncated reply stays within it and may be shorter or empty."""
+        limit = 20
+        r = oai_chat({
+            "messages": oai_simple_messages("Count from 1 to 500, one number per line."),
+            "max_completion_tokens": limit,
+        })
+        assert_oai_success(r)
+        _assert_usage_totals(r["body"]["usage"], "19_02")
+        reason = r["body"]["choices"][0]["finish_reason"]
+        if reason != "length":
+            pytest.skip(f"19_02 reply was not truncated (finish_reason={reason})")
+        completion = r["body"]["usage"]["completion_tokens"]
+        assert completion <= limit, f"completion_tokens={completion} should be <= {limit}"
 
 
 

@@ -1579,3 +1579,45 @@ class TestImageBase64Compat:
             f"13_04 data URI with extra params unexpected status {r['status']}: "
             f"{str(r.get('body'))[:300]}"
         )
+
+
+# ============================================================
+# 14 image usage — image token accounting
+# ============================================================
+
+class TestImageUsageAccounting:
+    """Image input is billed through prompt_tokens."""
+
+    def test_14_01_image_counted_in_prompt_tokens(self):
+        """Adding an image grows prompt_tokens; image_tokens, when returned, stays within prompt_tokens."""
+        question = "Reply with OK."
+        r_text = oai_chat({"messages": oai_simple_messages(question), "max_completion_tokens": 256})
+        assert_oai_success(r_text)
+        r_image = oai_chat({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": make_png_base64(512, 512),
+                            "detail": "high",
+                        },
+                    },
+                ],
+            }],
+            "max_completion_tokens": 256,
+        })
+        assert_oai_success(r_image)
+        text_tokens = _get_prompt_tokens(r_text)
+        image_tokens_total = _get_prompt_tokens(r_image)
+        assert image_tokens_total > text_tokens, (
+            f"image should grow prompt_tokens, got {text_tokens} -> {image_tokens_total}"
+        )
+        details = r_image["body"]["usage"].get("prompt_tokens_details") or {}
+        image_tokens = details.get("image_tokens")
+        if image_tokens is not None:
+            assert image_tokens <= image_tokens_total, (
+                f"image_tokens={image_tokens} should be <= prompt_tokens={image_tokens_total}"
+            )
