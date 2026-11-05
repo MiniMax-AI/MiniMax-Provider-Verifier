@@ -19,6 +19,36 @@ from .helpers import (
     simple_messages,
 )
 from .exercises import calibrate_context
+from . import helpers as _helpers
+
+
+def _resolve_log_path(config) -> Path:
+    """Same layout as m3_format_check: logs/run_<UTC-ts>[_gw<N>].jsonl.
+
+    Under xdist the controller picks one timestamp and ships it to the
+    workers, so every worker writes its own file and lines never interleave.
+    M2_HER_RUN_LOG overrides the path; workers add their _gw<N> suffix to it.
+    """
+    workerinput = getattr(config, "workerinput", None)
+    suffix = f"_{workerinput['workerid']}" if workerinput is not None else ""
+    override = os.environ.get("M2_HER_RUN_LOG")
+    if override:
+        path = Path(override).expanduser().resolve()
+        return path.with_name(f"{path.stem}{suffix}{path.suffix or '.jsonl'}")
+    if workerinput is not None:
+        ts = workerinput["m2_her_run_ts"]
+    else:
+        ts = getattr(config, "_m2_her_run_ts", None) or datetime.now(
+            timezone.utc
+        ).strftime("%Y%m%dT%H%M%SZ")
+    return Path(__file__).parent / "logs" / f"run_{ts}{suffix}.jsonl"
+
+
+def _is_xdist_controller(config) -> bool:
+    if getattr(config, "workerinput", None) is not None:
+        return False
+    n = getattr(config.option, "numprocesses", None)
+    return bool(n) and n != 0
 
 
 def pytest_addoption(parser):
@@ -53,7 +83,7 @@ def pytest_addoption(parser):
     group.addoption(
         "--n-limit",
         type=int,
-        help="Confirmed deployment n limit; omitted values use bounded runtime preparation",
+        help="n limit for 17_08 (default: 4, the official limit)",
     )
 
 
@@ -61,6 +91,19 @@ def pytest_configure(config):
     n_limit = config.getoption("--n-limit")
     if n_limit is not None and n_limit < 1:
         raise pytest.UsageError("--n-limit must be a confirmed positive integer")
+    if _is_xdist_controller(config) and not hasattr(config, "_m2_her_run_ts"):
+        config._m2_her_run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if config.pluginmanager.hasplugin("xdist") and not config.pluginmanager.has_plugin(
+        "m2-her-xdist-hooks"
+    ):
+        config.pluginmanager.register(_XdistHooks(), "m2-her-xdist-hooks")
+    _helpers.RUN_LOG_PATH = _resolve_log_path(config)
+    # Workers stay quiet; the controller prints where the per-worker files go.
+    if getattr(config, "workerinput", None) is None and not config.option.collectonly:
+        shown = _helpers.RUN_LOG_PATH
+        if _is_xdist_controller(config):
+            shown = shown.with_name(f"{shown.stem}_gw*{shown.suffix}")
+        print(f"\n[m2_her_api_test] run log → {shown}")
     config.addinivalue_line("markers", "slow: long M2-Her inputs (opt in)")
     config.addinivalue_line("markers", "compat: M2-Her endpoint contracts (opt in)")
     config.addinivalue_line(
@@ -98,6 +141,17 @@ def pytest_collection_modifyitems(config, items):
                 )
 
 
+class _XdistHooks:
+    """Registered only when xdist is active, so plain pytest never sees the hook."""
+
+    def pytest_configure_node(self, node):
+        """Share the controller's log timestamp with each worker."""
+        ts = getattr(node.config, "_m2_her_run_ts", None) or datetime.now(
+            timezone.utc
+        ).strftime("%Y%m%dT%H%M%SZ")
+        node.workerinput["m2_her_run_ts"] = ts
+
+
 @pytest.fixture(scope="session")
 def settings():
     return Settings.from_env()
@@ -112,18 +166,12 @@ def n_limit(pytestconfig):
 
 @pytest.fixture(scope="session")
 def log_path():
-    base = os.getenv("M2_HER_RUN_LOG")
-    worker = os.getenv("PYTEST_XDIST_WORKER", "serial")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    path = Path(base) if base else Path(__file__).parent / "logs" / f"run_{stamp}.jsonl"
-    return path.with_name(
-        f"{path.stem}_{worker}_{os.getpid()}{path.suffix or '.jsonl'}"
-    )
+    return _helpers.RUN_LOG_PATH
 
 
 @pytest.fixture
 def client(settings, log_path, request):
-    if not settings.base_url or not settings.api_key:
+    if not settings.base_url or (settings.auth_type == "bearer" and not settings.api_key):
         pytest.skip("Live API not validated: set M2_HER_BASE_URL and M2_HER_API_KEY")
     if settings.style != "native" and not request.node.get_closest_marker("compat"):
         pytest.skip(

@@ -1,7 +1,6 @@
 """Bounded live setups that obtain evidence before checking the target behavior."""
 
 import copy
-import json
 
 import pytest
 
@@ -11,6 +10,7 @@ from .helpers import (
     assert_success,
     assert_usage,
     LimitNotExercised,
+    _write_log_line,
     message,
     packet_distribution,
     packet_metrics,
@@ -20,16 +20,7 @@ from .scenarios import LONG_OUTPUT
 
 
 def record_measurement(client, kind, **values):
-    if client.log_path is not None:
-        client.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with client.log_path.open("a", encoding="utf-8") as output:
-            output.write(
-                json.dumps(
-                    {"kind": kind, "case_id": client.case_id, **values},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
+    _write_log_line({"kind": kind, "case_id": client.case_id, **values}, client.log_path)
 
 
 def sample_packet_stream(client, prompt, continuation, rule):

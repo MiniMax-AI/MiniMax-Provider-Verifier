@@ -392,18 +392,3 @@ def assert_language(result: Response, expected: str):
         f"language inconsistency: {report.summary()}; content={result.content!r}; "
         f"trace={result.trace_id}"
     )
-
-
-def assert_dominant_language(result: Response, observed: tuple[str, ...]):
-    """Successful response whose dominant language is one of the observed ones.
-
-    Records where the deployment actually answers in another language than
-    the user's; mixed stage directions are tolerated, unlike assert_language.
-    """
-    assert observed and all(language in LANGUAGES for language in observed), observed
-    assert_success(result)
-    detected = classify(unicodedata.normalize("NFC", result.content), observed[0])
-    assert detected in observed, (
-        f"dominant language {detected}, observed baseline {list(observed)}; "
-        f"content={result.content!r}; trace={result.trace_id}"
-    )

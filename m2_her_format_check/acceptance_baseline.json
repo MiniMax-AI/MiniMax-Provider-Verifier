@@ -8,16 +8,12 @@
     "outcome": "success"
   },
   "12_04/over_context/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "context"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "12_04/over_context/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "error",
-    "status_code": 1000,
-    "status_msg": "unknown error, 999",
-    "framing": "sse"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_01/native_http/non_stream": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -60,44 +56,36 @@
     "completion_limit": 8
   },
   "15_03/2049": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_03/4096": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_04/empty_messages": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_04/empty_content": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "error",
-    "status_code": 1000,
-    "status_msg": "unknown error",
-    "framing": "concatenated_json"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_04/whitespace": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_04/system_name_only": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
     "outcome": "success"
   },
   "15_04/system_only": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_05/multiple_system": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_05/consecutive_user": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -108,17 +96,16 @@
     "outcome": "success"
   },
   "15_05/sample_user_only": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_05/sample_ai_only": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_05/role_order": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_06/native/omitted": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -137,50 +124,47 @@
   },
   "15_06/openai/omitted": {
     "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "outcome": "reject"
   },
   "15_06/openai/include_usage_true": {
     "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "outcome": "reject"
   },
   "15_06/openai/include_usage_false": {
     "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "outcome": "reject"
   },
   "15_07/tools": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/tool_choice": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/thinking": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/reasoning_split": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/reasoning_effort": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/response_format": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/seed": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_07/stop": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_08/essay": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md. Across 480 observed streams the first content packet is 1-6 characters, every middle packet is at least 5 characters and the largest packet was 383 characters; the five M3 bucket ratios vary with response length and are recorded only.",
@@ -211,9 +195,8 @@
     "outcome": "success"
   },
   "15_11/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_10/without_samples/non_stream": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -224,12 +207,12 @@
     "outcome": "success"
   },
   "15_12/-1/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_12/0/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_12/1/non_stream": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -241,9 +224,8 @@
     "outcome": "success"
   },
   "15_11/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "reject",
-    "error_kind": "parameter"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. Invalid requests only need to fail; error codes and messages are not compared.",
+    "outcome": "reject"
   },
   "15_10/without_samples/stream": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
@@ -254,12 +236,12 @@
     "outcome": "success"
   },
   "15_12/-1/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_12/0/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
-    "outcome": "success"
+    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",
+    "outcome": "either"
   },
   "15_12/1/stream": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",

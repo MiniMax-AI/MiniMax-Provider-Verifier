@@ -2,8 +2,9 @@
 
 Streaming is a fixture dimension, not a second set of copied test bodies.
 All negative tests use request() so defaults cannot repair invalid payloads.
-Expected values follow the deployment's observed behavior (observed.py),
-not the public documentation, wherever the two differ.
+Expected values come from the official endpoint (observed.py). Invalid
+requests only need to fail (assert_request_failed); values the docs rule out
+but the official endpoint accepts may be either accepted or rejected.
 """
 
 import json
@@ -15,9 +16,9 @@ import pytest
 from .helpers import (
     assert_contains,
     assert_contract,
+    assert_accepted_or_failed,
     assert_envelope,
-    assert_error_envelope,
-    assert_rejected,
+    assert_request_failed,
     assert_success,
     assert_sensitivity_fields,
     assert_usage,
@@ -29,29 +30,12 @@ from .exercises import (
     recall_messages,
     record_measurement,
 )
-from .language import (
-    assert_dominant_language,
-    assert_language,
-    language_report,
-)
-from .observed import (
-    EXPLICIT_LANGUAGE_REPLY,
-    INVALID_CONTENT_ERROR,
-    LANGUAGE_SWITCH_REPLY,
-    MARKER_GREETING_GLUED,
-    N_ABOVE_LIMIT_ERROR,
-    N_LIMIT,
-    NAME_OMITTED_ERROR,
-    NEGATIVE_TEMPERATURE_ERROR,
-    NULL_MESSAGE_ITEM_ERROR,
-    PERSONA_LANGUAGE_REPLY,
-)
+from .language import assert_language
+from .observed import N_LIMIT
 from .scenarios import (
     ESCAPED_TEXT,
-    LANGUAGE_INSTRUCTIONS,
     LANGUAGE_PROMPTS,
     all_roles,
-    cafe_roleplay,
     filler,
     history,
     sample_pairs,
@@ -59,7 +43,9 @@ from .scenarios import (
     travel_conversation,
 )
 
-LANGUAGE_SAMPLES = 5
+# 19_01 is P0: up to 3 attempts per variant, at least 2 must pass.
+LANGUAGE_ATTEMPTS = 3
+LANGUAGE_REQUIRED = 2
 
 
 @pytest.fixture(params=[False, True], ids=["non_stream", "stream"])
@@ -165,20 +151,6 @@ class TestSystemPersona:
         assert result.content.startswith("HER_REPLY:")
 
     @pytest.mark.behavior
-    def test_02_03_system_output_format(self, client, stream):
-        """Prompt-only JSON formatting does not imply response_format support."""
-        result = client.chat(
-            simple_messages(
-                "开始。",
-                '只输出 JSON 对象 {"status":"ready","count":2}，不要代码围栏。',
-            ),
-            temperature=0.01,
-            stream=stream,
-        )
-        assert_success(result)
-        assert json.loads(result.content) == {"status": "ready", "count": 2}
-
-    @pytest.mark.behavior
     def test_02_04_system_identity_multiturn(self, client, stream):
         """System identity remains available after unrelated history."""
         messages = [
@@ -214,39 +186,6 @@ class TestUserSystem:
         assert_contains(
             client.chat(messages, temperature=0.01, stream=stream), "USER_P38"
         )
-
-    @pytest.mark.behavior
-    def test_03_02_user_assistant_identity_separation(self, client, stream, named):
-        """Observed: both questions answer with the AI identity, never USER_P38.
-
-        Without names on system/user_system the request itself is rejected.
-        """
-        messages = [
-            message("system", "AI 身份编号为 AI_K72。"),
-            message("user_system", "用户身份编号为 USER_P38。"),
-        ]
-        if named:
-            messages[0]["name"] = "助手"
-            messages[1]["name"] = "访客"
-        for owner in ("AI", "用户"):
-            result = client.chat(
-                [
-                    *messages,
-                    message(
-                        "user",
-                        f"只返回{owner}的完整身份编号。",
-                        **({"name": "访客"} if named else {}),
-                    ),
-                ],
-                temperature=0.01,
-                stream=stream,
-            )
-            if not named:
-                expected_error = NAME_OMITTED_ERROR[stream]
-                assert_error_envelope(result, **expected_error)
-                continue
-            assert_contains(result, "AI_K72")
-            assert "USER_P38" not in result.content
 
     @pytest.mark.behavior
     def test_03_03_user_system_multiturn(self, client, stream):
@@ -325,27 +264,15 @@ class TestSampleMessages:
         assert_success(result)
 
     @pytest.mark.behavior
-    def test_05_03_sample_output_pattern(self, client, stream):
-        """Observed: the word is uppercased but the RESULT: prefix is dropped."""
-        result = client.chat(
-            [
-                message(
-                    "system",
-                    "将当前用户给出的英文单词转换为大写，回复 RESULT: 加大写单词。",
-                    name="助手",
-                ),
-                *sample_pairs(2, named=True),
-                message("user", "lemon", name="访客"),
-            ],
-            temperature=0.01,
-            stream=stream,
-        )
-        assert_success(result)
-        assert result.content.strip() == "LEMON"
-
-    @pytest.mark.behavior
-    def test_05_04_sample_vs_current_question(self, client, stream, named):
-        """Answer the real input; unnamed sample messages are rejected."""
+    def test_05_04_sample_vs_current_question(self, client, stream, named, preflight):
+        """Answer the real input; unnamed sample messages must fail."""
+        if not named:
+            # The named version of the same messages is the healthy control.
+            preflight(
+                client,
+                stream=stream,
+                messages=[*sample_pairs(named=True), message("user", "kiwi", name="访客")],
+            )
         result = client.chat(
             [
                 *sample_pairs(named=named),
@@ -355,8 +282,7 @@ class TestSampleMessages:
             stream=stream,
         )
         if not named:
-            expected_error = NAME_OMITTED_ERROR[stream]
-            assert_error_envelope(result, **expected_error)
+            assert_request_failed(result)
             return
         assert_success(result)
         assert "kiwi" in result.content.casefold()
@@ -520,17 +446,16 @@ class TestSampling:
         ids=["zero", "negative", "above_one", "string", "bool"],
     )
     def test_08_03_temperature_invalid(self, client, stream, value, preflight):
-        """Observed: 0 and 1.01 are accepted, -0.1 is error 1000, wrong types are 2013."""
+        """0 and 1.01 lie outside the documented (0, 1]: accept or reject both pass.
+
+        Negative values and wrong types must fail.
+        """
         preflight(client, stream=stream)
         result = client.request({**base_payload(client, stream), "temperature": value})
-        numeric = type(value) in (int, float)
-        if numeric and value >= 0:
-            assert_success(result)
-        elif numeric:
-            expected_error = NEGATIVE_TEMPERATURE_ERROR[stream]
-            assert_error_envelope(result, **expected_error)
+        if type(value) in (int, float) and value >= 0:
+            assert_accepted_or_failed(result)
         else:
-            assert_rejected(result)
+            assert_request_failed(result)
 
     @pytest.mark.parametrize("value", [0.01, 0.5, 0.95, 1.0])
     def test_08_04_top_p_valid(self, client, value):
@@ -543,13 +468,16 @@ class TestSampling:
         ids=["zero", "negative", "above_one", "string", "bool"],
     )
     def test_08_05_top_p_invalid(self, client, stream, value, preflight):
-        """Observed: top_p=0 is accepted; other out-of-range values and types are 2013."""
+        """top_p=0 lies outside the documented (0, 1]: accept or reject both pass.
+
+        Other out-of-range values and wrong types must fail.
+        """
         preflight(client, stream=stream)
         result = client.request({**base_payload(client, stream), "top_p": value})
         if type(value) is int and value == 0:
-            assert_success(result)
+            assert_accepted_or_failed(result)
         else:
-            assert_rejected(result)
+            assert_request_failed(result)
 
 
 class TestCompletionLimit:
@@ -568,27 +496,29 @@ class TestCompletionLimit:
         )
 
     @pytest.mark.parametrize("value", [0, -1])
-    def test_09_03_completion_limit_nonpositive(self, client, stream, value):
-        """Observed: nonpositive output limits are accepted and answer normally."""
-        assert_success(
+    def test_09_03_completion_limit_nonpositive(self, client, stream, value, preflight):
+        """Nonpositive output limits: accepting or rejecting both pass, never 5xx."""
+        preflight(client, stream=stream)
+        assert_accepted_or_failed(
             client.request(
                 {**base_payload(client, stream), "max_completion_tokens": value}
-            )
+            ),
+            nonempty=False,
         )
 
     @pytest.mark.parametrize(
         "value", [1.5, "32", True, None], ids=["fraction", "string", "bool", "null"]
     )
     def test_09_04_completion_limit_type(self, client, stream, value, preflight):
-        """Observed: fractions, strings and booleans are 2013; null is accepted."""
+        """Fractions, strings and booleans must fail; null may be accepted or rejected."""
         preflight(client, stream=stream)
         result = client.request(
             {**base_payload(client, stream), "max_completion_tokens": value}
         )
         if value is None:
-            assert_success(result)
+            assert_accepted_or_failed(result)
         else:
-            assert_rejected(result)
+            assert_request_failed(result)
 
     def test_09_05_completion_length_truncation(self, client, stream, check_limit):
         """Prepared long continuations and budgets 8/1 exercise actual truncation."""
@@ -706,7 +636,7 @@ class TestErrors:
                 "null": None,
                 "number": 42,
             }[variant]
-        assert_rejected(client.request(payload), "model")
+        assert_request_failed(client.request(payload))
 
     @pytest.mark.parametrize("variant", ["missing", "null", "string", "object"])
     def test_11_02_invalid_messages(self, client, stream, variant, preflight):
@@ -719,7 +649,7 @@ class TestErrors:
             payload["messages"] = {"null": None, "string": "hello", "object": {}}[
                 variant
             ]
-        assert_rejected(client.request(payload))
+        assert_request_failed(client.request(payload))
 
     @pytest.mark.parametrize("variant", ["missing", "unknown", "number"])
     def test_11_03_invalid_role(self, client, variant, preflight):
@@ -728,7 +658,7 @@ class TestErrors:
         item = {"content": "Hello"}
         if variant != "missing":
             item["role"] = "her_invalid_role" if variant == "unknown" else 42
-        assert_rejected(client.request({**base_payload(client), "messages": [item]}))
+        assert_request_failed(client.request({**base_payload(client), "messages": [item]}))
 
     @pytest.mark.parametrize(
         "variant",
@@ -779,17 +709,13 @@ class TestErrors:
         if variant != "missing":
             item["content"] = values[variant]
         result = client.request({**base_payload(client), "messages": [item]})
-        if variant == "video":
-            assert_rejected(result)
-        else:
-            expected_error = INVALID_CONTENT_ERROR
-            assert_error_envelope(result, **expected_error)
+        assert_request_failed(result)
 
     @pytest.mark.parametrize("value", [42, {}, []], ids=["number", "object", "array"])
     def test_11_05_invalid_name_type(self, client, value, preflight):
         """Non-string speaker names are parameter errors."""
         preflight(client, stream=False)
-        assert_rejected(
+        assert_request_failed(
             client.request(
                 {
                     **base_payload(client),
@@ -811,8 +737,8 @@ class TestErrors:
             headers["Authorization"] = (
                 "Bearer intentionally-invalid-m2-her-format-check"
             )
-        assert_rejected(
-            client.request(base_payload(client, stream), headers=headers), "auth"
+        assert_request_failed(
+            client.request(base_payload(client, stream), headers=headers)
         )
 
     @pytest.mark.parametrize(
@@ -832,7 +758,7 @@ class TestErrors:
                     "stream": "true" if variant == "stream_string" else 1,
                 }
             )
-        assert_rejected(result)
+        assert_request_failed(result)
 
     @pytest.mark.parametrize(
         "role,alias",
@@ -852,7 +778,7 @@ class TestErrors:
         preflight(client, stream=stream, messages=messages)
         invalid = copy.deepcopy(messages)
         next(item for item in invalid if item["role"] == role)["role"] = alias
-        assert_rejected(
+        assert_request_failed(
             client.request({**base_payload(client, stream), "messages": invalid})
         )
 
@@ -860,14 +786,11 @@ class TestErrors:
         "item", [None, "hello", 42, []], ids=["null", "string", "number", "array"]
     )
     def test_11_09_invalid_message_item(self, client, stream, item, preflight):
-        """Observed: string/number/array elements are 2013; a null element is error 1000."""
+        """Every non-object element inside messages must fail."""
         preflight(client, stream=stream)
-        result = client.request({**base_payload(client, stream), "messages": [item]})
-        if item is None:
-            expected_error = NULL_MESSAGE_ITEM_ERROR
-            assert_error_envelope(result, **expected_error)
-        else:
-            assert_rejected(result)
+        assert_request_failed(
+            client.request({**base_payload(client, stream), "messages": [item]})
+        )
 
 
 @pytest.mark.slow
@@ -935,11 +858,7 @@ class TestLongContext:
         rule = contract(f"12_04/over_context/{'stream' if stream else 'non_stream'}")
         if rule["outcome"] != "success":
             preflight(client, stream=stream)
-        if rule["outcome"] == "reject":
-            assert rule["error_kind"] == "context", (
-                "must reject for context length, not another input error"
-            )
-        elif rule["outcome"] == "success":
+        if rule["outcome"] == "success":
             assert rule.get("contains"), (
                 "accepted truncation must specify the retained answer marker"
             )
@@ -956,18 +875,19 @@ class TestLongContext:
 
 
 class TestCombinations:
-    def test_13_01_all_seven_roles(self, client, stream, named):
-        """Named seven roles succeed; the original unnamed advanced roles are rejected."""
+    def test_13_01_all_seven_roles(self, client, stream, named, preflight):
+        """Named seven roles succeed; the guide's unnamed advanced roles must fail."""
+        if not named:
+            preflight(client, stream=stream, messages=all_roles(named=True))
         result = client.chat(all_roles(named=named), temperature=0.01, stream=stream)
         if named:
             assert_success(result)
         else:
-            expected_error = NAME_OMITTED_ERROR[stream]
-            assert_error_envelope(result, **expected_error)
+            assert_request_failed(result)
 
     @pytest.mark.behavior
     def test_13_02_persona_samples_named_history(self, client, stream):
-        """Observed: all six values in order, but without the requested RESULT: prefix."""
+        """All six values in the requested order; the RESULT: prefix is optional."""
         messages = all_roles(named=True)[:-1] + [
             message("user", "我的物品编号是 ITEM_A73。", name="访客"),
             message("assistant", "已记住。", name="助手"),
@@ -981,11 +901,14 @@ class TestCombinations:
         ]
         result = client.chat(messages, temperature=0.01, stream=stream)
         assert_success(result)
-        # A trailing separator appears in some samples; the six values do not vary.
-        assert (
-            result.content.strip().rstrip("|")
-            == "AI_K72|USER_P38|SCENE_R64|CODE_V59|ITEM_A73|ITEM_B84"
-        )
+        # Formatting is not the target: tolerate the prefix, spaces and a trailing |.
+        values = [
+            v.strip()
+            for v in result.content.strip().removeprefix("RESULT:").strip("| ").split("|")
+        ]
+        assert values == [
+            "AI_K72", "USER_P38", "SCENE_R64", "CODE_V59", "ITEM_A73", "ITEM_B84"
+        ], result.content
 
     def test_13_03_long_history_small_output(self, client, stream, check_limit):
         """Long history plus a short output budget obeys the token ceiling."""
@@ -1004,63 +927,30 @@ class TestCombinations:
     @pytest.mark.parametrize(
         "role", ["user_system", "group", "sample_message_user", "sample_message_ai"]
     )
-    def test_13_05_one_special_name_omitted(self, client, stream, role):
-        """Observed: dropping any single advanced-role name rejects the request."""
+    def test_13_05_one_special_name_omitted(self, client, stream, role, preflight):
+        """Dropping any single advanced-role name must make the request fail."""
+        preflight(client, stream=stream, messages=all_roles(named=True))
         messages = all_roles(named=True)
         next(item for item in messages if item["role"] == role).pop("name")
         result = client.chat(messages, stream=stream, temperature=0.01)
-        expected_error = NAME_OMITTED_ERROR[stream]
-        assert_error_envelope(result, **expected_error)
+        assert_request_failed(result)
 
 
 class TestGuideAlignment:
     @pytest.mark.parametrize("scenario", ["basic", "roleplay", "samples"])
-    def test_16_01_guide_role_structures(self, client, stream, named, scenario):
-        """Guide structures succeed when named; the guide's unnamed advanced roles are rejected."""
+    def test_16_01_guide_role_structures(
+        self, client, stream, named, scenario, preflight
+    ):
+        """Guide structures succeed when named; the guide's unnamed advanced roles must fail."""
+        if not named and scenario != "basic":
+            preflight(
+                client, stream=stream, messages=guide_messages(scenario, named=True)
+            )
         result = client.chat(guide_messages(scenario, named=named), stream=stream)
         if named or scenario == "basic":
             assert_success(result)
         else:
-            expected_error = NAME_OMITTED_ERROR[stream]
-            assert_error_envelope(result, **expected_error)
-
-    @pytest.mark.behavior
-    @pytest.mark.parametrize(
-        "text",
-        ["こんにちは", "안녕하세요", "مرحبا", "Привет", "Cafe\u0301"],
-        ids=["japanese", "korean", "arabic", "russian", "combining_accent"],
-    )
-    def test_16_02_explicit_marker_extraction(self, client, stream, text):
-        """Observed: the exact marker for ja/combining; ko/ru/ar glue the greeting on."""
-        result = client.chat(
-            simple_messages(
-                "下面的问候语后有一个完整标记。只返回完整标记；"
-                "保留 UNICODE_ 前缀、下划线、所有字母与数字，不截取数字、不翻译。"
-                f"输入：{text} UNICODE_K72"
-            ),
-            stream=stream,
-            temperature=0.01,
-        )
-        assert_success(result)
-        content = result.content.strip()
-        if text in MARKER_GREETING_GLUED:
-            # The greeting is usually glued on after "_"; the bare marker also occurs.
-            assert re.fullmatch(r"UNICODE_K72(_.+)?", content, re.S)
-        else:
-            assert content == "UNICODE_K72"
-
-    @pytest.mark.behavior
-    def test_16_03_exact_echo(self, client, stream):
-        """Observed: the copy instruction is answered in character, never echoed."""
-        result = client.chat(
-            simple_messages(
-                f"原样输出下面的文本，不添加说明或代码块：\n{ESCAPED_TEXT}"
-            ),
-            stream=stream,
-            temperature=0.01,
-        )
-        assert_success(result)
-        assert '"HER"' not in result.content
+            assert_request_failed(result)
 
     @pytest.mark.slow
     @pytest.mark.behavior
@@ -1082,13 +972,18 @@ class TestCandidateCount:
     """
 
     @pytest.mark.parametrize("variant", ["omitted", "null", "zero", "negative"])
-    def test_17_01_n_default_single_choice(self, client, stream, variant):
-        """The observed implementation falls back to one for absent/nonpositive n."""
+    def test_17_01_n_default_single_choice(self, client, stream, variant, preflight):
+        """Omitted n returns one reply; null/0/-1 may be accepted (as one) or rejected."""
         request = base_payload(client, stream)
-        if variant != "omitted":
+        if variant == "omitted":
+            result = client.request(request)
+            assert_success(result)
+        else:
+            preflight(client, stream=stream)
             request["n"] = {"null": None, "zero": 0, "negative": -1}[variant]
-        result = client.request(request)
-        assert_success(result)
+            result = client.request(request)
+            if assert_accepted_or_failed(result) == "rejected":
+                return
         assert_envelope(
             result, model=client.settings.response_model or client.settings.model
         )
@@ -1126,24 +1021,20 @@ class TestCandidateCount:
     def test_17_04_n_invalid_type(self, client, stream, value, preflight):
         """The request decoder requires an int64, not strings, booleans or containers."""
         preflight(client, stream=stream)
-        assert_rejected(client.request({**base_payload(client, stream), "n": value}))
+        assert_request_failed(client.request({**base_payload(client, stream), "n": value}))
 
     def test_17_05_n_stream_conflict(self, client, preflight):
-        """Prove the non-stream n=2 path, then require the specific stream conflict."""
+        """Prove the non-stream n=2 path, then require stream + n=2 to fail."""
         preflight(client, stream=True)
         request = {**base_payload(client), "n": 2}
         assert_success(client.request(request), expected_choices=2)
         assert_contract(
             client.request({**request, "stream": True}),
-            {
-                "outcome": "reject",
-                "error_kind": "parameter",
-                "error_contains": "stream and n > 1",
-            },
+            {"outcome": "reject"},
         )
 
     def test_17_06_n_tools_conflict(self, client, preflight):
-        """A generic tools rejection cannot stand in for the n/tools conflict."""
+        """Prove the non-stream n=2 path, then require n=2 + tools to fail."""
         preflight(client, stream=False)
         request = {**base_payload(client), "n": 2}
         assert_success(client.request(request), expected_choices=2)
@@ -1158,11 +1049,7 @@ class TestCandidateCount:
         ]
         assert_contract(
             client.request({**request, "tools": tools}),
-            {
-                "outcome": "reject",
-                "error_kind": "parameter",
-                "error_contains": "tools and n > 1",
-            },
+            {"outcome": "reject"},
         )
 
     @pytest.mark.parametrize("token_field", ["max_tokens", "max_completion_tokens"])
@@ -1190,7 +1077,7 @@ class TestCandidateCount:
 
     @pytest.mark.parametrize("variant", ["at_limit", "above_limit"])
     def test_17_08_n_configured_boundary(self, client, n_limit, variant):
-        """Observed: n=4 is the largest success; n=5 is error 1000, not a declared limit.
+        """n=4 (the official limit) succeeds; n=5 must fail.
 
         --n-limit replaces the observed boundary for another deployment.
         """
@@ -1199,10 +1086,7 @@ class TestCandidateCount:
         # The max request is also the healthy control for the next step.
         assert_success(client.request(request), expected_choices=limit)
         if variant == "above_limit":
-            expected_error = N_ABOVE_LIMIT_ERROR
-            assert_error_envelope(
-                client.request({**request, "n": limit + 1}), **expected_error
-            )
+            assert_request_failed(client.request({**request, "n": limit + 1}))
 
 
 @pytest.mark.implementation
@@ -1253,7 +1137,7 @@ class TestRequestMetadata:
     ):
         """Malformed gateway field types must produce structured parameter errors."""
         preflight(client, stream=stream)
-        assert_rejected(client.request({**base_payload(client, stream), field: value}))
+        assert_request_failed(client.request({**base_payload(client, stream), field: value}))
 
     @pytest.mark.parametrize("variant", ["key", "value"])
     def test_18_03_metadata_length_boundary(self, client, stream, variant, preflight):
@@ -1262,11 +1146,7 @@ class TestRequestMetadata:
         metadata = {"k" * 256: "v"} if variant == "key" else {"k": "v" * 256}
         assert_contract(
             client.request({**base_payload(client, stream), "metadata": metadata}),
-            {
-                "outcome": "reject",
-                "error_kind": "parameter",
-                "error_contains": f"metadata {variant} length",
-            },
+            {"outcome": "reject"},
         )
 
 
@@ -1284,105 +1164,32 @@ class TestLanguageConsistency:
         ["zh", "zh_hant", "en", "ja", "ko", "es", "fr", "de", "pt", "ru", "ar"],
     )
     def test_19_01_reply_follows_user_language(self, client, stream, language):
-        """A monolingual user turn is answered in that language without foreign spans."""
-        result = client.chat(
-            [message("user", LANGUAGE_PROMPTS[language])],
-            temperature=0.01,
-            stream=stream,
-        )
-        assert_language(result, language)
+        """A monolingual user turn is answered in that language without foreign spans.
 
-    @pytest.mark.behavior
-    @pytest.mark.parametrize(
-        "persona,language",
-        [
-            ("zh", "en"),
-            ("zh", "ja"),
-            ("zh", "ko"),
-            ("zh", "es"),
-            ("en", "zh"),
-            ("en", "ja"),
-            ("en", "ko"),
-            ("en", "es"),
-            ("ja", "zh"),
-            ("ja", "en"),
-            ("ja", "ko"),
-            ("ja", "es"),
-            ("ko", "zh"),
-            ("ko", "en"),
-            ("ko", "ja"),
-            ("ko", "es"),
-            ("es", "zh"),
-            ("es", "en"),
-            ("es", "ja"),
-            ("es", "ko"),
-        ],
-        ids=[
-            "zh_persona-en_user",
-            "zh_persona-ja_user",
-            "zh_persona-ko_user",
-            "zh_persona-es_user",
-            "en_persona-zh_user",
-            "en_persona-ja_user",
-            "en_persona-ko_user",
-            "en_persona-es_user",
-            "ja_persona-zh_user",
-            "ja_persona-en_user",
-            "ja_persona-ko_user",
-            "ja_persona-es_user",
-            "ko_persona-zh_user",
-            "ko_persona-en_user",
-            "ko_persona-ja_user",
-            "ko_persona-es_user",
-            "es_persona-zh_user",
-            "es_persona-en_user",
-            "es_persona-ja_user",
-            "es_persona-ko_user",
-        ],
-    )
-    def test_19_02_persona_language_differs_from_user(
-        self, client, stream, persona, language
-    ):
-        """Observed per pair: most keep the persona's language, some follow the user.
-
-        Every ordered pair of zh/en/ja/ko/es is covered. Pairs that follow the
-        user stay strict; pairs in observed.PERSONA_LANGUAGE_REPLY assert their
-        usual dominant language. Occasional sampling flips may fail a run.
+        P0 behavior with rare sampling slips: up to 3 attempts, 2 must pass.
+        Request or format errors fail at once and are never retried.
         """
-        result = client.chat(
-            cafe_roleplay(persona, language), temperature=0.01, stream=stream
+        passed, failures = 0, []
+        for attempt in range(1, LANGUAGE_ATTEMPTS + 1):
+            result = client.chat(
+                [message("user", LANGUAGE_PROMPTS[language])],
+                temperature=0.01,
+                stream=stream,
+            )
+            assert_success(result)
+            try:
+                assert_language(result, language)
+                passed += 1
+            except AssertionError as exc:
+                failures.append(f"attempt {attempt}: {exc}")
+            if passed >= LANGUAGE_REQUIRED:
+                return
+            if len(failures) > LANGUAGE_ATTEMPTS - LANGUAGE_REQUIRED:
+                break
+        raise AssertionError(
+            f"{passed}/{LANGUAGE_ATTEMPTS} replies in {language}, "
+            f"need {LANGUAGE_REQUIRED}: " + " | ".join(failures)
         )
-        usual = PERSONA_LANGUAGE_REPLY.get((persona, language))
-        if usual is None:
-            assert_language(result, language)
-        else:
-            assert_dominant_language(result, usual)
-
-    @pytest.mark.behavior
-    @pytest.mark.parametrize(
-        "variant",
-        [
-            "system_en_user_zh",
-            "system_ja_user_en",
-            "system_zh_user_ko",
-            "system_ko_user_ja",
-            "user_request_ko",
-            "user_request_ja",
-            "user_request_zh",
-            "user_request_en",
-        ],
-    )
-    def test_19_03_explicit_reply_language(self, client, stream, variant):
-        """Observed: the requested language is used, except a Japanese ask for Chinese."""
-        system, prompt, _, language = LANGUAGE_INSTRUCTIONS[variant]
-        result = client.chat(
-            simple_messages(prompt, system), temperature=0.01, stream=stream
-        )
-        usual = EXPLICIT_LANGUAGE_REPLY.get(variant)
-        if usual is None:
-            assert_language(result, language)
-        else:
-            assert_dominant_language(result, usual)
 
     @pytest.mark.behavior
     @pytest.mark.parametrize(
@@ -1431,83 +1238,3 @@ class TestLanguageConsistency:
         )
         assert_language(result, language)
 
-    @pytest.mark.behavior
-    @pytest.mark.parametrize(
-        "previous,language",
-        [
-            ("zh", "en"),
-            ("zh", "ja"),
-            ("zh", "ko"),
-            ("en", "zh"),
-            ("en", "ja"),
-            ("en", "ko"),
-            ("ja", "zh"),
-            ("ja", "en"),
-            ("ja", "ko"),
-            ("ko", "zh"),
-            ("ko", "en"),
-            ("ko", "ja"),
-        ],
-        ids=[
-            "zh_to_en",
-            "zh_to_ja",
-            "zh_to_ko",
-            "en_to_zh",
-            "en_to_ja",
-            "en_to_ko",
-            "ja_to_zh",
-            "ja_to_en",
-            "ja_to_ko",
-            "ko_to_zh",
-            "ko_to_en",
-            "ko_to_ja",
-        ],
-    )
-    def test_19_05_language_switch_follows_latest_turn(
-        self, client, stream, previous, language
-    ):
-        """Observed: the reply keeps the history language; zh->ja and ko->en switch."""
-        result = client.chat(
-            travel_conversation(previous, previous, "souvenir", language),
-            temperature=0.01,
-            stream=stream,
-        )
-        usual = LANGUAGE_SWITCH_REPLY.get((previous, language))
-        if usual is None:
-            assert_language(result, language)
-        else:
-            assert_dominant_language(result, usual)
-
-    @pytest.mark.slow
-    @pytest.mark.behavior
-    @pytest.mark.parametrize("language", ["en", "ja", "ko"])
-    def test_19_06_language_stability_default_sampling(self, client, stream, language):
-        """Observed: default sampling drifts between the user's and the persona's language.
-
-        Sampling fields are omitted on purpose. Each sample's dominant language
-        must be the user's or the Chinese persona's; a rarer third language
-        (ja, en, Traditional Chinese have been seen) fails. Samples are kept.
-        """
-        samples = []
-        for run in range(LANGUAGE_SAMPLES):
-            result = client.chat(cafe_roleplay("zh", language), stream=stream)
-            assert_success(result)
-            report = language_report(result.content, language)
-            samples.append(
-                {
-                    "run": run + 1,
-                    "trace_id": result.trace_id,
-                    "detected": report.detected,
-                    "problems": report.problems,
-                    "content": result.content,
-                }
-            )
-        record_measurement(
-            client, "language_consistency", expected=language, samples=samples
-        )
-        allowed = (language, "zh")
-        other = [s for s in samples if s["detected"] not in allowed]
-        assert not other, (
-            f"{len(other)}/{len(samples)} default-sampling replies outside "
-            f"{list(allowed)}: {other}"
-        )

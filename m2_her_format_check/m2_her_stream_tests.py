@@ -4,7 +4,7 @@ import pytest
 
 from .helpers import (
     assert_envelope,
-    assert_rejected,
+    assert_request_failed,
     assert_success,
     assert_usage,
     simple_messages,
@@ -119,7 +119,7 @@ class TestStreamProtocol:
         result = client.request(
             {"model": client.settings.model, "messages": None, "stream": True}
         )
-        assert_rejected(result)
+        assert_request_failed(result)
 
     @pytest.mark.slow
     @pytest.mark.behavior

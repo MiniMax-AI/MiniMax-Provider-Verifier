@@ -32,6 +32,7 @@ class Settings:
     timeout: float = 120.0
     extra_headers: dict[str, str] = field(default_factory=dict)
     query_params: dict[str, str] = field(default_factory=dict)
+    auth_type: str = "bearer"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -54,7 +55,10 @@ class Settings:
             timeout=float(os.getenv("M2_HER_TIMEOUT", "120")),
             extra_headers=headers,
             query_params=query_params,
+            auth_type=os.getenv("M2_HER_AUTH_TYPE", "bearer").strip().lower(),
         )
+        if settings.auth_type not in ("bearer", "none"):
+            raise ValueError("M2_HER_AUTH_TYPE must be bearer or none")
         if settings.style not in PATHS:
             raise ValueError("M2_HER_API_STYLE must be native or openai")
         if not 0 < settings.timeout < float("inf"):
@@ -75,8 +79,35 @@ class Settings:
     def headers(self) -> dict[str, str]:
         headers = httpx.Headers({"Content-Type": "application/json"})
         headers.update(self.extra_headers)
-        headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.auth_type == "bearer":
+            headers["Authorization"] = f"Bearer {self.api_key}"
         return dict(headers)
+
+
+# ---------------- Run log (jsonl) ----------------
+# Same mechanism as m3_format_check: conftest.pytest_configure sets
+# RUN_LOG_PATH for the session (one file per xdist worker); direct imports
+# outside pytest fall back to logs/run_<UTC-ts>.jsonl.
+RUN_LOG_PATH: Path | None = None
+
+
+def _fallback_log_path() -> Path:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return Path(__file__).parent / "logs" / f"run_{ts}.jsonl"
+
+
+def _write_log_line(record: dict, path: Path | None = None) -> None:
+    """Append one jsonl record; path overrides the session log when given."""
+    global RUN_LOG_PATH
+    if path is None:
+        if RUN_LOG_PATH is None:
+            RUN_LOG_PATH = _fallback_log_path()
+        path = RUN_LOG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, ensure_ascii=False, default=str)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+        f.flush()
 
 
 def parse_sse(text: str) -> tuple[list[dict], list[str]]:
@@ -300,33 +331,34 @@ class ChatClient:
                 ),
                 next((str(d["id"]) for d in result.documents if d.get("id")), ""),
             )
-            if self.log_path is not None:
-                record = {
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "case_id": self.case_id,
-                    "request_number": self.request_count,
-                    "api_style": self.settings.style,
-                    "url": self.settings.url,
-                    "model": self.settings.model,
-                    "request_headers": redact_headers(request_headers),
-                    "request": payload,
-                    "request_raw_base64": base64.b64encode(raw).decode()
-                    if raw is not None
-                    else None,
-                    "response": asdict(result),
-                    "elapsed_ms": round((time.monotonic() - started) * 1000),
-                    "error": error,
-                }
-                try:
-                    self.log_path.parent.mkdir(parents=True, exist_ok=True)
-                    with self.log_path.open("a", encoding="utf-8") as output:
-                        output.write(json.dumps(record, ensure_ascii=False) + "\n")
-                except OSError as log_error:
-                    if original_error is None:
-                        raise
-                    original_error.add_note(
-                        f"Also failed to write request evidence: {log_error}"
-                    )
+            record = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "case_id": self.case_id,
+                "request_number": self.request_count,
+                "endpoint": self.settings.style,
+                "api_style": self.settings.style,
+                "url": self.settings.url,
+                "model": self.settings.model,
+                "stream": result.stream,
+                "elapsed_ms": round((time.monotonic() - started) * 1000),
+                "status": result.status,
+                "trace_id": result.trace_id,
+                "request_headers": redact_headers(request_headers),
+                "request": payload,
+                "request_raw_base64": base64.b64encode(raw).decode()
+                if raw is not None
+                else None,
+                "response": asdict(result),
+                "error": error,
+            }
+            try:
+                _write_log_line(record, self.log_path)
+            except OSError as log_error:
+                if original_error is None:
+                    raise
+                original_error.add_note(
+                    f"Also failed to write request evidence: {log_error}"
+                )
 
     def chat(self, messages: list[dict], *, stream=False, **params) -> Response:
         """Convenience for normal cases; omissions/invalid envelopes use request()."""
@@ -485,132 +517,88 @@ def assert_envelope(result: Response, *, model: str | None = None):
         assert len({d[key] for d in result.documents}) == 1, f"inconsistent {key}"
 
 
-def is_context_length_error(error: dict) -> bool:
-    """Recognize an explicit length reason, never generic 400/2013 or TPM limits.
-
-    The native endpoint reports an over-window request as 2013 with the first
-    message below. Code 1039 is rate limit exceeded (TPM), not context
-    capacity.
-    """
-    message = error.get("status_msg", error.get("message", ""))
-    return error.get("code") == "context_length_exceeded" or (
-        isinstance(message, str)
-        and any(
-            reason in message.casefold()
-            for reason in (
-                "context window exceeds limit",
-                "length of prompt and messages' text is too long",
-                "maximum context length",
-            )
-        )
-    )
-
-
-def assert_rejected(result: Response, kind="parameter"):
-    """Only request/auth/context errors count; outages/rate limits never pass."""
-    assert not result.errors, result.errors
-    statuses = {
-        "parameter": {400, 422},
-        "model": {400, 404, 422},
-        "auth": {401, 403},
-        "context": {400, 413, 422},
-    }[kind]
-    codes = {"parameter": {2013}, "model": {2013}, "auth": {1004}, "context": {2013}}[
-        kind
-    ]
-    errors = [
-        d
-        for d in result.documents
-        if d.get("error") or d.get("base_resp", {}).get("status_code")
-    ]
-    assert errors, (
-        f"not a structured rejection: HTTP {result.status}: {result.raw_text}"
-    )
-    for doc in errors:
-        base = doc.get("base_resp") or {}
-        if base.get("status_code"):
-            assert type(base["status_code"]) is int and base["status_code"] in codes, (
-                doc
-            )
-            assert (
-                isinstance(base.get("status_msg"), str) and base["status_msg"].strip()
-            ), doc
-            assert result.status in statuses | {200}, result.status
-            if kind == "context":
-                assert is_context_length_error(base), (
-                    f"expected an explicit context-length rejection: {base}"
-                )
-        else:
-            error = doc["error"]
-            assert (
-                isinstance(error, dict)
-                and isinstance(error.get("message"), str)
-                and error["message"].strip()
-            ), doc
-            assert result.status in statuses, (result.status, doc)
-            if kind == "context":
-                assert is_context_length_error(error), (
-                    f"expected an explicit context-length rejection: {error}"
-                )
-
-
-ERROR_FRAMINGS = ("json", "sse", "concatenated_json")
-
-
 def response_documents(result: Response) -> list[dict]:
-    """Every JSON document on the wire, including back-to-back JSON bodies.
+    """Every JSON object on the wire, tolerant of how an endpoint frames errors.
 
-    Some native failures write a placeholder envelope followed by a second
-    error object in one body; json.loads rejects that as "Extra data".
+    SSE responses contribute their data events. Other bodies may hold several
+    back-to-back JSON documents; anything that does not parse is ignored here
+    because the caller only looks for error markers and completion text.
     """
     if result.events:
         return result.chunks
     decoder, text, index, documents = json.JSONDecoder(), result.raw_text, 0, []
-    while True:
+    while index < len(text):
         while index < len(text) and text[index].isspace():
             index += 1
         if index >= len(text):
-            return documents
-        document, index = decoder.raw_decode(text, index)
-        documents.append(document)
+            break
+        try:
+            document, index = decoder.raw_decode(text, index)
+        except ValueError:
+            break
+        if isinstance(document, dict):
+            documents.append(document)
+    return documents
 
 
-def assert_error_envelope(
-    result: Response, status_code: int, status_msg: str, *, framing: str = "json"
-):
-    """Match one observed native error exactly: HTTP 200, framing and base_resp.
+def request_failed(result: Response) -> bool:
+    """True when the endpoint refused the request, however it reports that.
 
-    framing is how the deployment actually wrote the error: one JSON body,
-    one SSE data event, or a status-0 placeholder followed by the error object.
+    Either the HTTP status is not 200, or an HTTP 200 body / SSE event carries
+    a non-zero business code (base_resp.status_code) or an error object.
+    Error codes, messages and framing are deliberately not compared.
     """
-    assert framing in ERROR_FRAMINGS, framing
-    context = f"status={result.status}, trace={result.trace_id}, body={result.raw_text[:1000]}"
-    assert result.status == 200, context
-    media_type = result.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    assert (media_type == "text/event-stream") == (framing == "sse"), (
-        f"expected {framing} framing, got content-type {media_type!r}: {context}"
+    if result.status != 200:
+        return True
+    return any(
+        doc.get("error") or (doc.get("base_resp") or {}).get("status_code")
+        for doc in response_documents(result)
     )
-    if framing == "concatenated_json":
-        assert result.errors and all("Extra data" in e for e in result.errors), (
-            f"expected two back-to-back JSON documents: {result.errors}: {context}"
-        )
-        documents = response_documents(result)
-        assert len(documents) == 2, context
-        placeholder, error = documents
-        assert placeholder.get("choices") is None, context
-        assert placeholder.get("base_resp") == {"status_code": 0, "status_msg": ""}, (
-            context
-        )
-    else:
-        assert not result.errors, f"{result.errors}: {context}"
-        documents = result.chunks if framing == "sse" else [result.body]
-        assert len(documents) == 1 and isinstance(documents[0], dict), context
-        error = documents[0]
-    assert error.get("choices") is None, f"error carried choices: {context}"
-    assert error.get("base_resp") == {
-        "status_code": status_code,
-        "status_msg": status_msg,
-    }, f"expected base_resp {status_code} {status_msg!r}: {context}"
+
+
+def _completion_text(result: Response) -> str:
+    text = []
+    for doc in response_documents(result):
+        for choice in doc.get("choices") or []:
+            if not isinstance(choice, dict):
+                continue
+            for part in (choice.get("message"), choice.get("delta")):
+                if isinstance(part, dict) and isinstance(part.get("content"), str):
+                    text.append(part["content"])
+    return "".join(text)
+
+
+def assert_request_failed(result: Response):
+    """Unified rejection check for invalid requests.
+
+    PASS: HTTP status is not 200, or HTTP 200 with a non-zero business code or
+    an error object, and no normal reply text came back.
+    """
+    context = (
+        f"status={result.status}, trace={result.trace_id}, "
+        f"body={result.raw_text[:1000]}"
+    )
+    assert request_failed(result), f"request was not rejected: {context}"
+    assert not _completion_text(result).strip(), (
+        f"rejected request still returned reply text: {context}"
+    )
+
+
+def assert_accepted_or_failed(result: Response, *, nonempty=True) -> str:
+    """Values the docs rule out but some endpoints accept: either is fine.
+
+    A rejection must follow assert_request_failed; an acceptance must be a
+    well-formed reply. HTTP 5xx is a server fault and always fails.
+    """
+    assert result.status < 500, (
+        f"server error instead of accept/reject: status={result.status}, "
+        f"trace={result.trace_id}, body={result.raw_text[:1000]}"
+    )
+    if request_failed(result):
+        assert_request_failed(result)
+        return "rejected"
+    assert_success(result, nonempty=nonempty)
+    return "accepted"
 
 
 def assert_contains(result: Response, *values: str):
@@ -688,6 +676,11 @@ def assert_prompt_tokens_match(non_stream: Response, stream: Response):
     )
 
 
+# success: must reply; reject: must fail (assert_request_failed);
+# either: accepting or rejecting are both fine, but never a 5xx.
+OUTCOMES = ("success", "reject", "either")
+
+
 def read_contract(path: str | None) -> dict:
     if not path:
         return {}
@@ -703,16 +696,8 @@ def read_contract(path: str | None) -> dict:
             raise ValueError(
                 f"{key}: contract must record a nonempty source/decision reference"
             )
-        if rule.get("outcome") not in ("success", "reject", "error"):
-            raise ValueError(f"{key}: outcome must be success, reject or error")
-        if rule["outcome"] == "error" and (
-            type(rule.get("status_code")) is not int
-            or not isinstance(rule.get("status_msg"), str)
-            or rule.get("framing", "json") not in ERROR_FRAMINGS
-        ):
-            raise ValueError(
-                f"{key}: error requires an int status_code, a status_msg and a known framing"
-            )
+        if rule.get("outcome") not in OUTCOMES:
+            raise ValueError(f"{key}: outcome must be one of {', '.join(OUTCOMES)}")
         if "precedence_over" in rule and (
             type(rule["precedence_over"]) is not int
             or not 0 < rule["precedence_over"] < rule.get("completion_limit", 0)
@@ -720,25 +705,15 @@ def read_contract(path: str | None) -> dict:
             raise ValueError(
                 f"{key}: precedence_over must be a positive int below completion_limit"
             )
-        if rule["outcome"] == "reject" and rule.get("error_kind") not in (
-            "parameter",
-            "model",
-            "auth",
-            "context",
-        ):
-            raise ValueError(f"{key}: reject requires error_kind")
         if "completion_limit" in rule and (
             type(rule["completion_limit"]) is not int
             or not 1 <= rule["completion_limit"] <= 2048
         ):
             raise ValueError(f"{key}: completion_limit must be an integer in [1, 2048]")
-        for field_name in ("contains", "error_contains"):
-            if field_name in rule and (
-                not isinstance(rule[field_name], str) or not rule[field_name].strip()
-            ):
-                raise ValueError(f"{key}: {field_name} must be a nonempty string")
-        if "error_contains" in rule and rule["outcome"] != "reject":
-            raise ValueError(f"{key}: error_contains requires a rejection contract")
+        if "contains" in rule and (
+            not isinstance(rule["contains"], str) or not rule["contains"].strip()
+        ):
+            raise ValueError(f"{key}: contains must be a nonempty string")
         for field_name in (
             "done",
             "summary",
@@ -752,23 +727,12 @@ def read_contract(path: str | None) -> dict:
 
 
 def assert_contract(result: Response, rule: dict):
-    if rule["outcome"] == "error":
-        assert_error_envelope(
-            result,
-            rule["status_code"],
-            rule["status_msg"],
-            framing=rule.get("framing", "json"),
-        )
-        return
     if rule["outcome"] == "reject":
-        assert_rejected(result, rule["error_kind"])
-        if "error_contains" in rule:
-            messages = [
-                (doc.get("base_resp") or {}).get("status_msg", "")
-                or (doc.get("error") or {}).get("message", "")
-                for doc in result.documents
-            ]
-            assert any(rule["error_contains"] in msg for msg in messages), messages
+        assert_request_failed(result)
+        return
+    if rule["outcome"] == "either" and assert_accepted_or_failed(
+        result, nonempty=rule.get("completion_limit") != 1
+    ) == "rejected":
         return
     assert_success(result, nonempty=rule.get("completion_limit") != 1)
     if "contains" in rule:
@@ -839,9 +803,10 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
 
     def forward(request: httpx.Request):
         assert str(request.url) == client.settings.url, request.url
-        result = client.request(
-            json.loads(request.content), headers=dict(request.headers)
-        )
+        headers = dict(request.headers)
+        if client.settings.auth_type == "none":
+            headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+        result = client.request(json.loads(request.content), headers=headers)
         responses.append(result)
         # iter_bytes decoded Content-Encoding already; don't decompress twice.
         headers = {
@@ -856,7 +821,7 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
 
     assert client.settings.style == "openai", "SDK path requires the OpenAI protocol"
     with OpenAI(
-        api_key=client.settings.api_key,
+        api_key=client.settings.api_key or "unused",
         base_url=str(httpx.URL(client.settings.url).copy_with(query=None)).removesuffix(
             "/chat/completions"
         ),

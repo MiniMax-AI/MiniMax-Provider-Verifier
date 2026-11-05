@@ -44,7 +44,7 @@ class TestCompatibility:
             case_id=client.case_id,
             log_path=client.log_path,
         )
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(alternate, stream=stream)
         if variant == "openai_sdk":
             result = sdk_request(alternate, all_roles(named=True), stream=stream)
@@ -65,7 +65,7 @@ class TestCompatibility:
     ):
         """Explicit limits test alias precedence, rather than mere HTTP acceptance."""
         rule = contract(f"15_02/{variant}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=False)
         if rule["outcome"] == "success":
             assert "completion_limit" in rule, (
@@ -87,7 +87,7 @@ class TestCompatibility:
     ):
         """Record rejection or validate an explicitly confirmed capped output."""
         rule = contract(f"15_03/{limit}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=False)
         if rule["outcome"] == "success":
             assert rule.get("completion_limit") == 2048, (
@@ -116,7 +116,7 @@ class TestCompatibility:
     ):
         """Empty input and the specification's name-only system example are separate variants."""
         rule = contract(f"15_04/{variant}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=False)
         messages = {
             "empty_messages": [],
@@ -148,7 +148,7 @@ class TestCompatibility:
     ):
         """Unspecified role ordering and sample pairing have no default pass policy."""
         rule = contract(f"15_05/{variant}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=False)
         messages = {
             "multiple_system": [
@@ -187,7 +187,7 @@ class TestCompatibility:
     def test_15_06_stream_extensions(self, contract, client, variant, preflight):
         """DONE, summary and usage expectations are defined per endpoint and option."""
         rule = contract(f"15_06/{client.settings.style}/{variant}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=True)
         request = payload(client, stream=True)
         if variant != "omitted":
@@ -239,7 +239,7 @@ class TestCompatibility:
     ):
         """Test acceptance/rejection only, not capability activation or ignored semantics."""
         rule = contract(f"15_07/{parameter}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=False)
         assert_confirmed_contract(
             client.request(payload(client, **{parameter: value})), rule
@@ -306,7 +306,7 @@ class TestCompatibility:
     def test_15_09_legacy_narrator(self, contract, client, stream, preflight):
         """The legacy narrator is a named system message, not an eighth role."""
         rule = contract(f"15_09/{'stream' if stream else 'non_stream'}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=stream)
         messages = [
             message("system", "你是一位勇敢的冒险者。", name="英雄"),
@@ -326,7 +326,7 @@ class TestCompatibility:
         """Preserve the empty final user message named 推荐回复 from both old suites."""
         variant = "with_samples" if samples else "without_samples"
         rule = contract(f"15_10/{variant}/{'stream' if stream else 'non_stream'}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=stream)
         messages = [
             message("system", "你是旅行向导，帮助旅客安排旅行。", name="向导"),
@@ -348,7 +348,7 @@ class TestCompatibility:
     def test_15_11_legacy_named_group_chat(self, contract, client, stream, preflight):
         """Two named AI systems are distinct from the supported group scene role."""
         rule = contract(f"15_11/{'stream' if stream else 'non_stream'}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=stream)
         messages = [
             message("system", "你是角色A。", name="角色A"),
@@ -364,7 +364,7 @@ class TestCompatibility:
     ):
         """Historical max_tokens tolerance does not alter max_completion_tokens rules."""
         rule = contract(f"15_12/{limit}/{'stream' if stream else 'non_stream'}")
-        if rule["outcome"] == "reject":
+        if rule["outcome"] != "success":
             preflight(client, stream=stream)
         elif limit == 1:
             assert rule.get("completion_limit") == 1, (
