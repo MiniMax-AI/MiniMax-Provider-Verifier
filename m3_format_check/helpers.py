@@ -1383,3 +1383,427 @@ def long_system_text(tokens_approx=10000):
 def generate_50k_string():
     """Generate ~50K character string for tool result edge tests."""
     return "A" * 50000
+
+
+# --------------- Tool-call contract helpers (OAI Chat Completions) ---------------
+# Shared by the tool-call contract cases (TC-xxx in the OAI CC design catalog).
+# Hard checks follow the OpenAI Chat Completions reference; things OpenAI does not
+# guarantee (text wording, call counts under parallel=true, id format) stay soft.
+
+try:  # jsonschema is declared in requirements; fall back to the in-house subset if absent
+    import jsonschema as _jsonschema
+except ImportError:  # pragma: no cover
+    _jsonschema = None
+
+ECHO_TOOL_OAI = {
+    "type": "function",
+    "function": {
+        "name": "echo",
+        "description": "返回输入文本",
+        "parameters": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+GET_TIME_TOOL_OAI = {
+    "type": "function",
+    "function": {
+        "name": "get_time",
+        "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+    },
+}
+
+ECHO_PROMPT = "请调用echo，text=hello。"
+ECHO_ARGS = '{"text":"hello"}'
+
+
+def tool_fn(name, parameters=None, description=None, strict=None, **extra):
+    """Build a {"type":"function","function":{...}} declaration; None-valued keys are omitted."""
+    fn = {"name": name}
+    if description is not None:
+        fn["description"] = description
+    if parameters is not None:
+        fn["parameters"] = parameters
+    if strict is not None:
+        fn["strict"] = strict
+    fn.update(extra)
+    return {"type": "function", "function": fn}
+
+
+def strict_tool(parameters, name="f", description="按 schema 传参"):
+    return tool_fn(name, parameters=parameters, description=description, strict=True)
+
+
+def named_choice(name):
+    return {"type": "function", "function": {"name": name}}
+
+
+def echo_history(tool_content="hello", assistant_content=None, omit_content=False, call_id="call_1"):
+    """user → assistant(tool_calls=[echo]) → tool reply. assistant.content is None unless given;
+    omit_content=True drops the key entirely."""
+    assistant = {"role": "assistant", "tool_calls": [
+        {"id": call_id, "type": "function", "function": {"name": "echo", "arguments": ECHO_ARGS}}
+    ]}
+    if not omit_content:
+        assistant["content"] = assistant_content
+    return [
+        {"role": "user", "content": ECHO_PROMPT},
+        assistant,
+        {"role": "tool", "tool_call_id": call_id, "content": tool_content},
+    ]
+
+
+# Design rule: the shared format contracts only *record* problems (deduplicated per
+# target x rule on the "公共格式问题" page); they do not decide the case. Only the minimum a
+# case needs to be evaluable (status, a parsable body / stream) is hard. Recorded issues go
+# to M3_FORMAT_ISSUES (jsonl) and are echoed as pytest warnings.
+FORMAT_ISSUES_PATH = os.environ.get("M3_FORMAT_ISSUES", "").strip() or None
+
+
+def record_format_issue(rule: str, detail: str, msg: str = ""):
+    rec = {"case_id": _current_case_id(), "rule": rule, "where": msg, "detail": str(detail)[:500]}
+    try:
+        import warnings
+        warnings.warn(f"[format] {msg}: {rule}: {str(detail)[:200]}", stacklevel=3)
+    except Exception:
+        pass
+    if FORMAT_ISSUES_PATH:
+        try:
+            with open(FORMAT_ISSUES_PATH, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+
+def _soft(cond, rule: str, detail, msg: str):
+    if not cond:
+        record_format_issue(rule, detail, msg)
+    return bool(cond)
+
+
+def _int_not_bool(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _ctype(result: dict) -> str:
+    return next((str(v) for k, v in (result.get("response_headers") or {}).items()
+                 if str(k).lower() == "content-type"), "")
+
+
+def _skip_if_blocked(result: dict, msg: str):
+    """5xx / 401 / 403 / 429 / transport errors are environment blocks, not a verdict."""
+    status = result.get("status")
+    if status in (401, 403, 429) or (isinstance(status, int) and status >= 500) or not status:
+        import pytest
+        pytest.skip(f"BLOCKED {msg}: HTTP {status}: {str(result.get('body'))[:200]}")
+
+
+def assert_chat_completion_ok(result: dict, n: int = 1, msg: str = ""):
+    """Non-stream 200 (design method assert_chat_completion_ok).
+
+    Hard: HTTP 200, JSON object body without `error`, `n` choices each with a message dict
+    and a finish_reason (what the case needs to evaluate). Recorded only: content-type,
+    object / id / created / model, choice indexes, role, content key present + string|null,
+    refusal string|null, known finish_reason, usage math."""
+    msg = msg or "chat.completion"
+    _skip_if_blocked(result, msg)
+    assert result["status"] == 200, (
+        f"{msg}: expected 200, got {result['status']}: {str(result.get('body'))[:400]}"
+    )
+    body = result.get("body")
+    assert isinstance(body, dict), f"{msg}: body should be a JSON object, got {str(body)[:200]}"
+    assert "error" not in body, f"{msg}: 200 response carries an error object: {str(body.get('error'))[:300]}"
+    choices = body.get("choices")
+    assert isinstance(choices, list) and len(choices) == n, (
+        f"{msg}: expected {n} choice(s), got {len(choices) if isinstance(choices, list) else choices!r}"
+    )
+    for c in choices:
+        assert isinstance(c.get("message"), dict), f"{msg}: choice without a message object: {str(c)[:200]}"
+    _soft("application/json" in _ctype(result).lower(), "R-RES content-type json", _ctype(result), msg)
+    _soft(body.get("object") == "chat.completion", "R-RES-002 object", body.get("object"), msg)
+    _soft(isinstance(body.get("id"), str) and body["id"], "R-RES-001 id", body.get("id"), msg)
+    _soft(_int_not_bool(body.get("created")), "R-RES-003 created int", body.get("created"), msg)
+    _soft(isinstance(body.get("model"), str) and body["model"], "R-RES-004 model", body.get("model"), msg)
+    idx = [c.get("index") for c in choices]
+    _soft(all(_int_not_bool(i) for i in idx) and len(set(idx)) == n, "R-RES-006 choice index", idx, msg)
+    for c in choices:
+        m = c["message"]
+        _soft(m.get("role") == "assistant", "R-RES-009 role", m.get("role"), msg)
+        _soft("content" in m, "R-RES-010 message.content key present", "missing", msg)
+        _soft(m.get("content") is None or isinstance(m.get("content"), str), "R-RES-010 content string|null",
+              type(m.get("content")).__name__, msg)
+        _soft(m.get("refusal") is None or isinstance(m.get("refusal"), str), "R-RES-011 refusal", m.get("refusal"), msg)
+        _soft(c.get("finish_reason") in ("stop", "length", "tool_calls", "content_filter", "function_call"),
+              "R-RES-007 finish_reason", c.get("finish_reason"), msg)
+    u = body.get("usage")
+    if u is not None:
+        ok = all(_int_not_bool(u.get(k)) and u[k] >= 0 for k in ("prompt_tokens", "completion_tokens", "total_tokens"))
+        _soft(ok, "R-RES-031 usage ints", u, msg)
+        if ok:
+            _soft(u["total_tokens"] == u["prompt_tokens"] + u["completion_tokens"], "R-RES-033 usage total", u, msg)
+    return body
+
+
+def assert_param_error_400(result: dict, msg: str = "", param: Optional[str] = None):
+    """Negative case (design method assert_param_error_400): the case is decided by HTTP 400.
+    A 200 means the invalid request was silently accepted (fail). 401/403/429/5xx/transport
+    errors block the case (skip, never pass). Error-body shape is recorded only."""
+    msg = msg or "param error"
+    _skip_if_blocked(result, msg)
+    status = result.get("status")
+    assert status == 400, (
+        f"{msg}: expected 400, got {status} (200 = invalid request silently accepted): "
+        f"{str(result.get('body') or result.get('chunks'))[:300]}"
+    )
+    body = result.get("body")
+    _soft(not _oai_data_chunks(result), "R-ERR-016 error is JSON not SSE", "sse", msg)
+    _soft("application/json" in _ctype(result).lower(), "R-ERR-016 content-type json", _ctype(result), msg)
+    _soft(isinstance(body, dict) and "choices" not in body, "R-ERR-011 no completion in error", str(body)[:200], msg)
+    err = body.get("error") if isinstance(body, dict) else None
+    if _soft(isinstance(err, dict), "R-ERR-011 error object", str(body)[:200], msg):
+        if "message" in err:
+            _soft(isinstance(err["message"], str) and err["message"], "R-ERR-012 error.message", err.get("message"), msg)
+        _soft(err.get("type") is None or isinstance(err["type"], str), "R-ERR-013 error.type", err.get("type"), msg)
+        _soft(err.get("code") is None or isinstance(err["code"], (str, int)), "R-ERR-014 error.code", err.get("code"), msg)
+    return err
+
+
+def _oai_data_chunks(result: dict) -> list:
+    """Parsed stream chunks without the [DONE] / event / raw sentinels."""
+    return [
+        c for c in result.get("chunks") or []
+        if isinstance(c, dict) and not (c.get("_done") or c.get("_event") or "_raw" in c)
+    ]
+
+
+def assert_sse_stream_ok(result: dict, msg: str = ""):
+    """Stream (design method assert_sse_stream_ok).
+
+    Hard: HTTP 200, at least one JSON data chunk, no in-stream error, a finish_reason for
+    every choice seen. Recorded only: content-type, [DONE], non-JSON frames, single id /
+    created, chunk object / model, first-delta role, role on later deltas, chunks after the
+    finish chunk, duplicate finish chunks, empty delta on the finish chunk."""
+    msg = msg or "sse stream"
+    _skip_if_blocked(result, msg)
+    assert result["status"] == 200, (
+        f"{msg}: expected 200, got {result['status']}: {str(result.get('body'))[:300]}"
+    )
+    data = _oai_data_chunks(result)
+    assert data, f"{msg}: no data chunks"
+    errs = [c for c in data if "error" in c]
+    assert not errs, f"{msg}: error inside stream: {str(errs[0])[:300]}"
+    chunks = result.get("chunks") or []
+    _soft(_ctype(result).lower().startswith("text/event-stream"), "R-ST-005 content-type", _ctype(result), msg)
+    _soft(chunks and chunks[-1].get("_done"), "R-ST-008 ends with [DONE]", "missing", msg)
+    raw = [c["_raw"] for c in chunks if isinstance(c, dict) and "_raw" in c]
+    _soft(not raw, "R-ST-007 JSON data frames", raw[:2], msg)
+    ids = {c.get("id") for c in data}
+    _soft(len(ids) == 1 and all(ids), "R-ST-010 one id", ids, msg)
+    created = {c.get("created") for c in data}
+    _soft(len(created) == 1 and all(_int_not_bool(x) for x in created), "R-ST-011 one created int", created, msg)
+    _soft(all(c.get("object") == "chat.completion.chunk" for c in data), "R-ST-009 chunk object",
+          {c.get("object") for c in data}, msg)
+    seen, done, dup_finish, after_finish = set(), {}, [], []
+    for n, c in enumerate(data):
+        if not isinstance(c.get("choices"), list):
+            record_format_issue("R-ST-013 choices list", c.get("choices"), msg)
+            continue
+        for ch in c["choices"]:
+            if not isinstance(ch, dict):
+                continue
+            i, d = ch.get("index", 0), ch.get("delta") or {}
+            if i in done:
+                after_finish.append(n)
+            if i not in seen:
+                seen.add(i)
+                _soft(d.get("role") == "assistant", "R-ST-019 first delta role", d.get("role"), msg)
+            else:
+                _soft("role" not in d or d.get("role") in (None, "assistant"), "R-ST-019 later delta role", d.get("role"), msg)
+            fr = ch.get("finish_reason")
+            if fr is not None:
+                if i in done:
+                    dup_finish.append(n)
+                _soft(fr in ("stop", "length", "tool_calls", "content_filter", "function_call"), "R-ST finish_reason", fr, msg)
+                _soft(not {k: v for k, v in d.items() if v not in (None, "", [])}, "R-ST-022 finish delta empty", d, msg)
+                done[i] = fr
+    _soft(not after_finish, "R-ST-024 nothing after finish chunk", after_finish[:5], msg)
+    _soft(not dup_finish, "R-ST-023 one finish chunk", dup_finish[:5], msg)
+    assert seen and set(done) == seen, f"{msg}: every choice needs a finish_reason, seen={seen} done={done}"
+    return data
+
+
+def stream_finish_reasons(result: dict) -> dict:
+    """{choice_index: finish_reason} for a stream."""
+    out = {}
+    for c in _oai_data_chunks(result):
+        for ch in c.get("choices") or []:
+            if isinstance(ch, dict) and ch.get("finish_reason") is not None:
+                out[ch.get("index", 0)] = ch["finish_reason"]
+    return out
+
+
+def stream_tool_deltas(result: dict) -> list:
+    """Every delta.tool_calls element in stream order, tagged with its choice index:
+    [(choice_index, tool_delta), ...]."""
+    out = []
+    for c in _oai_data_chunks(result):
+        for ch in c.get("choices") or []:
+            if not isinstance(ch, dict):
+                continue
+            for tc in ((ch.get("delta") or {}).get("tool_calls") or []):
+                out.append((ch.get("index", 0), tc))
+    return out
+
+
+def rebuild_stream_tool_calls(result: dict) -> dict:
+    """Merge delta.tool_calls by (choice.index, tool.index):
+    {(choice, tool_index): {"id", "type", "name", "arguments"}}."""
+    calls = {}
+    for ci, tc in stream_tool_deltas(result):
+        key = (ci, tc.get("index", 0))
+        slot = calls.setdefault(key, {"id": "", "type": "", "name": "", "arguments": ""})
+        if tc.get("id"):
+            slot["id"] = slot["id"] or tc["id"]
+        if tc.get("type"):
+            slot["type"] = slot["type"] or tc["type"]
+        fn = tc.get("function") or {}
+        if fn.get("name"):
+            slot["name"] += fn["name"]
+        if isinstance(fn.get("arguments"), str):
+            slot["arguments"] += fn["arguments"]
+    return calls
+
+
+def message_tool_calls(result: dict, choice: int = 0) -> list:
+    """Raw message.tool_calls (non-stream) of one choice; [] when absent/null."""
+    choices = (result.get("body") or {}).get("choices") or []
+    if len(choices) <= choice:
+        return []
+    return (choices[choice].get("message") or {}).get("tool_calls") or []
+
+
+def validate_json_schema(instance, schema: dict, msg: str = ""):
+    """Full JSON Schema validation (Draft 2020-12, with format checks for the formats the
+    installed jsonschema supports). Falls back to the in-house subset validator."""
+    if _jsonschema is None:
+        _validate_schema(instance, schema, "args", msg)
+        return
+    cls = _jsonschema.validators.validator_for(schema, default=_jsonschema.Draft202012Validator)
+    validator = cls(schema, format_checker=cls.FORMAT_CHECKER)
+    errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+    assert not errors, (
+        f"{msg}: arguments violate schema: "
+        + "; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors[:5])
+        + f"\n  arguments={json.dumps(instance, ensure_ascii=False)[:400]}"
+    )
+
+
+def parse_arguments(raw, msg: str = "") -> dict:
+    """function.arguments must be a JSON string that parses to an object."""
+    assert isinstance(raw, str), f"{msg}: function.arguments should be a JSON string, got {type(raw).__name__}={raw!r}"
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise AssertionError(f"{msg}: function.arguments is not valid JSON ({e}): {raw[:300]!r}")
+    assert isinstance(obj, dict), f"{msg}: function.arguments should parse to an object, got {raw[:200]!r}"
+    return obj
+
+
+def assert_tool_call_items(result: dict, tools: list, schema_check: bool = True,
+                           allowed_names=None, msg: str = "") -> list:
+    """Non-stream: every message.tool_calls item has a non-empty string id, type=function and
+    function.{name, arguments}; name is a declared (or allowed) function; arguments is a JSON
+    object string that (schema_check) validates against that function's parameters.
+    Returns [(item, parsed_args), ...]."""
+    msg = msg or "tool_calls"
+    declared = {t["function"]["name"]: (t["function"].get("parameters") or {"type": "object"})
+                for t in tools if t.get("type") == "function"}
+    allowed = set(allowed_names or declared)
+    items = message_tool_calls(result)
+    out = []
+    for i, tc in enumerate(items):
+        assert isinstance(tc, dict), f"{msg}: tool_calls[{i}] should be an object"
+        assert isinstance(tc.get("id"), str) and tc["id"], f"{msg}: tool_calls[{i}].id should be a non-empty string, got {tc.get('id')!r}"
+        assert tc.get("type") == "function", f"{msg}: tool_calls[{i}].type should be function, got {tc.get('type')!r}"
+        fn = tc.get("function") or {}
+        _soft(set(tc) <= {"id", "type", "function"}, "R-TC tool_calls item extra keys", sorted(set(tc)), msg)
+        assert fn.get("name") in allowed, f"{msg}: tool_calls[{i}].function.name={fn.get('name')!r} not in {sorted(allowed)}"
+        args = parse_arguments(fn.get("arguments"), f"{msg}: tool_calls[{i}]")
+        if schema_check and fn["name"] in declared:
+            validate_json_schema(args, declared[fn["name"]], f"{msg}: tool_calls[{i}] {fn['name']}")
+        out.append((tc, args))
+    ids = [tc["id"] for tc, _ in out]
+    assert len(set(ids)) == len(ids), f"{msg}: tool_call ids must be unique within a message: {ids}"
+    return out
+
+
+def assert_stream_tool_calls(result: dict, tools: list, schema_check: bool = True,
+                             allowed_names=None, msg: str = "") -> dict:
+    """Stream: merged by (choice.index, tool.index), each call has a non-empty id and a declared
+    name, later fragments do not change them, and the joined arguments parse to an object that
+    (schema_check) satisfies the schema. First-fragment completeness is recorded only.
+    Returns {(choice, tool_index): (slot, parsed_args)}."""
+    msg = msg or "stream tool_calls"
+    declared = {t["function"]["name"]: (t["function"].get("parameters") or {"type": "object"})
+                for t in tools if t.get("type") == "function"}
+    allowed = set(allowed_names or declared)
+    # First-fragment completeness (id / type / name on the first delta, TC-069/092/153) is a
+    # separate design case; here it is recorded only. Renames / id changes mid-stream are hard.
+    first = {}
+    for ci, tc in stream_tool_deltas(result):
+        key = (ci, tc.get("index", 0))
+        _soft(_int_not_bool(tc.get("index")), "R-ST tool delta index int", tc, msg)
+        fn = tc.get("function") or {}
+        if key not in first:
+            first[key] = tc
+            _soft(tc.get("id") and tc.get("type") == "function" and fn.get("name"),
+                  "R-ST tool first fragment id/type/name", tc, msg)
+        else:
+            if tc.get("id") and first[key].get("id"):
+                assert tc["id"] == first[key]["id"], f"{msg}: call {key} id changed mid-stream: {tc['id']!r}"
+            if fn.get("name") and (first[key].get("function") or {}).get("name"):
+                assert fn["name"] == first[key]["function"]["name"], f"{msg}: call {key} renamed mid-stream to {fn['name']!r}"
+    out = {}
+    for key, slot in rebuild_stream_tool_calls(result).items():
+        assert slot["id"], f"{msg}: call {key} has no id anywhere in the stream"
+        _soft(slot["type"] in ("function", ""), "R-ST tool type function", slot["type"], msg)
+        assert slot["name"] in allowed, f"{msg}: call {key} name={slot['name']!r} not in {sorted(allowed)}"
+        args = parse_arguments(slot["arguments"], f"{msg}: call {key}")
+        if schema_check and slot["name"] in declared:
+            validate_json_schema(args, declared[slot["name"]], f"{msg}: call {key} {slot['name']}")
+        out[key] = (slot, args)
+    ids = [s["id"] for s, _ in out.values()]
+    assert len(set(ids)) == len(ids), f"{msg}: tool_call ids must be unique: {ids}"
+    return out
+
+
+def assert_text_reply(result: dict, msg: str = "", finishes=("stop",)):
+    """No tool call and a text answer: non-stream finish in `finishes`, no tool_calls (an empty
+    array is recorded as a format issue), non-empty content; stream: no tool_calls deltas, finish in `finishes`, joined
+    content non-empty when finish is stop."""
+    msg = msg or "text reply"
+    if result.get("stream"):
+        assert not stream_tool_deltas(result), f"{msg}: stream should not carry tool_calls deltas"
+        fr = stream_finish_reasons(result)
+        assert fr and all(v in finishes for v in fr.values()), f"{msg}: finish_reason should be in {finishes}, got {fr}"
+        if "stop" in fr.values():
+            assert get_oai_content(result).strip(), f"{msg}: joined content is empty"
+        return
+    choice = result["body"]["choices"][0]
+    m = choice.get("message") or {}
+    assert choice.get("finish_reason") in finishes, f"{msg}: finish_reason should be in {finishes}, got {choice.get('finish_reason')!r}"
+    assert not m.get("tool_calls"), f"{msg}: expected no tool call, got {m.get('tool_calls')!r}"
+    _soft(m.get("tool_calls") is None, "R-TC tool_calls absent when no call", m.get("tool_calls"), msg)
+    if choice.get("finish_reason") == "stop":
+        assert isinstance(m.get("content"), str) and m["content"].strip(), f"{msg}: content should be a non-empty string"
+
+
+def assert_reply_ok(result: dict, msg: str = ""):
+    """Dispatch: stream → assert_sse_stream_ok, else assert_chat_completion_ok."""
+    if result.get("stream"):
+        return assert_sse_stream_ok(result, msg=msg)
+    return assert_chat_completion_ok(result, msg=msg)

@@ -25,6 +25,10 @@ Module id / topic:
     18  reasoning_split      reasoning_split extension field
     19  finish_reason        finish_reason coverage
     20  error_codes          error codes (pure-text category)
+    24  tool_contract        OAI tool-call contract cases (design catalog TC-xxx)
+
+Tool-call cases tagged "[TC-xxx]" in their docstring map to the OAI Chat Completions
+verification design (toolcall module).
 
 No image / video requests. Modality priority is video > image > text; this file
 collects text cases only.
@@ -54,6 +58,65 @@ def _has_chinese(text: str) -> bool:
     return bool(re.search(r"[一-鿿]", text))
 
 
+# --------------- Tool-call contract helpers (TC-xxx cases) ---------------
+# TC-xxx ids refer to the OAI Chat Completions verification design (toolcall module).
+
+def _finish(r: dict):
+    return r["body"]["choices"][0].get("finish_reason")
+
+
+def _echo_real_call(tools=None, tool_choice="required"):
+    """Turn 1 of a real loop: ask for echo(text=hello) and bind the returned call(s).
+
+    Returns (user_msg, assistant_msg, calls) where assistant_msg replays the returned
+    tool_calls with their real ids/arguments (nothing fabricated)."""
+    tools = tools or [ECHO_TOOL_OAI]
+    user = {"role": "user", "content": ECHO_PROMPT}
+    r1 = oai_chat({"messages": [user], "tools": tools, "tool_choice": tool_choice})
+    assert_chat_completion_ok(r1, msg="turn 1")
+    assert _finish(r1) == "tool_calls", f"turn 1 finish_reason should be tool_calls, got {_finish(r1)!r}"
+    items = assert_tool_call_items(r1, tools, msg="turn 1")
+    assert items, "turn 1 returned no tool_calls"
+    assistant = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": tc["id"], "type": "function",
+         "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
+        for tc, _ in items
+    ]}
+    return user, assistant, [tc for tc, _ in items]
+
+
+def _tool_replies(calls, content="hello"):
+    return [{"role": "tool", "tool_call_id": tc["id"], "content": content} for tc in calls]
+
+
+def _assert_single_strict_call(r: dict, tool: dict, msg: str) -> dict:
+    """strict + tool_choice=required + parallel_tool_calls=false: 200 contract, finish
+    tool_calls, exactly one call to the declared function, arguments a JSON object string
+    that fully validates against the parameters schema. Returns the parsed arguments."""
+    assert_chat_completion_ok(r, msg=msg)
+    assert _finish(r) == "tool_calls", f"{msg}: finish_reason should be tool_calls, got {_finish(r)!r}"
+    items = assert_tool_call_items(r, [tool], msg=msg)
+    assert len(items) == 1, f"{msg}: parallel_tool_calls=false expects exactly 1 call, got {len(items)}"
+    return items[0][1]
+
+
+def _assert_required_calls_loose(r: dict, name: str, msg: str):
+    """Non-strict + tool_choice=required: 200 contract, finish tool_calls, at least one call,
+    every call names `name`, id non-empty, type function, arguments a string. Whether the
+    arguments parse / satisfy the schema is not guaranteed without strict, so not asserted."""
+    assert_chat_completion_ok(r, msg=msg)
+    assert _finish(r) == "tool_calls", f"{msg}: finish_reason should be tool_calls, got {_finish(r)!r}"
+    items = message_tool_calls(r)
+    assert items, f"{msg}: tool_choice=required but no tool_calls"
+    for i, tc in enumerate(items):
+        assert isinstance(tc.get("id"), str) and tc["id"], f"{msg}: tool_calls[{i}].id should be non-empty"
+        assert tc.get("type") == "function", f"{msg}: tool_calls[{i}].type should be function"
+        fn = tc.get("function") or {}
+        assert fn.get("name") == name, f"{msg}: tool_calls[{i}].name should be {name!r}, got {fn.get('name')!r}"
+        assert isinstance(fn.get("arguments"), str), f"{msg}: tool_calls[{i}].arguments should be a string"
+    return items
+
+
 # ============================================================
 # 01 basic_text — basic text chat (non-stream)
 # ============================================================
@@ -62,10 +125,15 @@ class TestBasicText:
     """Basic text chat: validates the minimal usable path of non-stream chat completion."""
 
     def test_01_01_text_non_stream(self):
-        """Most basic non-stream text chat; assert HTTP 200 + non-empty content."""
+        """Most basic non-stream text chat; assert HTTP 200 + non-empty content.
+
+        [TC-040] No tools declared → tool_choice defaults to none: full chat.completion
+        contract, finish_reason=stop, tool_calls absent/null (not []), non-empty content."""
         r = oai_chat({"messages": oai_simple_messages("What is 1+1?")})
         assert_oai_success(r)
         assert len(get_oai_content(r)) > 0
+        assert_chat_completion_ok(r, msg="01_01")
+        assert_text_reply(r, msg="01_01 [TC-040] no tools")
 
     def test_01_02_content_string(self):
         """user.content as plain string."""
@@ -405,7 +473,8 @@ class TestMessageFormat:
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_07_03_assistant_no_content_field_with_tool_calls(self, stream):
-        """assistant omits the content field entirely with tool_calls; should return 200."""
+        """assistant omits the content field entirely with tool_calls; should return 200 with a
+        well-formed reply. (Design-case variant with echo / get_time: 07_03b.)"""
         r = oai_chat({
             "messages": [
                 {"role": "user", "content": "Weather in Beijing?"},
@@ -418,6 +487,19 @@ class TestMessageFormat:
             "tools": [WEATHER_TOOL_OAI],
         }, stream=stream)
         assert r["status"] == 200
+        assert_reply_ok(r, msg=f"07_03 stream={stream}")
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_07_03b_echo_history_content_omitted(self, stream):
+        """[TC-192] History assistant with tool_calls and no content key + tool reply, tool_choice=none:
+        reply contract and a text answer (no new tool call)."""
+        r = oai_chat({
+            "messages": echo_history(omit_content=True),
+            "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI],
+            "tool_choice": "none",
+        }, stream=stream)
+        assert_reply_ok(r, msg=f"07_03 [TC-192] stream={stream}")
+        assert_text_reply(r, msg=f"07_03 [TC-192] stream={stream}", finishes=("stop", "length"))
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_07_04_user_content_empty_array(self, stream):
@@ -1037,6 +1119,19 @@ class TestToolCallBasic:
             f"{r['body']['choices'][0].get('finish_reason')!r}"
         )
 
+    def test_13_01b_tool_choice_omitted_auto(self):
+        """[TC-036] tool_choice omitted with echo + get_time declared behaves as auto: full
+        chat.completion contract; either a text answer (finish stop, tool_calls absent/null) or
+        calls that only use the declared names (finish tool_calls)."""
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": [{"role": "user", "content": "简短问候。"}], "tools": tools})
+        assert_chat_completion_ok(r, msg="13_01b")
+        if _finish(r) == "tool_calls":
+            items = assert_tool_call_items(r, tools, schema_check=False, msg="13_01b auto")
+            assert items, "13_01b finish_reason=tool_calls but no tool_calls"
+        else:
+            assert_text_reply(r, msg="13_01b auto")
+
     def test_13_02_tool_call_stream(self):
         """Streaming tool_call: stream should rebuild get_weather + trailing chunk finish_reason==tool_calls."""
         r = oai_chat({
@@ -1146,6 +1241,14 @@ class TestToolCallBasic:
             msg="tool_without_description",
         )
 
+    def test_13_06b_echo_without_description_required(self):
+        """[TC-002] echo without description, tool_choice=required: contract, finish tool_calls, every
+        call named echo with string arguments. Non-strict → schema not asserted."""
+        echo = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"])
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [echo],
+                      "tool_choice": "required"})
+        _assert_required_calls_loose(r, "echo", "13_06 [TC-002]")
+
     def test_13_07_stream_multi_tool_call(self):
         """Stream multi-tool_call rebuild: Beijing + Shanghai must both fire; each call id should be non-empty and unique."""
         r = oai_chat({
@@ -1191,7 +1294,53 @@ class TestToolCallBasic:
         assert len(set(non_empty_ids)) == len(non_empty_ids), (
             f"tool_call.id should be unique across calls, got duplicates: {ids}"
         )
+        # [TC-154] SSE contract; merged per (choice, tool.index), first fragment complete,
+        # each call's arguments parse independently and validate on their own schema.
+        assert_sse_stream_ok(r, msg="13_07")
+        merged = assert_stream_tool_calls(r, [WEATHER_TOOL_OAI], msg="13_07 [TC-154]")
+        cities = [args.get("location") for _, args in merged.values()]
+        assert len(set(cities)) == len(cities), f"13_07 [TC-154] same-name calls bled into each other: {cities}"
 
+    def test_13_07b_stream_multi_distinct_tools(self):
+        """[TC-070] Stream, echo + get_time, tool_choice=required, parallel_tool_calls=true: SSE
+        contract, finish_reason=tool_calls, calls merged by (choice.index, tool.index) have
+        distinct ids, declared names, and arguments that parse and satisfy their own schema
+        without bleeding across indexes. A single call is allowed (parallel=true does not
+        guarantee multiple calls)."""
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": oai_simple_messages("请同时做两件事：调用 echo（text=hello），并调用 get_time。"),
+                      "tools": tools, "tool_choice": "required", "parallel_tool_calls": True}, stream=True)
+        assert_sse_stream_ok(r, msg="13_07b")
+        assert stream_finish_reasons(r) == {0: "tool_calls"}, f"13_07b finish: {stream_finish_reasons(r)}"
+        merged = assert_stream_tool_calls(r, tools, msg="13_07b")
+        assert merged, "13_07b tool_choice=required but no tool_calls"
+        for (ci, ti), (slot, args) in merged.items():
+            if slot["name"] == "echo":
+                assert args == {"text": "hello"} or isinstance(args.get("text"), str), f"13_07b echo args: {args}"
+            else:
+                assert args == {}, f"13_07b get_time takes no arguments, got {args} at index {ti}"
+
+    def test_13_07c_same_name_parallel_non_stream(self):
+        """[TC-152] Non-stream, one get_weather(city) tool, tool_choice=required,
+        parallel_tool_calls=true, asking for Beijing and Shanghai: contract, finish tool_calls,
+        every call schema-valid with a distinct id. When two calls fire, their cities differ and
+        cover Beijing + Shanghai (a single call is recorded as parallel-not-triggered)."""
+        tool = tool_fn("get_weather", parameters={
+            "type": "object", "properties": {"city": {"type": "string"}},
+            "required": ["city"], "additionalProperties": False})
+        r = oai_chat({"messages": oai_simple_messages("分别查北京、上海天气。"), "tools": [tool],
+                      "tool_choice": "required", "parallel_tool_calls": True})
+        assert_chat_completion_ok(r, msg="13_07c")
+        assert _finish(r) == "tool_calls", f"13_07c finish_reason should be tool_calls, got {_finish(r)!r}"
+        items = assert_tool_call_items(r, [tool], msg="13_07c")
+        assert items, "13_07c tool_choice=required but no tool_calls"
+        if len(items) >= 2:
+            cities = [a["city"] for _, a in items]
+            assert len(set(cities)) == len(cities), f"13_07c same-name calls share arguments: {cities}"
+            joined = " ".join(cities).lower()
+            assert ("北京" in joined or "beijing" in joined) and ("上海" in joined or "shanghai" in joined), (
+                f"13_07c cities should cover Beijing and Shanghai, got {cities}"
+            )
 
     def test_13_09_tool_stream_auto(self):
         """tool_choice=auto + stream + explicit tool-call cue; verify stream contains tool_call chunks."""
@@ -1355,6 +1504,21 @@ class TestToolCallSchema:
                 assert "beijing" in loc.lower() or "北京" in loc, (
                     f"get_weather.location={loc!r} expected Beijing"
                 )
+        assert_chat_completion_ok(r, msg="14_01")
+        assert_tool_call_items(r, [WEATHER_TOOL_OAI, TIME_TOOL_OAI], msg="14_01")
+
+    def test_14_01b_multi_tools_required_parallel_fields(self):
+        """[TC-151] Non-stream, echo + get_time, tool_choice=required, parallel_tool_calls=true:
+        contract, finish_reason=tool_calls, every call complete (id / type / name / arguments),
+        arguments validate against their own function's schema, ids distinct. A single call is
+        allowed (parallel=true does not guarantee multiple calls)."""
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": oai_simple_messages("分别调用echo与get_time。"), "tools": tools,
+                      "tool_choice": "required", "parallel_tool_calls": True})
+        assert_chat_completion_ok(r, msg="14_01b")
+        assert _finish(r) == "tool_calls", f"14_01b finish_reason should be tool_calls, got {_finish(r)!r}"
+        items = assert_tool_call_items(r, tools, msg="14_01b")
+        assert items, "14_01b tool_choice=required but no tool_calls"
 
     def test_14_02_enum_constraint(self):
         """enum constraint: unit ∈ [celsius, fahrenheit]; prompt specifies fahrenheit, model should fill it correctly."""
@@ -1603,6 +1767,19 @@ class TestToolCallSchema:
         calls = get_tool_calls(r)
         reason = self._oneof_check_calls(calls)
         assert reason is None, f"oneof toplevel stream: {reason}. calls={calls}"
+
+    def test_14_07b_non_strict_property_oneof_accepted(self):
+        """[TC-135] Non-strict (strict=false) property-level oneOf is accepted: 200 contract,
+        finish_reason=tool_calls, every call is f with arguments a JSON object string. Without
+        strict the values are not guaranteed to match the schema, so they are not checked."""
+        tool = tool_fn("f", description="按 schema 传参", strict=False, parameters={
+            "type": "object", "properties": {"v": {"oneOf": [{"type": "string"}, {"type": "integer"}]}},
+            "required": ["v"], "additionalProperties": False})
+        r = oai_chat({"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"),
+                      "tools": [tool], "tool_choice": "required"})
+        _assert_required_calls_loose(r, "f", "14_07b [TC-135]")
+        for i, tc in enumerate(message_tool_calls(r)):
+            parse_arguments(tc["function"]["arguments"], f"14_07b [TC-135] tool_calls[{i}]")
 
     # ------------- 14_08 object field in tool arguments (stream) -------------
     # Verify a tool whose parameters declare an `object` field. The prompt
@@ -1898,6 +2075,196 @@ class TestToolCallSchema:
             f"{type(flag).__name__}={flag!r}. The provider must not stringify the "
             f"boolean. raw={c['arguments_raw']!r}"
         )
+        assert_reply_ok(r, msg=f"14_10 stream={stream}")
+
+    # ------------- 14_11 strict 2-D boolean array [TC-118] -------------
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_14_11_strict_2d_bool_array(self, stream):
+        """[TC-118] strict m: array<array<boolean>>, tool_choice=required, parallel=false:
+        reply contract, finish_reason=tool_calls, exactly one call whose arguments fully
+        validate (m stays 2-D, elements real booleans, no extra keys)."""
+        tool = strict_tool({"type": "object", "properties": {
+            "m": {"type": "array", "items": {"type": "array", "items": {"type": "boolean"}}}},
+            "required": ["m"], "additionalProperties": False})
+        payload = {"messages": oai_simple_messages("调用 f，m=[[true,false]]。"), "tools": [tool],
+                   "tool_choice": "required", "parallel_tool_calls": False}
+        r = oai_chat(payload, stream=stream)
+        if not stream:
+            args = _assert_single_strict_call(r, tool, f"14_11 stream={stream}")
+        else:
+            assert_sse_stream_ok(r, msg="14_11 stream")
+            assert stream_finish_reasons(r) == {0: "tool_calls"}, f"14_11 finish: {stream_finish_reasons(r)}"
+            merged = assert_stream_tool_calls(r, [tool], msg="14_11 stream")
+            assert len(merged) == 1, f"14_11 parallel=false expects 1 call, got {len(merged)}"
+            args = next(iter(merged.values()))[1]
+        assert all(isinstance(row, list) for row in args["m"]), f"14_11 m must stay 2-D: {args}"
+        assert all(isinstance(v, bool) for row in args["m"] for v in row), f"14_11 m elements must be bool: {args}"
+
+    # ------------- 14_12 strict function schema (positive) -------------
+    # tool_choice=required + parallel_tool_calls=false; strict guarantees schema-conformant
+    # arguments, so each case fully validates the single call against its parameters.
+    _STRICT_CASES = {
+        "TC-101_anyof_scalar": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"v": {"anyOf": [{"type": "string"}, {"type": "integer"}]}},
+            "required": ["v"], "additionalProperties": False}),
+        "TC-102_anyof_object_branches": ("调用 f，item 选 org 分支，url=https://a.com。", {
+            "type": "object", "properties": {"item": {"anyOf": [
+                {"type": "object", "properties": {"kind": {"type": "string", "enum": ["user"]}, "name": {"type": "string"}},
+                 "required": ["kind", "name"], "additionalProperties": False},
+                {"type": "object", "properties": {"kind": {"type": "string", "enum": ["org"]}, "url": {"type": "string"}},
+                 "required": ["kind", "url"], "additionalProperties": False}]}},
+            "required": ["item"], "additionalProperties": False}),
+        "TC-103_enum_string": ("调用 f，unit 用摄氏度。", {
+            "type": "object", "properties": {"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}},
+            "required": ["unit"], "additionalProperties": False}),
+        "TC-104_enum_number": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"level": {"type": "integer", "enum": [1, 2, 3]}},
+            "required": ["level"], "additionalProperties": False}),
+        "TC-105_enum_with_null": ("调用 f，unit 不适用，传 null。", {
+            "type": "object", "properties": {"unit": {"type": ["string", "null"], "enum": ["c", "f", None]}},
+            "required": ["unit"], "additionalProperties": False}),
+        "TC-106_nullable_type_array": ("调用 f，note 没有值，传 null。", {
+            "type": "object", "properties": {"note": {"type": ["string", "null"]}},
+            "required": ["note"], "additionalProperties": False}),
+        "TC-107_nested_3_levels": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"a": {
+                "type": "object", "properties": {"b": {
+                    "type": "object", "properties": {"c": {"type": "string"}},
+                    "required": ["c"], "additionalProperties": False}},
+                "required": ["b"], "additionalProperties": False}},
+            "required": ["a"], "additionalProperties": False}),
+        "TC-108_object_array_min_items": ("调用 f，rows 给 2 行。", {
+            "type": "object", "properties": {"rows": {"type": "array", "minItems": 2, "items": {
+                "type": "object", "properties": {"n": {"type": "integer"}},
+                "required": ["n"], "additionalProperties": False}}},
+            "required": ["rows"], "additionalProperties": False}),
+        "TC-109_ref_reuse": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"from": {"$ref": "#/$defs/p"}, "to": {"$ref": "#/$defs/p"}},
+            "required": ["from", "to"], "additionalProperties": False,
+            "$defs": {"p": {"type": "object", "properties": {"city": {"type": "string"}},
+                            "required": ["city"], "additionalProperties": False}}}),
+        "TC-110_root_recursive_ref": ("调用 f，value=a，children 为空数组。", {
+            "type": "object", "properties": {"value": {"type": "string"},
+                                             "children": {"type": "array", "items": {"$ref": "#"}}},
+            "required": ["value", "children"], "additionalProperties": False}),
+        "TC-111_annotations": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"v": {"type": "string", "title": "T", "description": "取值说明", "default": "x"}},
+            "required": ["v"], "additionalProperties": False}),
+        "TC-112_min_max_length": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"code": {"type": "string", "minLength": 2, "maxLength": 4}},
+            "required": ["code"], "additionalProperties": False}),
+        "TC-113_formats": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {"at": {"type": "string", "format": "date-time"},
+                                             "day": {"type": "string", "format": "date"},
+                                             "id": {"type": "string", "format": "uuid"}},
+            "required": ["at", "day", "id"], "additionalProperties": False}),
+        "TC-114_empty_properties": ("调用 f，给出符合 schema 的一组参数。", {
+            "type": "object", "properties": {}, "required": [], "additionalProperties": False}),
+        "TC-115_unicode_property_names": ("调用 f，城市=北京，a-b_c=x。", {
+            "type": "object", "properties": {"城市": {"type": "string"}, "a-b_c": {"type": "string"}},
+            "required": ["城市", "a-b_c"], "additionalProperties": False}),
+        "TC-117_escape_unicode_value": ("调用 f，text 原样传：他说\"你好\"\\n🙂", {
+            "type": "object", "properties": {"text": {"type": "string"}},
+            "required": ["text"], "additionalProperties": False}),
+    }
+
+    # Business values the prompt fixes (format guarantees are checked by the schema).
+    _STRICT_VALUE_CHECKS = {
+        "TC-102_anyof_object_branches": lambda a: a["item"].get("kind") == "org" and "url" in a["item"],
+        "TC-103_enum_string": lambda a: a["unit"] == "celsius",
+        "TC-105_enum_with_null": lambda a: a["unit"] is None,
+        "TC-106_nullable_type_array": lambda a: a["note"] is None,
+        "TC-108_object_array_min_items": lambda a: len(a["rows"]) >= 2,
+        "TC-110_root_recursive_ref": lambda a: a["value"] == "a" and a["children"] == [],
+        "TC-114_empty_properties": lambda a: a == {},
+        "TC-115_unicode_property_names": lambda a: "北京" in a["城市"],
+    }
+
+    @pytest.mark.parametrize("case", list(_STRICT_CASES), ids=list(_STRICT_CASES))
+    def test_14_12_strict_tool_schema(self, case):
+        """[TC-101..TC-115, TC-117] strict function schemas the OpenAI subset supports: 200 contract,
+        finish_reason=tool_calls, exactly one call (parallel_tool_calls=false), arguments a JSON
+        object string fully validating against parameters (types, enum, nullable, $ref, length,
+        format, additionalProperties=false); prompt-fixed values are checked where meaningful."""
+        prompt, params = self._STRICT_CASES[case]
+        tool = strict_tool(params)
+        r = oai_chat({"messages": oai_simple_messages(prompt), "tools": [tool],
+                      "tool_choice": "required", "parallel_tool_calls": False})
+        args = _assert_single_strict_call(r, tool, f"14_12 {case}")
+        check = self._STRICT_VALUE_CHECKS.get(case)
+        if check is not None:
+            assert check(args), f"14_12 {case}: arguments do not carry the requested values: {args}"
+
+    def test_14_12b_non_strict_omit_required_and_additional(self):
+        """[TC-138] strict=false with parameters lacking required / additionalProperties: 200
+        contract, finish_reason=tool_calls, every call is f with arguments a JSON object.
+        Non-strict does not guarantee schema conformance, so values are not checked."""
+        tool = tool_fn("f", description="按 schema 传参", strict=False,
+                       parameters={"type": "object", "properties": {"a": {"type": "string"}}})
+        r = oai_chat({"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"),
+                      "tools": [tool], "tool_choice": "required"})
+        _assert_required_calls_loose(r, "f", "14_12b [TC-138]")
+        for i, tc in enumerate(message_tool_calls(r)):
+            parse_arguments(tc["function"]["arguments"], f"14_12b [TC-138] tool_calls[{i}]")
+
+    # ------------- 14_14 custom tool declaration negatives -------------
+    _CUSTOM_BAD_GRAMMAR = {
+        "TC-033_missing_definition": {"syntax": "regex"},
+        "TC-034_invalid_syntax": {"syntax": "python", "definition": "x"},
+    }
+
+    @pytest.mark.parametrize("case", list(_CUSTOM_BAD_GRAMMAR), ids=list(_CUSTOM_BAD_GRAMMAR))
+    def test_14_14_custom_tool_formats(self, case):
+        """[TC-033 / TC-034] custom tool with a broken grammar (definition missing / syntax not
+        lark|regex) must be rejected with a 400 error object, never ignored and answered with 200."""
+        tool = {"type": "custom", "custom": {"name": "echo_text", "description": "原样输出文本",
+                                             "format": {"type": "grammar", "grammar": self._CUSTOM_BAD_GRAMMAR[case]}}}
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
+        assert_param_error_400(r, msg=f"14_14 {case}", param="tools")
+
+    # ------------- 14_15 function declaration negatives -------------
+    _BAD_DECLARATIONS = {
+        "TC-004_function_container_missing": {"type": "function", "name": "echo"},
+        "TC-006_name_wrong_type": {"type": "function", "function": {"name": 7}},
+    }
+
+    @pytest.mark.parametrize("case", list(_BAD_DECLARATIONS), ids=list(_BAD_DECLARATIONS))
+    def test_14_15_tool_declaration_invalid(self, case):
+        """[TC-004 / TC-006] Malformed tools[] declarations → 400 JSON error object; a 200
+        means the request was silently defaulted / renamed and fails the case."""
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [self._BAD_DECLARATIONS[case]]})
+        assert_param_error_400(r, msg=f"14_15 {case}", param="tools")
+
+    # ------------- 14_16 schema keyword acceptance -------------
+    _ACCEPTED_KEYWORDS = {
+        "TC-125_strict_pattern_properties": (True, {
+            "type": "object", "properties": {"v": {"type": "string"}}, "required": ["v"],
+            "additionalProperties": False, "patternProperties": {"^a": {"type": "string"}}}),
+        "TC-136_non_strict_allof": (False, {
+            "type": "object", "properties": {"v": {"allOf": [{"type": "string"}]}},
+            "required": ["v"], "additionalProperties": False}),
+    }
+
+    @pytest.mark.parametrize("case", list(_ACCEPTED_KEYWORDS), ids=list(_ACCEPTED_KEYWORDS))
+    def test_14_16_schema_capability_negative(self, case):
+        """[TC-125 / TC-136] Schemas OpenAI accepts:
+        - strict patternProperties next to properties (OpenAI 200): one call, schema-valid
+          arguments (the declared `v` is required, extra keys forbidden);
+        - non-strict allOf: 200, finish tool_calls, arguments a JSON object (values not
+          checked without strict)."""
+        strict, params = self._ACCEPTED_KEYWORDS[case]
+        tool = tool_fn("f", description="按 schema 传参", strict=strict, parameters=params)
+        payload = {"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"),
+                   "tools": [tool], "tool_choice": "required"}
+        if strict:
+            payload["parallel_tool_calls"] = False
+            r = oai_chat(payload)
+            _assert_single_strict_call(r, tool, f"14_16 {case}")
+            return
+        r = oai_chat(payload)
+        _assert_required_calls_loose(r, "f", f"14_16 {case}")
+        for i, tc in enumerate(message_tool_calls(r)):
+            parse_arguments(tc["function"]["arguments"], f"14_16 {case} tool_calls[{i}]")
 
 
 # ============================================================
@@ -1931,7 +2298,16 @@ class TestToolCallCombo:
             msg=f"thinking_tool_call_multiturn stream={stream}",
         )
         assert_thinking_present(r, msg=f"thinking_tool_call_multiturn stream={stream}")
+        assert_reply_ok(r, msg=f"15_01 stream={stream}")
 
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_15_01b_history_content_null(self, stream):
+        """[TC-191] History assistant(content=null, tool_calls) + tool reply, tool_choice=none: accepted
+        (null content is legal alongside tool_calls) and answered with text."""
+        r = oai_chat({"messages": echo_history(assistant_content=None),
+                      "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"}, stream=stream)
+        assert_reply_ok(r, msg=f"15_01 [TC-191] stream={stream}")
+        assert_text_reply(r, msg=f"15_01 [TC-191] stream={stream}", finishes=("stop", "length"))
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_15_03_5_parallel_tool_calls(self, stream):
@@ -1985,6 +2361,24 @@ class TestToolCallCombo:
         }, stream=stream)
         assert r["status"] == 200
         assert_thinking_present(r, msg=f"extreme_agent_thinking_fc stream={stream}")
+        assert_reply_ok(r, msg=f"15_04 stream={stream}")
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_15_04b_mixed_tool_and_plain_turns(self, stream):
+        """[TC-204] History mixes a tool turn, a plain assistant answer, a user follow-up and a
+        second tool turn (echo → text → get_time); tool_choice=none: accepted, reply contract,
+        text answer with no new tool call."""
+        messages = echo_history() + [
+            {"role": "assistant", "content": "返回 hello。"},
+            {"role": "user", "content": "现在几点？"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_2", "type": "function", "function": {"name": "get_time", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call_2", "content": "12:00"},
+        ]
+        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI],
+                      "tool_choice": "none"}, stream=stream)
+        assert_reply_ok(r, msg=f"15_04b [TC-204] stream={stream}")
+        assert_text_reply(r, msg=f"15_04b [TC-204] stream={stream}", finishes=("stop", "length"))
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_15_05_system_thinking_tools_combo(self, stream):
@@ -2021,6 +2415,18 @@ class TestToolCallCombo:
             "tools": [WEATHER_TOOL_OAI],
         })
         assert_oai_success(r)
+        assert_chat_completion_ok(r, msg="15_06")
+        assert_text_reply(r, msg="15_06 follow-up", finishes=("stop", "length"))
+
+    def test_15_06b_real_call_string_roundtrip(self):
+        """[TC-059] Real loop: turn 1 forces echo(text=hello); turn 2 replays the returned call
+        (real id + arguments, nothing fabricated) with a string tool result on the same id and
+        tool_choice=none. Turn 2: contract, text answer, no new tool call."""
+        user, assistant, calls = _echo_real_call()
+        r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls),
+                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+        assert_chat_completion_ok(r2, msg="15_06b turn 2")
+        assert_text_reply(r2, msg="15_06b turn 2", finishes=("stop", "length"))
 
 
 # ============================================================
@@ -2033,7 +2439,11 @@ class TestToolCallEdge:
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_16_02_tool_result_empty_string(self, stream):
-        """tool result = '' (empty string). Known BUG: may return 400."""
+        """tool result = '' (empty string).
+
+        [TC-060] An empty string and a text-parts array are both legal tool.content values
+        (OpenAI 200): each must be accepted with a full reply contract. Whether '' is enough
+        information for the model is a behaviour question and is not asserted."""
         r = oai_chat({
             "messages": [
                 {"role": "user", "content": "What's the weather?"},
@@ -2044,8 +2454,17 @@ class TestToolCallEdge:
             ],
             "tools": [WEATHER_TOOL_OAI],
         }, stream=stream)
-        # Known BUG: returns 400
-        assert r["status"] in (200, 400)
+        assert_reply_ok(r, msg=f"16_02 empty string stream={stream}")
+
+    @pytest.mark.parametrize("content", ["", [{"type": "text", "text": "hello"}]], ids=["empty_string", "text_parts"])
+    def test_16_02b_real_loop_tool_content_variants(self, content):
+        """[TC-060] Real echo loop (turn-1 id / arguments replayed), turn 2 tool.content set to
+        '' or [{"type":"text","text":"hello"}], tool_choice=none: 200 contract, text answer."""
+        user, assistant, calls = _echo_real_call()
+        r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls, content=content),
+                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+        assert_chat_completion_ok(r2, msg=f"16_02b content={content!r}")
+        assert_text_reply(r2, msg=f"16_02b content={content!r}", finishes=("stop", "length"))
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_16_03_tool_result_null(self, stream):
@@ -2090,6 +2509,16 @@ class TestToolCallEdge:
             "tools": [WEATHER_TOOL_OAI],
         }, stream=stream)
         assert r["status"] == 200
+        assert_reply_ok(r, msg=f"16_05 stream={stream}")
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    def test_16_05b_tool_result_json_string(self, stream):
+        """[TC-195] tool.content is an arbitrary string (a JSON document), tool_choice=none: accepted with
+        a reply contract and a text answer."""
+        r = oai_chat({"messages": echo_history(tool_content='{"ok":true,"v":[1,2]}'),
+                      "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"}, stream=stream)
+        assert_reply_ok(r, msg=f"16_05 [TC-195] stream={stream}")
+        assert_text_reply(r, msg=f"16_05 [TC-195] stream={stream}", finishes=("stop", "length"))
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_16_06_long_tool_result_50k(self, stream):
@@ -2270,6 +2699,188 @@ class TestToolCallEdge:
             f"got tail={content[-20:]!r} full_len={len(content)} "
             f"raw={call['arguments_raw'][:300]}"
         )
+
+
+# ============================================================
+# 24 tool_contract — OAI tool-call contract cases (TC-xxx)
+# ============================================================
+
+class TestToolContract:
+    """OpenAI Chat Completions tool-call contract (design catalog TC-xxx).
+
+    Only cases where the OpenAI reference and the MiniMax official endpoint agree are kept
+    here. Negative cases go through assert_param_error_400 (5xx / 401 / 403 / 429 skip as
+    blocked, never pass); positive cases through assert_chat_completion_ok /
+    assert_sse_stream_ok plus the case-specific tool assertions."""
+
+    # ---------- declarations: function name / description / strict ----------
+
+    def test_24_013_strict_true(self):
+        """[TC-013] strict=true echo, required, parallel=false: exactly one echo call whose
+        arguments are an object with text:string and no extra keys."""
+        tool = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"], description="返回输入文本", strict=True)
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool],
+                      "tool_choice": "required", "parallel_tool_calls": False})
+        args = _assert_single_strict_call(r, tool, "TC-013")
+        assert set(args) == {"text"}, f"TC-013 strict arguments should only carry text, got {args}"
+
+    @pytest.mark.parametrize("strict", [False, None, "omit"], ids=["TC-014_false", "TC-015_null", "TC-016_omitted"])
+    def test_24_014_strict_false_null_omitted(self, strict):
+        """[TC-014 / TC-015 / TC-016] strict=false, strict=null (nullable, must not 400) and strict
+        omitted: 200 contract, finish tool_calls, every call is echo with string arguments.
+        Without strict the arguments are not guaranteed to match the schema."""
+        fn = {"name": "echo", "description": "返回输入文本", "parameters": ECHO_TOOL_OAI["function"]["parameters"]}
+        if strict != "omit":
+            fn["strict"] = strict
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [{"type": "function", "function": fn}],
+                      "tool_choice": "required"})
+        _assert_required_calls_loose(r, "echo", f"TC-01x strict={strict!r}")
+
+    _STRICT_CONSTRAINTS = {
+        "TC-023_pattern_zip": {"zip": {"type": "string", "pattern": "^[0-9]{5}$"}},
+        "TC-024_format_email": {"mail": {"type": "string", "format": "email"}},
+        "TC-026_array_length": {"tags": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3}},
+    }
+
+    @pytest.mark.parametrize("case", list(_STRICT_CONSTRAINTS), ids=list(_STRICT_CONSTRAINTS))
+    def test_24_023_strict_value_constraints(self, case):
+        """[TC-023 / TC-024 / TC-026] strict pattern / email format / array length: 200, one call, arguments fully satisfy the constraint keywords."""
+        props = self._STRICT_CONSTRAINTS[case]
+        tool = tool_fn("echo", description="返回输入文本", strict=True, parameters={
+            "type": "object", "properties": props, "required": list(props), "additionalProperties": False})
+        r = oai_chat({"messages": oai_simple_messages("调用echo并给出符合schema的一组参数。"), "tools": [tool],
+                      "tool_choice": "required", "parallel_tool_calls": False})
+        args = _assert_single_strict_call(r, tool, case)
+        if case == "TC-024_format_email":  # jsonschema's email check is permissive; keep a basic shape check
+            assert re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", args["mail"]), f"TC-024 mail is not an email: {args['mail']!r}"
+
+    def test_24_161_function_name_charset(self):
+        """[TC-161] Name using every allowed class (a-z A-Z 0-9 _ -) is accepted: 200 contract."""
+        tool = tool_fn("a-Z_0", parameters=ECHO_TOOL_OAI["function"]["parameters"], description="返回输入文本")
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
+        assert_chat_completion_ok(r, msg="TC-161")
+        if _finish(r) == "tool_calls":
+            assert_tool_call_items(r, [tool], schema_check=False, msg="TC-161")
+
+    def test_24_165_long_description(self):
+        """[TC-165] A very long description (no documented limit) is accepted: 200 contract."""
+        tool = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"], description="说明" * 1500)
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
+        assert_chat_completion_ok(r, msg="TC-165")
+        if _finish(r) == "tool_calls":
+            assert_tool_call_items(r, [tool], schema_check=False, msg="TC-165")
+
+    def test_24_166_description_not_string(self):
+        """[TC-166] description=123 → 400 error object."""
+        tool = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"], description=123)
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
+        assert_param_error_400(r, msg="TC-166", param="tools")
+
+    # ---------- tools[] container ----------
+
+    def test_24_170_tools_element_not_object(self):
+        """[TC-170] tools=["echo"] (element not an object) → 400 error object."""
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": ["echo"]})
+        assert_param_error_400(r, msg="TC-170", param="tools")
+
+    def test_24_171_duplicate_function_names(self):
+        """[TC-171] Two declarations with the same name (OpenAI 200): 200 contract; any call
+        uses the declared name with string arguments."""
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [ECHO_TOOL_OAI, ECHO_TOOL_OAI]})
+        assert_chat_completion_ok(r, msg="TC-171")
+        if _finish(r) == "tool_calls":
+            assert_tool_call_items(r, [ECHO_TOOL_OAI], schema_check=False, msg="TC-171")
+
+    def test_24_180_128_tools_boundary(self):
+        """[TC-180] 128 function declarations (documented upper bound), tool_choice=none:
+        accepted with a 200 contract and a text answer."""
+        tools = [tool_fn(f"tool_{i:03d}", description=f"Tool {i}",
+                         parameters={"type": "object", "properties": {"p": {"type": "string"}}, "required": ["p"]})
+                 for i in range(128)]
+        r = oai_chat({"messages": oai_simple_messages("你好，简单打个招呼。"), "tools": tools, "tool_choice": "none"})
+        assert_chat_completion_ok(r, msg="TC-180")
+        assert_text_reply(r, msg="TC-180", finishes=("stop", "length"))
+
+    # ---------- tool_choice ----------
+
+    def test_24_048_tool_choice_null(self):
+        """[TC-048] tool_choice=null is treated as omitted (OpenAI 200): 200 contract; either a
+        text answer or calls to the declared echo."""
+        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [ECHO_TOOL_OAI], "tool_choice": None})
+        assert_chat_completion_ok(r, msg="TC-048")
+        if _finish(r) == "tool_calls":
+            assert assert_tool_call_items(r, [ECHO_TOOL_OAI], schema_check=False, msg="TC-048"), "TC-048 no tool_calls"
+        else:
+            assert_text_reply(r, msg="TC-048", finishes=("stop", "length"))
+
+    # ---------- response message.tool_calls ----------
+
+    def test_24_143_tool_call_id_unique_across_requests(self):
+        """[TC-143] Two independent named-echo requests return different call ids (format /
+        prefix / length not checked)."""
+        ids = []
+        for n in (1, 2):
+            r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [ECHO_TOOL_OAI],
+                          "tool_choice": named_choice("echo")})
+            assert_chat_completion_ok(r, msg=f"TC-143 request {n}")
+            items = assert_tool_call_items(r, [ECHO_TOOL_OAI], msg=f"TC-143 request {n}")
+            assert items, f"TC-143 request {n} returned no tool_calls"
+            ids += [tc["id"] for tc, _ in items]
+        assert len(set(ids)) == len(ids), f"TC-143 tool_call ids repeat across requests: {ids}"
+
+    def test_24_144_no_arg_function_arguments_braces(self):
+        """[TC-144] get_time (no parameters) with tool_choice=required: arguments is the JSON
+        string of an empty object ("{}" up to whitespace), never "" or null."""
+        r = oai_chat({"messages": oai_simple_messages("现在几点？请调用 get_time。"), "tools": [GET_TIME_TOOL_OAI],
+                      "tool_choice": "required"})
+        assert_chat_completion_ok(r, msg="TC-144")
+        assert _finish(r) == "tool_calls", f"TC-144 finish_reason should be tool_calls, got {_finish(r)!r}"
+        items = assert_tool_call_items(r, [GET_TIME_TOOL_OAI], msg="TC-144")
+        assert items, "TC-144 no tool_calls"
+        for tc, args in items:
+            raw = tc["function"]["arguments"]
+            assert raw.strip() and args == {}, f"TC-144 no-arg arguments should be '{{}}', got {raw!r}"
+
+    # ---------- stream vs non-stream ----------
+
+    # ---------- tool results / history ----------
+
+    @pytest.mark.parametrize("content", [[], "image_part"], ids=["TC-062_empty_array", "TC-063_image_part"])
+    def test_24_062_tool_content_array_variants(self, content):
+        """[TC-062 / TC-063] Real echo loop, turn-2 tool.content = [] or a data-URL image part
+        (OpenAI 200 for both): 200 contract with a text answer under tool_choice=none."""
+        if content == "image_part":
+            content = [{"type": "image_url", "image_url": {"url": png_base64()}}]
+        user, assistant, calls = _echo_real_call()
+        r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls, content=content),
+                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+        assert_chat_completion_ok(r2, msg="TC-062/063 turn 2")
+        assert_text_reply(r2, msg="TC-062/063 turn 2", finishes=("stop", "length"))
+
+    def test_24_094_stream_answer_after_tool_result(self):
+        """[TC-094] History echo call + tool result + user question, tool_choice=none, stream:
+        SSE contract, finish_reason=stop, no tool_calls deltas, non-empty joined content."""
+        messages = echo_history() + [{"role": "user", "content": "echo 返回了什么？只回复返回值。"}]
+        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI], "tool_choice": "none"}, stream=True)
+        assert_sse_stream_ok(r, msg="TC-094")
+        assert_text_reply(r, msg="TC-094", finishes=("stop",))
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    @pytest.mark.parametrize("assistant_content", ["", "我来调用。"], ids=["TC-193_empty_string", "TC-194_with_text"])
+    def test_24_193_assistant_tool_call_content_variants(self, assistant_content, stream):
+        """[TC-193 / TC-194] History assistant with tool_calls and content "" or text alongside
+        the call: accepted under tool_choice=none with a reply contract and a text answer."""
+        r = oai_chat({"messages": echo_history(assistant_content=assistant_content),
+                      "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"}, stream=stream)
+        assert_reply_ok(r, msg=f"TC-193/194 content={assistant_content!r} stream={stream}")
+        assert_text_reply(r, msg=f"TC-193/194 content={assistant_content!r}", finishes=("stop", "length"))
+
+    def test_24_197_tool_message_before_assistant_call(self):
+        """[TC-197] A tool message with no preceding assistant tool_calls → 400 error object."""
+        messages = [{"role": "user", "content": ECHO_PROMPT},
+                    {"role": "tool", "tool_call_id": "call_1", "content": "hello"}]
+        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"})
+        assert_param_error_400(r, msg="TC-197")
 
 
 # ============================================================
