@@ -38,7 +38,7 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 01_01 | `test_01_01_text_non_stream` | Most basic non-stream text conversation | HTTP 200 + non-empty content |
-| 01_01 | `test_01_01_text_non_stream` | M3.1-Flash: Basic non-stream text conversation | `assert_chat_completion_ok` (JSON `Content-Type`, one ChatCompletion object) + `finish_reason=stop` + string `content` + valid usage arithmetic + `prompt_tokens_details` absent or an object |
+| 01_01 | `test_01_01_text_non_stream` | M3.1-Flash: Basic non-stream text conversation | `assert_chat_completion_strict` (JSON `Content-Type`, one ChatCompletion object) + `finish_reason=stop` + string `content` + valid usage arithmetic + `prompt_tokens_details` absent or an object |
 | 01_02 | `test_01_02_content_string` | `user.content` as plain string | HTTP 200 |
 | 01_03 | `test_01_03_content_array` | `user.content` as parts array `[{type:text,text:...}]` | HTTP 200 |
 
@@ -47,7 +47,7 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 02_01 | `test_02_01_text_stream` | Text streaming response | Stream can rebuild content correctly |
-| 02_01 | `test_02_01_text_stream` | M3.1-Flash: Text streaming response | `assert_sse_stream_ok` (defined in `m3_stream_cases_en.md`) |
+| 02_01 | `test_02_01_text_stream` | M3.1-Flash: Text streaming response | `assert_sse_stream_strict` (defined in `m3_stream_cases_en.md`) |
 | 02_02 | `test_02_02_stream_usage` | Last usage chunk in stream | total == prompt + completion + stream finishes properly |
 | 02_03 | `test_02_03_sse_done_marker` | SSE `[DONE]` end marker | xfail if missing (known BUG) |
 | 02_03 | `test_02_03_sse_done_marker` | M3.1-Flash: Reads raw SSE lines | The last data line is `[DONE]`, followed by a blank line, with no `event: done`; a missing marker fails instead of xfail |
@@ -141,10 +141,10 @@
 | 10_05 | `test_10_05_usage_arithmetic_tool_call` | M3.1-Flash: usage under tool_call | Existing arithmetic check + `completion_tokens > 0` |
 | 10_06 | `test_10_06_length_truncation_completion_equals_limit` | finish_reason=length → completion == max | Strict equality |
 | 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | stream vs non-stream prompt_tokens consistent | Equal pt + stream arithmetic holds |
-| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | M3.1-Flash: stream vs non-stream `prompt_tokens` | Strictly equal + `assert_sse_stream_ok` + exactly one usage object in the stream |
+| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | M3.1-Flash: stream vs non-stream `prompt_tokens` | Strictly equal + `assert_sse_stream_strict` + exactly one usage object in the stream |
 | 10_08 | `test_10_08_usage_fields_populated` | All three usage fields > 0 | prompt/completion/total all positive |
-| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | M3.1-Flash: Stream, long essay cut by `max_completion_tokens=20` | `assert_sse_stream_ok` + exactly one usage object + `completion_tokens <= 20` |
-| 10_12 | `test_10_12_stream_small_budget_finish_length` | M3.1-Flash: Stream with `max_completion_tokens=1` | `assert_sse_stream_ok` + `finish_reason=length`; visible text is not required; skip on `content_filter` |
+| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | M3.1-Flash: Stream, long essay cut by `max_completion_tokens=20` | `assert_sse_stream_strict` + exactly one usage object + `completion_tokens <= 20` |
+| 10_12 | `test_10_12_stream_small_budget_finish_length` | M3.1-Flash: Stream with `max_completion_tokens=1` | `assert_sse_stream_strict` + `finish_reason=length`; visible text is not required; skip on `content_filter` |
 | 10_14 | `test_10_14_prompt_tokens_accounting[input_length\|system_and_history\|tool_result]` | M3.1-Flash: Extends input text, system and history turns, or tool results | `prompt_tokens` grows by more than the threshold (100 / 50 / 100); exact values are not checked |
 | 10_15 | `test_10_15_cache_hit_keeps_prompt_tokens` | M3.1-Flash: Long prompt with a unique prefix, sent twice | `prompt_tokens` differ by at most the larger of 8 or 1%; cached tokens are not deducted |
 | 10_16 | `test_10_16_reasoning_tokens_within_completion` | M3.1-Flash: Non-stream with `reasoning_effort="high"` | `reasoning_tokens` stays within `completion_tokens` and is not counted twice in `total_tokens`; skip when the field is not returned |
@@ -175,7 +175,7 @@
 |:---:|:---|:---|:---|
 | 13_01 | `test_13_01_tool_call_non_stream` | Non-stream tool_call | get_weather + Beijing + finish_reason=tool_calls |
 | 13_02 | `test_13_02_tool_call_stream` | Stream tool_call | Stream rebuild + last chunk finish_reason=tool_calls |
-| 13_02 | `test_13_02_tool_call_stream` | M3.1-Flash: Stream tool_call with `tool_choice="required"` | Existing checks + `assert_sse_stream_ok` |
+| 13_02 | `test_13_02_tool_call_stream` | M3.1-Flash: Stream tool_call with `tool_choice="required"` | Existing checks + `assert_sse_stream_strict` |
 | 13_03 | `test_13_03_complex_agent_6tools` | Pick get_weather from 6-tool pool | Model selects correct tool |
 | 13_04 | `test_13_04_param_type_coverage` | 6 parameter types | Valid JSON + schema compliant + str_param='hello' |
 | 13_05 | `test_13_05_tool_without_parameters` | function.parameters omitted | Triggers if accepted; xfail if rejected |

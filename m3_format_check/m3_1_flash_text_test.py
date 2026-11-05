@@ -151,7 +151,7 @@ class TestBasicText:
         r = oai_chat({"messages": oai_simple_messages("What is 1+1?")})
         assert_oai_success(r)
         assert len(get_oai_content(r)) > 0
-        assert_chat_completion_ok(r, msg="01_01")
+        assert_chat_completion_strict(r, msg="01_01")
         assert_text_reply(r, msg="01_01 [TC-040] no tools")
         body = r["body"]
         assert isinstance(body.get("id"), str), f"id should be a string, got {body.get('id')!r}"
@@ -197,7 +197,7 @@ class TestSSEStream:
     def test_02_01_text_stream(self):
         """Text streaming reply; assert stream can rebuild content properly."""
         r = oai_chat({"messages": oai_simple_messages("What is 1+1?")}, stream=True)
-        assert_sse_stream_ok(r, msg="02_01")
+        assert_sse_stream_strict(r, msg="02_01")
         assert isinstance(stream_text(r), str)
 
     def test_02_02_stream_usage(self):
@@ -243,7 +243,7 @@ class TestSSEStream:
             "messages": oai_simple_messages("Hi"),
             "stream_options": {"include_usage": True},
         }, stream=True)
-        assert_sse_stream_ok(r, msg="02_04")
+        assert_sse_stream_strict(r, msg="02_04")
         chunks = stream_data_chunks(r)
         for chunk in chunks:
             assert isinstance(chunk.get("id"), str) and chunk["id"], f"02_04 bad id: {chunk!r}"
@@ -799,7 +799,7 @@ class TestUsageField:
             {"messages": msgs, "stream_options": {"include_usage": True}},
             stream=True,
         )
-        assert_sse_stream_ok(r_s, msg="10_07")
+        assert_sse_stream_strict(r_s, msg="10_07")
         stream_usage(r_s, msg="10_07")
         usage_chunks = [c for c in r_s["chunks"] if c.get("usage")]
         assert usage_chunks, "no usage chunk in stream"
@@ -918,7 +918,7 @@ class TestUsageField:
             "max_completion_tokens": 20,
             "stream_options": {"include_usage": True},
         }, stream=True, timeout=120)
-        assert_sse_stream_ok(r, msg="10_11")
+        assert_sse_stream_strict(r, msg="10_11")
         usage = stream_usage(r, msg="10_11")
         assert usage["completion_tokens"] <= 20, (
             f"10_11 completion_tokens exceeds max_completion_tokens=20: {usage!r}"
@@ -930,7 +930,7 @@ class TestUsageField:
             "messages": oai_simple_messages("Count from 1 to 1000."),
             "max_completion_tokens": 1,
         }, stream=True, timeout=120)
-        assert_sse_stream_ok(r, msg="10_12")
+        assert_sse_stream_strict(r, msg="10_12")
         finish_reason = stream_final_finish_reason(r)
         if finish_reason == "content_filter":
             pytest.skip("10_12: filtered response is a separate branch")
@@ -1332,7 +1332,7 @@ class TestToolCallBasic:
             schema=WEATHER_TOOL_OAI["function"]["parameters"],
             msg="tool_call_stream",
         )
-        assert_sse_stream_ok(r, msg="13_02")
+        assert_sse_stream_strict(r, msg="13_02")
         # Trailing stream finish_reason should be tool_calls
         last_finish = None
         for c in reversed(r["chunks"]):

@@ -38,7 +38,7 @@
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 01_01 | `test_01_01_text_non_stream` | 非流式最基本文本对话 | HTTP 200 + 非空 content |
-| 01_01 | `test_01_01_text_non_stream` | M3.1-Flash: 非流式基础文本对话 | `assert_chat_completion_ok`(`Content-Type` 为 JSON、响应为单个 ChatCompletion)+ `finish_reason=stop` + `content` 为字符串 + usage 算术成立 + `prompt_tokens_details` 缺省或为对象 |
+| 01_01 | `test_01_01_text_non_stream` | M3.1-Flash: 非流式基础文本对话 | `assert_chat_completion_strict`(`Content-Type` 为 JSON、响应为单个 ChatCompletion)+ `finish_reason=stop` + `content` 为字符串 + usage 算术成立 + `prompt_tokens_details` 缺省或为对象 |
 | 01_02 | `test_01_02_content_string` | `user.content` 为纯字符串 | HTTP 200 |
 | 01_03 | `test_01_03_content_array` | `user.content` 为 parts 数组 `[{type:text,text:...}]` | HTTP 200 |
 
@@ -47,7 +47,7 @@
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 02_01 | `test_02_01_text_stream` | 文本流式回复 | 流可正常 rebuild content |
-| 02_01 | `test_02_01_text_stream` | M3.1-Flash: 文本流式回复 | `assert_sse_stream_ok`(定义见 `m3_stream_cases.md`) |
+| 02_01 | `test_02_01_text_stream` | M3.1-Flash: 文本流式回复 | `assert_sse_stream_strict`(定义见 `m3_stream_cases.md`) |
 | 02_02 | `test_02_02_stream_usage` | 流式末尾 usage chunk | total == prompt + completion + 流式正常完结 |
 | 02_03 | `test_02_03_sse_done_marker` | SSE 结束 `[DONE]` 标记 | 缺失则 xfail(已知 BUG) |
 | 02_03 | `test_02_03_sse_done_marker` | M3.1-Flash: 读取原始 SSE 行 | 最后一个 data 行是 `[DONE]`,其后紧跟空行,不出现 `event: done`;缺失直接失败,不再 xfail |
@@ -140,10 +140,10 @@
 | 10_05 | `test_10_05_usage_arithmetic_tool_call` | M3.1-Flash: tool_call 下的 usage | 原有算术校验 + `completion_tokens > 0` |
 | 10_06 | `test_10_06_length_truncation_completion_equals_limit` | finish_reason=length 时 completion == max | 严格相等 |
 | 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | 流式 vs 非流式 prompt_tokens 一致 | 两种模式 pt 相等 + 流式算术成立 |
-| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | M3.1-Flash: 流式与非流式 `prompt_tokens` 对比 | 两者严格相等 + `assert_sse_stream_ok` + 流中恰好一个 usage 对象 |
+| 10_07 | `test_10_07_stream_prompt_tokens_aggregated` | M3.1-Flash: 流式与非流式 `prompt_tokens` 对比 | 两者严格相等 + `assert_sse_stream_strict` + 流中恰好一个 usage 对象 |
 | 10_08 | `test_10_08_usage_fields_populated` | usage 三字段都 > 0 | prompt/completion/total 均正数 |
-| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | M3.1-Flash: 流式,`max_completion_tokens=20` 截断长文 | `assert_sse_stream_ok` + 恰好一个 usage 对象 + `completion_tokens <= 20` |
-| 10_12 | `test_10_12_stream_small_budget_finish_length` | M3.1-Flash: 流式,`max_completion_tokens=1` | `assert_sse_stream_ok` + `finish_reason=length`,不要求有可见文本;`content_filter` 时 skip |
+| 10_11 | `test_10_11_stream_truncated_usage_within_budget` | M3.1-Flash: 流式,`max_completion_tokens=20` 截断长文 | `assert_sse_stream_strict` + 恰好一个 usage 对象 + `completion_tokens <= 20` |
+| 10_12 | `test_10_12_stream_small_budget_finish_length` | M3.1-Flash: 流式,`max_completion_tokens=1` | `assert_sse_stream_strict` + `finish_reason=length`,不要求有可见文本;`content_filter` 时 skip |
 | 10_14 | `test_10_14_prompt_tokens_accounting[input_length\|system_and_history\|tool_result]` | M3.1-Flash: 分别加长输入文本、system 与历史轮次、工具结果 | `prompt_tokens` 增量超过阈值(100 / 50 / 100),不校验精确值 |
 | 10_15 | `test_10_15_cache_hit_keeps_prompt_tokens` | M3.1-Flash: 唯一前缀的长 prompt 跑两次 | 两次 `prompt_tokens` 差值不超过 8 或 1% 中的较大者,缓存不从 `prompt_tokens` 扣除 |
 | 10_16 | `test_10_16_reasoning_tokens_within_completion` | M3.1-Flash: 非流式,`reasoning_effort="high"` | `reasoning_tokens` 不超过 `completion_tokens`,且不重复计入 `total_tokens`;未返回该字段时 skip |
@@ -174,7 +174,7 @@
 |:---:|:---|:---|:---|
 | 13_01 | `test_13_01_tool_call_non_stream` | 非流式 tool_call | get_weather + Beijing + finish_reason=tool_calls |
 | 13_02 | `test_13_02_tool_call_stream` | 流式 tool_call | 流可 rebuild + 末尾 finish_reason=tool_calls |
-| 13_02 | `test_13_02_tool_call_stream` | M3.1-Flash: `tool_choice="required"` 的流式 tool_call | 原有校验 + `assert_sse_stream_ok` |
+| 13_02 | `test_13_02_tool_call_stream` | M3.1-Flash: `tool_choice="required"` 的流式 tool_call | 原有校验 + `assert_sse_stream_strict` |
 | 13_03 | `test_13_03_complex_agent_6tools` | 6 工具池里选 get_weather | 模型选对工具 |
 | 13_04 | `test_13_04_param_type_coverage` | 6 种参数类型覆盖 | 合法 JSON + 符合 schema + str_param='hello' |
 | 13_05 | `test_13_05_tool_without_parameters` | function.parameters 省略 | 接受则触发;拒绝则 xfail |

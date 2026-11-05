@@ -20,9 +20,9 @@ import pytest
 
 import helpers
 from helpers import (
-    assert_chat_completion_ok,
+    assert_chat_completion_strict,
     assert_oai_stream_success,
-    assert_sse_stream_ok,
+    assert_sse_stream_strict,
     assert_stream_usage_only_in_last_chunk,
     oai_chat,
     oai_chat_verbatim,
@@ -1001,12 +1001,12 @@ class TestSSEStream:
     def test_02_12_stream_mime_and_json_frames(self):
         """A successful stream uses the SSE MIME type and JSON data frames."""
         result = oai_chat({"messages": oai_simple_messages("Reply only with: hello")}, stream=True)
-        assert_sse_stream_ok(result, msg="02_12")
+        assert_sse_stream_strict(result, msg="02_12")
 
     def test_02_13_stream_finish_reason_stop(self):
         """A normal answer ends with finish_reason=stop and non-empty content."""
         result = oai_chat({"messages": oai_simple_messages("Reply only with: hello")}, stream=True)
-        assert_sse_stream_ok(result, msg="02_13")
+        assert_sse_stream_strict(result, msg="02_13")
         finish_reason = stream_final_finish_reason(result)
         assert finish_reason == "stop", f"02_13 expected stop, got {finish_reason!r}"
         assert stream_text(result), "02_13 concatenated content is empty"
@@ -1016,7 +1016,7 @@ class TestSSEStream:
         payload = {"messages": oai_simple_messages("Reply only with: hello")}
         assert "stream" not in payload
         result = oai_chat_verbatim(payload)
-        assert_chat_completion_ok(result, msg="02_14")
+        assert_chat_completion_strict(result, msg="02_14")
 
     def test_02_15_stream_tool_call_terminal_usage(self):
         """A streaming tool call also reports usage with positive completion tokens."""
@@ -1026,7 +1026,7 @@ class TestSSEStream:
             "tool_choice": "required",
             "stream_options": {"include_usage": True},
         }, stream=True)
-        assert_sse_stream_ok(result, msg="02_15")
+        assert_sse_stream_strict(result, msg="02_15")
         usage = stream_usage(result, msg="02_15")
         assert usage["completion_tokens"] > 0, f"02_15 completion_tokens: {usage!r}"
 
@@ -1037,7 +1037,7 @@ class TestSSEStream:
             "reasoning_effort": "high",
             "stream_options": {"include_usage": True},
         }, stream=True)
-        assert_sse_stream_ok(result, msg="02_16")
+        assert_sse_stream_strict(result, msg="02_16")
         usage = stream_usage(result, msg="02_16")
         details = usage.get("completion_tokens_details") or {}
         reasoning_tokens = details.get("reasoning_tokens", usage.get("reasoning_tokens"))
