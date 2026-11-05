@@ -23,8 +23,8 @@ def record_measurement(client, kind, **values):
     _write_log_line({"kind": kind, "case_id": client.case_id, **values}, client.log_path)
 
 
-def sample_packet_stream(client, prompt, continuation, rule):
-    """Collect enough real deltas before judging packets; never retry bad results.
+def sample_packet_stream(client, prompt, continuation, rule, *, check_response=None):
+    """Collect bounded samples, validating each response before the sample-size gate.
 
     The returned metrics keep each response's own packet sizes under
     "responses": the first packet of every stream is judged separately.
@@ -46,6 +46,8 @@ def sample_packet_stream(client, prompt, continuation, rule):
         result = client.chat(messages, stream=True, max_completion_tokens=2048)
         assert_success(result)
         current = packet_metrics(result)
+        if check_response is not None:
+            check_response(attempt + 1, current["sizes"])
         sizes.extend(current["sizes"])
         responses.append(current["sizes"])
         characters += current["characters"]
@@ -80,7 +82,7 @@ def sample_packet_stream(client, prompt, continuation, rule):
     if characters < minimum:
         pytest.skip(
             f"分包质量未验证：采样准备不足，已请求 {len(samples)}/{maximum} 次，"
-            f"累计正文 {characters}/{minimum} 字符；尚未进行五项分包验收。"
+            f"累计正文 {characters}/{minimum} 字符；已收到的分包形态通过，样本量未达标。"
         )
     return metrics
 

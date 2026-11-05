@@ -7,12 +7,12 @@ It follows the M3 suite's module numbering, function naming and one-to-one py/md
 
 ## Where the expected values come from
 
-M2-Her is an older model and its public docs diverge from the actual API in many places. **The expected values are taken from what the official channel (MiniMax native `/v1/text/chatcompletion_v2`, model `M2-her`) returned on 2026-11-05**, so a third-party M2-Her deployment can be checked against the official format. Every check falls into one of three categories:
+M2-Her is an older model and its public docs diverge from the actual API in many places. **The expected values are taken from what the official channel (MiniMax native `/v1/text/chatcompletion_v2`, model `M2-her`) returned on 2026-11-05, with OpenAI streaming usage additionally measured on 2026-11-06**, so a third-party M2-Her deployment can be checked against the official format. Every check falls into one of three categories:
 
 | Category | Rule | Examples |
 |------|------|------|
-| Must succeed | The request succeeds and the reply is well-formed (fields, types, usage, SSE frames are all checked) | All seven roles with `name`; valid temperature / top_p / max_completion_tokens |
-| Must fail | **HTTP status is not 200, or HTTP 200 with a non-zero business code (`base_resp.status_code`) or an `error` object**, and no reply text comes back. **Error codes, messages and framing are not compared** | Wrong types, missing fields, bad auth, input over 64K, n=5, advanced roles without `name` |
+| Must succeed | The request succeeds and the reply is well-formed (the required fields, types, usage and SSE checks are specified by each case) | All seven roles with `name`; valid temperature / top_p / max_completion_tokens |
+| Must fail | **HTTP status is not 200, or HTTP 200 with a non-zero business code (`base_resp.status_code`) or an `error` object**, and no reply text comes back. **Error codes, messages and framing are not compared** | Wrong types, missing fields, bad auth, input over 64K, n=5, specified role combinations without `name` |
 | Accept or reject | Values the docs rule out but the official API accepts: an acceptance must be a well-formed reply, a rejection must meet "must fail"; **a 5xx always fails** | temperature=0 / 1.01, top_p=0, max_completion_tokens=0 / -1 / null, n=0 / -1 / null, undeclared parameters |
 
 The measured error scenarios all returned HTTP 200 with a business error code, sometimes with inconsistent codes or messages. Error cases therefore use the common request-failure rule without requiring providers to copy those codes or messages.
@@ -22,6 +22,28 @@ Error responses may use JSON, SSE, or several consecutive complete JSON objects.
 Model-behavior cases (`--run-behavior`) are limited to core capabilities that passed in all 10 full runs against the official API. 19_01 (reply in the user's language) allows up to 3 attempts per language and needs 2 to pass.
 
 Expected values live in [`observed.py`](observed.py) (the `n` limit), [`acceptance_baseline.json`](acceptance_baseline.json) (compatibility cases) and the test functions; the per-case expectations are listed in the case docs under `docs/`.
+
+<a id="verdict-rules"></a>
+
+## Common verdict rules (referenced by every case)
+
+S / F / E specify the **target request's expected outcome**, not the test result. A failed request passes the test only when it meets that case's F/E rule. A healthy control alone does not finish the test. Tables show bundled expectations; `--contract` replaces each selected rule in full.
+
+| Rule | Test passes when | Cannot pass |
+|---|---|---|
+| **S: must succeed** | HTTP 200 with a fully parsed normal reply satisfying the case's format and content checks | Non-200 HTTP, business errors, malformed responses or failed assertions |
+| **F: must fail** | An HTTP response was received: non-200, or HTTP 200 containing an integer nonzero `base_resp.status_code` / a dictionary `error` (including an empty object), without non-whitespace `choices[].message.content` / `delta.content` | An ordinary HTTP 200 success; an empty stream, `[DONE]` or empty success envelope without an error marker; string/boolean business codes or non-object error used as HTTP 200 error markers; reply text followed by an error; malformed declared JSON/SSE |
+| **E: success or failure, no 5xx** | Reject HTTP 5xx first, then apply S or F and any case-specific checks | Any HTTP 5xx, an empty response without an error marker, malformed accepted or rejected responses |
+
+**HTTP boundaries:** Under the agreed non-200 rule, F can accept 3xx, 4xx (including 429), and 5xx as the HTTP failure condition; E always fails on 5xx. This proves failure, not that the mutated field caused it. A healthy control reduces outage-related false positives but cannot exclude a later fault. Connection failures and timeouts without a usable response are not passing rejections; such exceptions on the target request are reported as errors.
+
+**Error parsing:** Accept one JSON object, several consecutive complete objects, or complete SSE events with parseable data. Invalid UTF-8, trailing JSON garbage, malformed or incomplete events fail. Non-200 plain-text/HTML errors may represent rejection; declared JSON/SSE or bodies starting with a JSON object/array must parse accordingly. Codes, wording and JSON/SSE framing need not match the official endpoint.
+
+**Common success checks:** Non-streaming expects one reply unless an n case specifies otherwise, checking indexes, message role/content, finish reason and usage. Streaming checks SSE, delta types, assembled content, a consistent terminal reason, no content after termination, and any full-message summary against the deltas. Text is nonempty by default; `09_03` permits empty text for nonpositive budgets, while output-budget checks permit it only at limit=1. Mandatory streaming usage and envelope id/model/created checks are stated by each case; a generic format check does not imply every optional field is checked everywhere.
+
+**Preparation and SKIP:** F/E branches usually call `preflight`, cached per worker by endpoint, model, auth headers, stream mode and control messages; controls are not resent for every variant. Failed control assertions or network errors produce SKIP, never PASS. `17_05/17_06/17_08` also contain in-case success requests whose failure is FAIL. Calibration failure in `12_03/12_04` is a preparation error. `15_08` skips only when observed packet shapes are valid but 20 requests cannot reach the sample size. Disabled run flags, missing endpoint/credentials, inapplicable protocols and bearer-auth cases with `AUTH_TYPE=none` also skip.
+
+**Name scope:** Required rejection for missing names only covers the concrete combinations in `05_04`, `13_01`, `13_05` and `16_01`. Unnamed standalone user_system in `03_01`, standalone group in `04_01`, and plain user in `06_01` still must succeed. Do not generalize this into a requirement that every advanced role must have a name.
 
 ## Directory layout
 
@@ -66,7 +88,7 @@ The request URL, headers and the `model` in the request body all come from envir
 | `M2_HER_MODEL` | `M2-her` | Model ID sent in requests; may be the provider's model name |
 | `M2_HER_RESPONSE_MODEL` | same as `M2_HER_MODEL` | Expected `model` in responses; set it when the API returns a different name |
 | `M2_HER_AUTH_TYPE` | `bearer` | `none` disables automatic bearer authentication (case 11_06 is skipped); explicitly configured headers in `M2_HER_EXTRA_HEADERS`, including custom `Authorization`, are preserved. HTTP and SDK use the same rules |
-| `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`; `openai` → `/v1/chat/completions` (only the 15_* compatibility cases run) |
+| `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`; `openai` → `/v1/chat/completions` (the 15_* and 10_07 compatibility cases run) |
 | `M2_HER_TIMEOUT` | `120` | Per-request timeout in seconds |
 | `M2_HER_EXTRA_HEADERS` | (empty) | JSON string of extra request headers, e.g. `'{"X-Custom-Header": "value"}'` |
 | `M2_HER_QUERY_PARAMS` | (empty) | JSON string of query parameters appended to the URL, e.g. `'{"GroupId": "your-group-id"}'` |

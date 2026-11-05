@@ -1,7 +1,7 @@
 """Modules 01–13 and 16–19: M2-Her text cases. See docs/m2_her_text_cases.md.
 
 Streaming is a fixture dimension, not a second set of copied test bodies.
-All negative tests use request() so defaults cannot repair invalid payloads.
+Malformed-envelope tests use request() so defaults cannot repair invalid payloads.
 Expected values come from the official endpoint (observed.py). Invalid
 requests only need to fail (assert_request_failed); values the docs rule out
 but the official endpoint accepts may be either accepted or rejected.
@@ -596,9 +596,18 @@ class TestResponseUsage:
         counts = []
         for stream in (False, True):
             pair = []
+            options = (
+                {"stream_options": {"include_usage": True}}
+                if stream and client.settings.style == "openai"
+                else {}
+            )
             for inputs in (messages, extended):
                 result = client.chat(
-                    inputs, stream=stream, temperature=0.01, max_completion_tokens=32
+                    inputs,
+                    stream=stream,
+                    temperature=0.01,
+                    max_completion_tokens=32,
+                    **options,
                 )
                 assert_success(result)
                 assert_usage(result.usage, breakdown=True)
@@ -640,7 +649,7 @@ class TestErrors:
 
     @pytest.mark.parametrize("variant", ["missing", "null", "string", "object"])
     def test_11_02_invalid_messages(self, client, stream, variant, preflight):
-        """Missing/null/non-array messages are structured request errors."""
+        """Missing/null/non-array messages must fail under the common rejection rule."""
         preflight(client, stream=stream)
         payload = base_payload(client, stream)
         if variant == "missing":
@@ -847,12 +856,10 @@ class TestLongContext:
             max_completion_tokens=sample["max_completion_tokens"],
         )
         assert_success(result)
-        if result.usage and "prompt_tokens" in result.usage:
-            assert_usage(result.usage, breakdown=True)
-            if result.usage["prompt_tokens"] != sample["prompt_tokens"]:
-                raise AssertionError(
-                    "Measured prompt count changed; context calibration is stale"
-                )
+        assert_usage(result.usage, breakdown=True)
+        assert result.usage["prompt_tokens"] == sample["prompt_tokens"], (
+            "Measured prompt count changed; context calibration is stale"
+        )
 
     def test_12_04_context_over_64k(
         self, context_samples, contract, client, stream, preflight
@@ -1138,7 +1145,7 @@ class TestRequestMetadata:
     def test_18_02_request_metadata_invalid_type(
         self, client, stream, field, value, preflight
     ):
-        """Malformed gateway field types must produce structured parameter errors."""
+        """Malformed gateway field types must fail under the common rejection rule."""
         preflight(client, stream=stream)
         assert_request_failed(client.request({**base_payload(client, stream), field: value}))
 

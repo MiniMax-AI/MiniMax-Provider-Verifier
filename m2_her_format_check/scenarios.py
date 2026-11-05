@@ -122,7 +122,7 @@ def guide_messages(scenario, *, named=False):
 # Language-consistency inputs (module 19). Every text is monolingual in its key's
 # language and avoids proper nouns that a reply would have to copy across
 # scripts. Names are Latin so they are tolerated in every expected language;
-# this deployment rejects unnamed advanced roles, which is tested in 13_05.
+# Missing names in the specific seven-role combination are tested in 13_05.
 LANGUAGE_PROMPTS = {
     "zh": "最近工作有点累，周末想好好放松一下。你能用两三句话给我一些建议吗？",
     "zh_hant": "最近工作有點累，週末想好好放鬆一下。你能用兩三句話給我一些建議嗎？",

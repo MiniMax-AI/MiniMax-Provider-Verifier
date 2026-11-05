@@ -123,16 +123,19 @@
     "usage": true
   },
   "15_06/openai/omitted": {
-    "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject"
+    "source": "Measured on the official MiniMax OpenAI-compatible endpoint on 2026-11-06: all three stream_options variants succeed; usage is present only with include_usage=true. Override with --contract. See README.md.",
+    "outcome": "success",
+    "usage": false
   },
   "15_06/openai/include_usage_true": {
-    "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject"
+    "source": "Measured on the official MiniMax OpenAI-compatible endpoint on 2026-11-06: all three stream_options variants succeed; usage is present only with include_usage=true. Override with --contract. See README.md.",
+    "outcome": "success",
+    "usage": true
   },
   "15_06/openai/include_usage_false": {
-    "source": "Baseline for M2_HER_API_STYLE=openai only; not exercised against the native endpoint. Override with --contract when validating an OpenAI-style endpoint. See README.md.",
-    "outcome": "reject"
+    "source": "Measured on the official MiniMax OpenAI-compatible endpoint on 2026-11-06: all three stream_options variants succeed; usage is present only with include_usage=true. Override with --contract. See README.md.",
+    "outcome": "success",
+    "usage": false
   },
   "15_07/tools": {
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Override with --contract. See README.md. The official endpoint accepts this although the docs do not allow it; accepting or rejecting both pass, a 5xx fails.",

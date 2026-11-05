@@ -419,7 +419,7 @@ def assert_success(result: Response, *, nonempty=True, expected_choices=1):
     assert result.status == 200, context
     assert not result.errors, f"{result.errors}: {context}"
     for doc in result.documents:
-        assert not doc.get("error"), context
+        assert doc.get("error") is None, context
         if "base_resp" in doc:
             base = doc["base_resp"]
             assert isinstance(base, dict) and type(base.get("status_code")) is int, (
@@ -567,7 +567,12 @@ def request_failed(result: Response) -> bool:
     if result.status != 200:
         return True
     return any(
-        doc.get("error") or (doc.get("base_resp") or {}).get("status_code")
+        isinstance(doc.get("error"), dict)
+        or (
+            isinstance(doc.get("base_resp"), dict)
+            and type(doc["base_resp"].get("status_code")) is int
+            and doc["base_resp"]["status_code"] != 0
+        )
         for doc in response_documents(result)
     )
 
@@ -627,7 +632,7 @@ def assert_contains(result: Response, *values: str):
 
 def assert_limit(result: Response, limit: int, *, truncated=False):
     # EOS may occur before the budget; a prompt cannot force generation length.
-    assert_success(result, nonempty=False)
+    assert_success(result, nonempty=limit != 1)
     # Validate any observed fields before reporting missing optional evidence.
     if result.usage is not None:
         assert_usage(result.usage)
@@ -751,6 +756,8 @@ def assert_contract(result: Response, rule: dict):
     ) == "rejected":
         return
     assert_success(result, nonempty=rule.get("completion_limit") != 1)
+    if result.usage is not None:
+        assert_usage(result.usage)
     if "contains" in rule:
         assert_contains(result, rule["contains"])
     if "finish_reason" in rule:
@@ -813,7 +820,7 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
     not measure SDK delivery latency; native chunk timing is not a quality metric.
     max_retries=0 prevents hidden duplicate requests.
     """
-    from openai import APIStatusError, OpenAI
+    from openai import APIError, OpenAI
 
     responses = []
 
@@ -867,12 +874,16 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
                         if chunk.choices
                     )
             else:
+                if request_failed(responses[0]):
+                    return responses[0]
                 sdk_content = response.choices[0].message.content
-        except APIStatusError:
-            assert len(responses) == 1, (
-                "SDK request failed before its response could be captured"
-            )
-            return responses[0]
+        except APIError:
+            # Both HTTP errors and HTTP-200 business errors must reach the
+            # same verdict helper. Do not turn SDK/transport errors without
+            # an actual error response into an expected rejection.
+            if len(responses) == 1 and request_failed(responses[0]):
+                return responses[0]
+            raise
     assert len(responses) == 1, "unexpected SDK retries"
     assert sdk_content == responses[0].content, "SDK content differs from wire response"
     return responses[0]

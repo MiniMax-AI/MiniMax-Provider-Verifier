@@ -8,6 +8,7 @@ from .helpers import (
     ChatClient,
     assert_contract,
     message,
+    request_failed,
     sdk_request,
     simple_messages,
 )
@@ -146,7 +147,7 @@ class TestCompatibility:
     def test_15_05_role_order_and_sample_pairing(
         self, contract, client, variant, preflight
     ):
-        """Unspecified role ordering and sample pairing have no default pass policy."""
+        """Each concrete ordering/pairing input uses its bundled or overridden rule."""
         rule = contract(f"15_05/{variant}")
         if rule["outcome"] != "success":
             preflight(client, stream=False)
@@ -196,7 +197,7 @@ class TestCompatibility:
             }
         result = client.request(request)
         assert_confirmed_contract(result, rule)
-        if rule.get("usage_only_last"):
+        if rule.get("usage_only_last") and not request_failed(result):
             assert result.chunks[-1].get("usage") is not None
             assert not any(d.get("usage") is not None for d in result.chunks[:-1])
 
@@ -248,7 +249,7 @@ class TestCompatibility:
     @pytest.mark.slow
     @pytest.mark.parametrize("variant", ["essay", "json"])
     def test_15_08_stream_packet_quality(self, contract, client, variant):
-        """Observed packet shape: a first-token packet, then batched text events.
+        """Observed packet shape: a small initial packet, then batched text events.
 
         The five M3-style ratios vary with response length and are recorded
         only; the per-response shape is what every observed stream shares.
@@ -284,8 +285,8 @@ class TestCompatibility:
             if variant == "essay"
             else "继续提供下一批不同的条目，仍只返回包含 items 数组的 JSON 对象，每项含 name 和详细的 description，不要重复已有条目。"
         )
-        metrics = sample_packet_stream(client, prompt, continuation, rule)
-        for number, sizes in enumerate(metrics["responses"], 1):
+
+        def check_response(number, sizes):
             assert sizes[0] <= shape["first_packet_max_characters"], (
                 f"分包形态变化：第 {number} 个响应首包 {sizes[0]} 字符 "
                 f"> {shape['first_packet_max_characters']}；分包 {sizes}"
@@ -301,6 +302,10 @@ class TestCompatibility:
                 f"分包形态变化：第 {number} 个响应单包 {max(sizes)} 字符 "
                 f"> {shape['packet_max_characters']}；分包 {sizes}"
             )
+
+        sample_packet_stream(
+            client, prompt, continuation, rule, check_response=check_response
+        )
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_15_09_legacy_narrator(self, contract, client, stream, preflight):
@@ -378,4 +383,6 @@ class TestCompatibility:
             "stream": stream,
             "max_tokens": limit,
         }
+        if stream and client.settings.style == "openai" and "completion_limit" in rule:
+            request["stream_options"] = {"include_usage": True}
         exercise_contract(client, request, rule)
