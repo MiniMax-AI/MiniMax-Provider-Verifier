@@ -7,9 +7,20 @@
 
 ## 本轮验证记录
 
-用例与判定修改见 [`f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5)。该版本收集 103 个函数、403 个供应商测试项，另有 80 项离线回归全部通过。六份中英文清单的 206 行逐项与代码核对。
+用例与判定修改见 [`f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5)。之后补充了简繁体判定所需的常用字对照：官方端点的连续中文短回复（如“咖啡馆”“当地”）此前没有可区分的字，`19_04` 的 6 个中文用户变体因此记 SKIP。
 
-禁用外部网络连接后，在 HTTP 请求序列化完成处检查了实际发送的路由信息。原生配置的全部 403 项、OpenAI 专用配置的全部 49 个适用项均走到了目标请求。主机、端口、路径、查询、路由头、鉴权和模型名均与各分支的预期相符。修订后的判定还没有在官方或真实第三方端点全量重跑。PR 中此前的线上通过率对应旧提交。
+当前分支收集 103 个函数、403 个供应商测试项，84 项离线回归全部通过。六份中英文清单的 206 行逐项与代码核对。
+
+2026-11-06 在官方 M2-her 原生端点实跑当前分支：
+
+| 配置 | 命令 | 结果 |
+|---|---|---|
+| 原生，全部开关 | `pytest -n 8 --run-behavior --run-compat --run-slow` | 连续两轮 **403 passed**，无 SKIP |
+| 原生，默认 | `pytest -n 8` | 251 passed，152 项因未开启开关跳过 |
+| OpenAI 兼容，全部开关 | `M2_HER_API_STYLE=openai pytest -n 8 --run-compat --run-slow --run-behavior` | **49 passed**，其余 354 项不适用该协议 |
+| OpenAI 兼容，未加 `--run-compat` | `M2_HER_API_STYLE=openai pytest` | 配置错误，退出码 4 |
+
+运行日志中未出现所用的密钥或查询参数值。
 
 ## 预期值怎么来的
 

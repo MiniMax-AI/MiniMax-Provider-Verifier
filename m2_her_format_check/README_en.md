@@ -7,9 +7,20 @@ It follows the M3 suite's module numbering, function naming and one-to-one py/md
 
 ## Verification of the revised cases
 
-[Commit `f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5) collects 103 case functions and 403 live test items. All 80 separate offline regression tests passed. All 206 Chinese and English case rows were checked against the implementation.
+The case and verdict changes are in [commit `f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5). A follow-up added common Simplified/Traditional character pairs: short Chinese replies from the official endpoint (e.g. 咖啡馆, 当地) previously contained no distinguishing character, so the six Chinese-user variants of `19_04` were skipped.
 
-With external connections disabled, the serialized HTTP requests were inspected at the transport boundary. All 403 items under native configuration and all 49 applicable OpenAI-only items reached their target request. Host, port, path, query, routing headers, authentication and request model matched the expectations for each branch. The revised checks have not had a full run against the official endpoint or a real third-party provider. Live pass counts previously reported in the PR refer to earlier commits.
+The current branch collects 103 case functions and 403 live test items. All 84 offline regression tests pass. All 206 Chinese and English case rows were checked against the implementation.
+
+Live runs of the current branch against the official M2-her native endpoint on 2026-11-06:
+
+| Configuration | Command | Result |
+|---|---|---|
+| Native, all options | `pytest -n 8 --run-behavior --run-compat --run-slow` | **403 passed** in two consecutive runs, no skips |
+| Native, default | `pytest -n 8` | 251 passed, 152 skipped because their options were not enabled |
+| OpenAI-compatible, all options | `M2_HER_API_STYLE=openai pytest -n 8 --run-compat --run-slow --run-behavior` | **49 passed**; the other 354 items do not apply to this protocol |
+| OpenAI-compatible without `--run-compat` | `M2_HER_API_STYLE=openai pytest` | configuration error, exit code 4 |
+
+The run logs contain none of the configured key or query-parameter values.
 
 ## Where the expected values come from
 
