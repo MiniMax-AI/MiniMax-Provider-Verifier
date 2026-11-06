@@ -1,6 +1,8 @@
 # M3 Image Modality Format Check Case List
 
 > Source file: `data/m3_api_test/m3_image_tests.py`
+> Module 14 applies to `m3_format_check/m3_1_flash_image_test.py` only.
+> Rows whose scenario starts with `M3.1-Flash:` correspond to `m3_format_check/m3_1_flash_image_test.py`.
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
 > Module count: **13**; case function count: **64**; pytest collected items: **109**
 
@@ -21,6 +23,7 @@
 | 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
+| 14 | image_usage | Image tokens counted in prompt_tokens (M3.1-Flash only) | 1 | 1 |
 | | **Total** | | **64** | **109** |
 
 ---
@@ -54,6 +57,7 @@
 | 03_07 | `test_03_07_multi_image_descriptions` | 2 real images described separately | HTTP 200 + content > 50 chars |
 | 03_08 | `test_03_08_real_resolution_gradient[sx1\|zn6]` | Real image resolution gradient (sx1 mid-res / zn6 high-res) | HTTP 200 + non-empty content |
 | 03_09 | `test_03_09_multi_image_count_gradient[5\|10\|20]` | Multi-image count gradient with 1×1 PNG × {5, 10, 20} | ≤10 must be 200; =20 allows 200/4xx |
+| 03_10 | `test_03_10_image_part_composition[image_only\|text_image_text\|url_and_data_url\|same_image_twice\|per_image_detail]` | M3.1-Flash: Image only, text-image-text, an HTTPS URL next to a data URL, the same image twice, detail per image | `assert_oai_success` |
 
 ## 04 system_multimodal — System message containing image
 
@@ -100,6 +104,8 @@
 | 09_03 | `test_09_03_corrupted_base64[non_stream\|stream]` | Corrupted base64 image (random bytes) | HTTP 400 |
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch: PNG bytes labeled as image/jpeg | HTTP 200 (gateway tolerant) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | Same image with detail=low / high | HTTP 200 + content > 5 |
+| 09_06 | `test_09_06_detail_auto_and_null[detail=auto\|detail=null]` | M3.1-Flash: detail=auto; detail explicitly null treated as omitted | `assert_oai_success` |
+| 09_08 | `test_09_08_invalid_image_part[url_missing\|url_not_string]` | M3.1-Flash: image_url without url / with a non-string url | HTTP 400 |
 
 ## 10 resolution_tier — Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio
 
@@ -114,6 +120,7 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG (long side > 2016, triggers scale) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG (long side > 2016) boundary smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | Omit detail vs explicit detail="default" comparison | Both HTTP 200 |
+| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: detail omitted | Existing checks + `assert_oai_success` |
 | 10_08 | `test_10_08_max_total_pixels_exceeded` | zn6.jpg real photo 4284×5712 = 24.5M pixels (> 12,845,056 cap, rule c) | 200 (auto-scale, answer contains fish/aquarium/water etc., prompt_tokens>0) or 400/413/422 (reject) |
 | 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap, rule c boundary) | HTTP 200 + prompt_tokens > 0 (=cap must accept) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500 (8:1 aspect ratio) acceptance | HTTP 200 + prompt_tokens > 0 |
@@ -158,3 +165,9 @@ spec 1.3.6: "Each request supports up to 200 images." at_max uses 200 (spec cap)
 | 13_02 | `test_13_02_base64_no_padding` | base64 with `=` padding stripped | HTTP ≠ 500 (200 / 400 allowed) |
 | 13_03 | `test_13_03_mime_uppercase` | MIME uppercase `data:image/PNG;base64,...` | HTTP 200 (MIME case-insensitive) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
+
+## 14 image_usage — Image token accounting
+
+| Case ID | Function | Scenario | Assertion |
+|:---:|:---|:---|:---|
+| 14_01 | `test_14_01_image_counted_in_prompt_tokens` | Same question without an image and with a 512×512 PNG (`detail="high"`) | `prompt_tokens` grows with the image; `image_tokens`, when returned, stays within `prompt_tokens` |

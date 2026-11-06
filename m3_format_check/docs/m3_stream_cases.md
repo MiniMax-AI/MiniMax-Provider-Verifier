@@ -2,6 +2,7 @@
 
 > 对应文件：`m3_format_check/m3_stream_tests.py`
 > `02_09`、`02_10`、`02_11` 同样适用于 `m3_format_check/m3_1_flash_stream_test.py`。
+> `02_12`、`02_14`、`02_20` 只适用于 `m3_format_check/m3_1_flash_stream_test.py`。
 
 ## 测试范围
 
@@ -12,6 +13,7 @@
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
 - 分包质量场景的结果严格为 `PASS` 或 `FAIL`，不使用 `WARN`。`02_09`、`02_10` 未覆盖并行调用时记为 `SKIP`；已观察到的协议违规仍记为 `FAIL`。
+- `assert_sse_stream_strict`（`helpers.py`）在一次响应上检查全部规则，并把所有违规项一起报出：帧为 `text/event-stream`、只有 JSON data 帧、`[DONE]` 恰好一个且在最后、流内没有 `error` 对象、同一条流的 `id` / `model` 不变、`created` 为整数且 `object=chat.completion.chunk`；每个 choice 的首包 `role=assistant`、`finish_reason` 为 null、不带正文，`content` / `reasoning_content` 为字符串或 null；工具调用分片通过 `stream_protocol.inspect_stream_tool_calls`（index 从 0 连续、id 唯一且不变），每个调用的首个分片带 id、`type=function` 和 name，拼接后的 arguments 是 JSON 对象；每个 choice 恰好一个终态包，`finish_reason` 合法（可指定期望值），终态后该 choice 不再出现，以 `stop` 结束时拼接后的正文非空；`usage=True`（请求带 `include_usage=true`）时恰好一个 usage 对象、位于最后一个 JSON 包、`choices=[]`，token 为非负整数且 `prompt_tokens`、`completion_tokens` 大于 0，`total = prompt + completion`，返回 `cached_tokens` / `reasoning_tokens` 时分别不超过 `prompt_tokens` / `completion_tokens`。
 
 ## 分档与判定
 
@@ -55,6 +57,9 @@
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | 单次 `bash` + `glob` 并行工具调用，检查响应中每个 chunk、每个 choice 的 `delta.tool_calls` 内 `index` 不重复 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_10 | `test_02_10_tool_call_identity_stable` | 单次 `bash` + `glob` 并行工具调用，在合并前检查全部原始 `delta.tool_calls`：每个 choice 的新 `index` 首次出现时从 0 连续递增；每个调用最终具有非空 `id`；同一调用的 `id` 稳定，且不被其他调用复用（后续分片允许省略 `id`） | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` + 672×672 base64 图片的多模态场景（由原图片套件 `08_03` 迁入） | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|tool_parallel\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个 / 并行工具调用分片、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`、并行场景未出现两个调用时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送，返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_strict`） | 独立协议校验，不属于分包质量规则 |
+| 02_20 | `test_02_20_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true`，`0 <= reasoning_tokens <= completion_tokens`；未返回该字段时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |

@@ -2,6 +2,7 @@
 
 > Corresponding file: `m3_format_check/m3_stream_tests.py`
 > Cases `02_09`, `02_10`, and `02_11` also apply to `m3_format_check/m3_1_flash_stream_test.py`.
+> Cases `02_12`, `02_14` and `02_20` apply to `m3_format_check/m3_1_flash_stream_test.py` only.
 
 ## Scope
 
@@ -12,6 +13,7 @@
 - `TestToolCallStreamPacketLengthDistribution`: each tool-call scenario runs once and uses its own thresholds for non-empty `delta.tool_calls[].function.arguments` fragments. The parallel-tool scenario evaluates both the combined distribution and every observed `tool_call.index` distribution.
 - The packet-quality scenarios evaluate packet-size quality only. They do not validate output length, JSON validity, tool names, argument contents, or tool-call counts.
 - Packet-quality scenarios report only `PASS` or `FAIL`, with no `WARN` state. Cases `02_09` and `02_10` report `SKIP` when parallel calls are not observed; any observed protocol violation still reports `FAIL`.
+- `assert_sse_stream_strict` (`helpers.py`) checks every rule on one response and reports all violations together: `text/event-stream`, JSON data frames only, exactly one `[DONE]` as the last frame, no `error` object in the stream, one `id` / `model` per stream, an integer `created` and `object=chat.completion.chunk`; the first chunk of each choice has `role=assistant`, a null `finish_reason` and no text, and `content` / `reasoning_content` are strings or null; tool-call fragments pass `stream_protocol.inspect_stream_tool_calls` (indexes start at 0 and increase, ids unique and stable), the first fragment of each call carries id, `type=function` and name, and the joined arguments are a JSON object; each choice has exactly one finish chunk with a known `finish_reason` (optionally an expected value), and nothing follows it for that choice, and a `stop` finish has non-empty joined content; with `usage=True` (a request with `include_usage=true`) exactly one usage object sits in the last JSON chunk with `choices=[]`, non-negative integer token counts with positive `prompt_tokens` and `completion_tokens`, `total = prompt + completion`, and `cached_tokens` / `reasoning_tokens`, when returned, within `prompt_tokens` / `completion_tokens`.
 
 ## Buckets and Decision
 
@@ -55,6 +57,9 @@ A target field with no non-empty fragments is an immediate `FAIL`. The decision 
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | Send one parallel `bash` + `glob` request and verify unique `index` values within `delta.tool_calls` for every chunk and choice in the response | Independent SSE protocol check; not part of packet-quality rules |
 | 02_10 | `test_02_10_tool_call_identity_stable` | Send one parallel `bash` + `glob` request and inspect all raw deltas before merging: new indices in each choice first appear consecutively from zero; every call eventually has a non-empty ID; IDs stay stable and are not reused by another call (later fragments may omit the ID) | Independent SSE protocol check; not part of packet-quality rules |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | Multimodal request with `stream_options.include_usage=true` plus a 672×672 base64 image (migrated from the image suite's former `08_03`) | Independent SSE protocol check; not part of packet-quality rules |
+| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|tool_parallel\|image_input]` | One request per scenario (all with `include_usage=true`), each producing a different kind of chunk: plain text, reasoning deltas, `finish_reason=length`, single / parallel tool-call fragments and image input; all pass `assert_sse_stream_strict`. `SKIP` when the reasoning scenario returns no `reasoning_content` or the parallel scenario returns fewer than two calls | Independent SSE protocol check; not part of packet-quality rules |
+| 02_14 | `test_02_14_stream_omitted_returns_json` | Request body has no `stream` key, sent as is via `oai_chat_verbatim`; returns one JSON ChatCompletion rather than SSE (`assert_chat_completion_strict`) | Independent protocol check; not part of packet-quality rules |
+| 02_20 | `test_02_20_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"` with `include_usage=true`, `0 <= reasoning_tokens <= completion_tokens`; `SKIP` when the field is not returned | Independent SSE protocol check; not part of packet-quality rules |
 | 01_01 | `01_01_essay_500_chars` | Return an approximately 500-character Chinese essay five times | Merged `content` fragments from all five runs |
 | 01_02 | `01_02_structured_json_1k` | Return at least 1KB of structured JSON five times | Merged `content` fragments from all five runs |
 | 01_03 | `01_03_tool_content_string_500_chars` | Save an approximately 500-character essay through `save_content(content: string)` | `arguments` fragments |
