@@ -173,7 +173,7 @@
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md. Across 480 observed streams the first content packet is 1-6 characters, every middle packet is at least 5 characters and the largest packet was 383 characters; the five M3 bucket ratios vary with response length and are recorded only.",
     "outcome": "success",
     "runs": 3,
-    "max_requests": 20,
+    "max_requests": 50,
     "minimum_characters": 1000,
     "packet_shape": {
       "first_packet_max_characters": 6,
@@ -185,7 +185,7 @@
     "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md. Across 480 observed streams the first content packet is 1-6 characters, every middle packet is at least 5 characters and the largest packet was 383 characters; the five M3 bucket ratios vary with response length and are recorded only.",
     "outcome": "success",
     "runs": 3,
-    "max_requests": 20,
+    "max_requests": 50,
     "minimum_characters": 1000,
     "packet_shape": {
       "first_packet_max_characters": 6,

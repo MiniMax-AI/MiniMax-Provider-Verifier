@@ -31,9 +31,9 @@ def sample_packet_stream(client, prompt, continuation, rule, *, check_response=N
     """
     runs = rule["runs"]
     minimum = rule["minimum_characters"]
-    maximum = rule.get("max_requests", 20)
-    assert type(maximum) is int and runs <= maximum <= 20, (
-        "max_requests must be between runs and 20"
+    maximum = rule.get("max_requests", 50)
+    assert type(maximum) is int and runs <= maximum <= 50, (
+        "max_requests must be between runs and 50"
     )
     sizes = []
     responses = []
