@@ -54,13 +54,25 @@ _VARIANT_PAIRS = (  # noqa: SIM905 - keep each visual pair together in compact r
     "车車 头頭 见見 觉覺 让讓 话話 语語 认認 识識 应應 该該 关關 实實 现現 样樣 从從 "
     "经經 过過 进進 动動 边邊 电電 题題 欢歡 乐樂 爱愛 谢謝 请請 网網 线線 书書 买買 "
     "卖賣 钱錢 难難 备備 飞飛 马馬 鸟鳥 鱼魚 龙龍 会會 来來 学學 点點 个個 没沒 给給 "
-    "气氣 体體 轻輕 运運 灵靈 视視 听聽 写寫 读讀 岁歲 钟鐘"
+    "气氣 体體 轻輕 运運 灵靈 视視 听聽 写寫 读讀 岁歲 钟鐘 "
+    # Everyday replies (e.g. travel or leisure advice) often avoid the pairs
+    # above, which made plain Simplified text inconclusive in live runs.
+    "馆館 当當 国國 场場 处處 务務 带帶 业業 两兩 严嚴 丽麗 习習 乡鄉 亲親 "
+    "众眾 优優 传傳 伤傷 价價 儿兒 农農 军軍 办辦 华華 单單 卫衛 压壓 厅廳 "
+    "县縣 变變 员員 园園 图圖 圆圓 团團 宁寧 导導 层層 岛島 币幣 师師 帮幫 "
+    "广廣 庆慶 张張 录錄 总總 战戰 报報 护護 择擇 换換 显顯 杂雜 权權 极極 "
+    "构構 标標 树樹 桥橋 检檢 汤湯 济濟 热熱 爷爺 环環 疗療 盘盤 确確 种種 "
+    "积積 称稱 笔筆 类類 红紅 级級 纸紙 练練 组組 细細 终終 结結 统統 继繼 "
+    "续續 绿綠 罗羅 职職 联聯 脑腦 节節 药藥 获獲 虽雖 规規 观觀 讲講 记記 "
+    "许許 论論 设設 证證 评評 试試 详詳 课課 调調 谈談 贵貴 费費 资資 赛賽 "
+    "选選 遗遺 邮郵 铁鐵 银銀 错錯 闭閉 队隊 阳陽 际際 陆陸 页頁 顺順 风風 "
+    "饭飯 饮飲 驾駕 验驗 鲜鮮 鸡雞 举舉"
 ).split()
 SIMPLIFIED_ONLY = frozenset(pair[0] for pair in _VARIANT_PAIRS)
 TRADITIONAL_ONLY = frozenset(pair[1] for pair in _VARIANT_PAIRS)
 # Chinese characters that do not occur in standard Japanese text. Simplified
 # forms shared with Japanese shinjitai (会 来 学 点 写 体 属 没 …) are excluded.
-CHINESE_NOT_JAPANESE = (SIMPLIFIED_ONLY - set("会来学点写体没个")) | frozenset(
+CHINESE_NOT_JAPANESE = (SIMPLIFIED_ONLY - set("会来学点写体没个当国")) | frozenset(
     "你她很呢吧啊嗯哦呀嘛"
 )
 VARIANT_TOLERANCE = 0.1

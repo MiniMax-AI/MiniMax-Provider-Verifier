@@ -48,6 +48,12 @@ def reply(text, *, prompt_tokens=7):
         ("zh", "山", "uncertain"),
         ("ar", "وقت من", "uncertain"),
         ("ru", "Как или кога?", "uncertain"),
+        # Live 19_04 zh_user replies that were inconclusive before the
+        # variant table covered everyday characters such as 馆/当.
+        ("zh", "可以找家咖啡馆看看海景，或者去当地的小博物馆逛逛。", "match"),
+        ("zh_hant", "可以找家咖啡馆看看海景，或者去当地的小博物馆逛逛。", "mismatch"),
+        ("zh_hant", "可以找家咖啡館看看海景，或者去當地的小博物館逛逛。", "match"),
+        ("ja", "当日は国立博物館に行きましょう。", "match"),
     ],
 )
 def test_language_counterexamples(expected, text, verdict):
