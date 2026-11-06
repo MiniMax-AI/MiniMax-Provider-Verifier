@@ -5,6 +5,12 @@
 可独立 `pytest` 运行，覆盖 M2-Her 模型原生 `/v1/text/chatcompletion_v2` 接口的格式校验：文本、system 人设、七种角色（system / user_system / group / sample_message_user / sample_message_ai / user / assistant）、示例对话、带 name 的多人对话、采样与输出长度参数、错误处理、usage、SSE 流式协议、`n` 多条回复、附加请求字段和回复语言。
 沿用 M3 套件的模块编号、函数命名和 py/md 一一对应的方式，**collect 后共 103 个 case 函数、403 个 items**（text 343 / stream 11 / compat 49）。
 
+## 本轮验证记录
+
+用例与判定修改见 [`f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5)。该版本收集 103 个函数、403 个供应商测试项，另有 80 项离线回归全部通过。六份中英文清单的 206 行逐项与代码核对。
+
+禁用外部网络连接后，在 HTTP 请求序列化完成处检查了实际发送的路由信息。原生配置的全部 403 项、OpenAI 专用配置的全部 49 个适用项均走到了目标请求。主机、端口、路径、查询、路由头、鉴权和模型名均与各分支的预期相符。修订后的判定还没有在官方或真实第三方端点全量重跑。PR 中此前的线上通过率对应旧提交。
+
 ## 预期值怎么来的
 
 M2-Her 是较早发布的模型，官网文档与实际接口行为有不少出入。本套件的预期值**取自官方渠道（MiniMax 原生 `/v1/text/chatcompletion_v2`、模型 `M2-her`）2026-11-05 的实测结果（OpenAI 流式 usage 于 2026-11-06 补测）**，用于校验第三方供应商部署的 M2-Her 是否与官方格式一致。判定分三类：

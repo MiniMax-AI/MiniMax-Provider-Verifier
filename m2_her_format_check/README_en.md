@@ -5,6 +5,12 @@
 A standalone `pytest` suite that validates the format of the M2-Her native `/v1/text/chatcompletion_v2` API: text, system persona, the seven roles (system / user_system / group / sample_message_user / sample_message_ai / user / assistant), sample dialogues, multi-speaker conversations with `name`, sampling and output-length parameters, error handling, usage, the SSE streaming protocol, `n` multiple replies, extra request fields, and reply language.
 It follows the M3 suite's module numbering, function naming and one-to-one py/md mapping. **After collection there are 103 case functions and 403 items** (text 343 / stream 11 / compat 49).
 
+## Verification of the revised cases
+
+[Commit `f30ce27`](https://github.com/hustc5622/MiniMax-Provider-Verifier/commit/f30ce2704a9ddd4b803af4f544dbf8d73f8593f5) collects 103 case functions and 403 live test items. All 80 separate offline regression tests passed. All 206 Chinese and English case rows were checked against the implementation.
+
+With external connections disabled, the serialized HTTP requests were inspected at the transport boundary. All 403 items under native configuration and all 49 applicable OpenAI-only items reached their target request. Host, port, path, query, routing headers, authentication and request model matched the expectations for each branch. The revised checks have not had a full run against the official endpoint or a real third-party provider. Live pass counts previously reported in the PR refer to earlier commits.
+
 ## Where the expected values come from
 
 M2-Her is an older model and its public docs diverge from the actual API in many places. **The expected values are taken from what the official channel (MiniMax native `/v1/text/chatcompletion_v2`, model `M2-her`) returned on 2026-11-05, with OpenAI streaming usage additionally measured on 2026-11-06**, so a third-party M2-Her deployment can be checked against the official format. Every check falls into one of three categories:
