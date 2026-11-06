@@ -19,7 +19,7 @@ M2-Her 是较早发布的模型，官网文档与实际接口行为有不少出�
 
 错误响应可以使用 JSON、SSE 或多个连续的完整 JSON 对象；解析必须完整，损坏的 UTF-8、JSON 尾部垃圾、不完整或损坏的 SSE 事件都会失败。非 200 的纯文本或 HTML 错误页也可表示拒绝；声明为 JSON / SSE 或以 JSON 对象、数组开头的响应必须正确解析。
 
-模型行为类用例（`--run-behavior`）只保留核心能力，且对官方接口 10 轮全量执行均稳定通过；其中 19_01（用提问的语言回复）每个语种最多请求 3 次、至少 2 次符合即通过。
+模型行为用例通过 `--run-behavior` 单独开启。此前官方端点的十轮记录对应旧版提示与判分器。当前提交对两项语言用例都最多采样三次，详细投票规则见下文。
 
 预期值集中在 [`observed.py`](observed.py)（n 的上限）、[`acceptance_baseline.json`](acceptance_baseline.json)（兼容项）和各测试函数中；每个 case 的预期见 `docs/` 下的 case 清单。
 
@@ -37,11 +37,16 @@ M2-Her 是较早发布的模型，官网文档与实际接口行为有不少出�
 
 **HTTP 状态边界：** F 按已确认的“HTTP 非 200”规则处理，所以 3xx、4xx（包括 429）、5xx 都可满足状态条件；E 中 5xx 一律 FAIL。这里证明请求失败，不保证失败原因一定是被修改的字段。正常对照减少端点整体不可用导致的误判，但不能排除之后才发生的故障。连接失败、超时等未取得可判定响应的异常不算“请求失败”通过条件；目标请求发生这些异常会报错。
 
-**错误响应的解析：** JSON 可以是单个对象或多个连续的完整对象；SSE 的事件必须完整且 data 可解析。损坏 UTF-8、JSON 尾部垃圾、坏事件、未结束事件都不能通过。非 200 的纯文本/HTML 错误页允许表示拒绝；声明为 JSON/SSE 或正文以 JSON 对象/数组开头时必须按对应格式解析。错误码、错误文案及 JSON/SSE 封装不要求与官方完全相同。
+**错误响应的解析：** JSON 可以是单个对象或多个连续的完整对象；SSE 的事件必须完整且 data 可解析。损坏 UTF-8、NaN/Infinity/-Infinity、JSON 尾部垃圾、坏事件、未结束事件都不能通过。非 200 的纯文本/HTML 错误页允许表示拒绝；声明为 JSON/SSE 或正文以 JSON 对象/数组开头时必须按对应格式解析。错误码、错误文案及 JSON/SSE 封装不要求与官方完全相同。
 
 **成功分支的公共检查：** 非流式默认一条回复；n 用例按指定条数检查 index、message.role/content、finish_reason 和 usage。流式检查 SSE、delta 字段类型、拼接内容、唯一结束原因，以及结束后没有新增正文；汇总包出现时必须与拼接内容相同。默认正文非空；`09_03` 的非正输出预算允许空正文，输出预算检查仅在上限为 1 时允许空正文。流式 usage 是否必须出现、外层 id/model/created 是否核对，由具体 case 明确；不能把“格式正确”理解为每个 case 都检查所有可选字段。
 
-**前置条件与 SKIP：** F/E 分支通常先调用 `preflight`，按端点、模型、鉴权头、流式模式和对照消息在每个 worker 内缓存结果；不是每个变体都重新发一次。对照断言失败或网络异常时，依赖它的测试 SKIP，不能计为 PASS。`17_05/17_06/17_08` 还包含用例内的成功请求，这些请求失败直接 FAIL；`12_03/12_04` 校准失败会报告准备错误；`15_08` 只有已观察分包均合格、但最多 50 次仍不足样本量时 SKIP。未开运行开关、未配端点/凭据、协议不适用，以及 `AUTH_TYPE=none` 的 Bearer 鉴权用例也会跳过。
+**怎样读 SKIP 和退出码**
+
+- F/E 通常先在同一端点、模型、鉴权和流式模式下发送正常消息。每个 worker 复用对应的对照结果。前测失败时，该项记 SKIP，不能据此认定供应商正确拒绝了请求。
+- 用例内另设的正对照必须成功。例如 `12_04` 先用同一份近窗输入核实 token 数，`17_05/06/08` 先证明正常候选数可用。若供应商明确拒绝单候选携带 tools，则 `17_06` 无法判断组合冲突，记 SKIP。
+- 协议不适用、缺少指定开关、采样耗尽仍未观察到结束原因或输出上限、语言证据不足、emoji 或分包样本不足，均有各自的 SKIP 原因。已经出现的格式、计数或分包错误仍然失败。
+- 实际验收命令缺少端点或必要凭据，或 OpenAI 模式没有指定 `--run-compat`，会报配置错误并以 4 退出。如果整次验收只产生 SKIP，也会非零退出（5）。`--collect-only` 和显式运行离线回归无需凭据。
 
 **name 的适用范围：** 缺 name 的固定失败规则只用于 `05_04`、`13_01`、`13_05`、`16_01` 中列出的具体组合。`03_01` 单独 user_system、`04_01` 单独 group 和 `06_01` 普通 user 等不带 name 的输入仍要求成功，不能泛化为“所有高级角色都必须有 name”。
 
@@ -87,7 +92,7 @@ export M2_HER_API_KEY="sk-xxx"
 |------|------|------|
 | `M2_HER_MODEL` | `M2-her` | 请求中的模型 ID，可改为供应商的模型名 |
 | `M2_HER_RESPONSE_MODEL` | 同 `M2_HER_MODEL` | 响应 `model` 字段的期望值；接口返回的名称与请求不同时填写 |
-| `M2_HER_AUTH_TYPE` | `bearer` | `none` 时不自动添加 Bearer 鉴权（鉴权用例 11_06 跳过）；`M2_HER_EXTRA_HEADERS` 中显式配置的鉴权头仍会发送，包括自定义 `Authorization`。HTTP 与 SDK 使用相同规则 |
+| `M2_HER_AUTH_TYPE` | `bearer` | `none` 时不自动添加 Bearer 鉴权（鉴权用例 11_06 跳过）；`M2_HER_EXTRA_HEADERS` 中显式配置的鉴权头仍会发送，包括自定义 `Authorization`。HTTP 与 SDK 使用相同规则。同时配置 Bearer 与其他可识别凭据时，11_06 也跳过，因为无法隔离 Bearer 的效果 |
 | `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`；`openai` → `/v1/chat/completions`（此时运行 15_* 和 10_07 兼容项） |
 | `M2_HER_TIMEOUT` | `120` | 单次请求超时（秒） |
 | `M2_HER_EXTRA_HEADERS` | (空) | JSON 串，额外注入请求头，例如 `'{"X-Custom-Header": "value"}'` |
@@ -106,7 +111,7 @@ export M2_HER_API_KEY="sk-xxx"
 | `--context-window` | 上下文窗口，`64000`（默认）或 `65536` |
 | `--n-limit N` | 修改 17_08 使用的 `n` 上限（默认为官方的 4） |
 
-不加任何开关时运行 documented_api 与 implementation_api 两层（251 items），未选择的项明确 SKIP 并写明原因。
+原生模式不加开关时选择 251 项。OpenAI 模式需传 `--run-compat`，常规兼容项有 47 项，再传 `--run-slow` 可测全部 49 项。两种 OpenAI 调用方式都使用供应商配置的兼容路径。
 
 ## 运行
 
@@ -129,6 +134,12 @@ pytest m2_her_text_tests.py
 pytest m2_her_stream_tests.py
 pytest m2_her_compat_tests.py --run-compat --run-slow
 
+# 只测提供 OpenAI 兼容接口的供应商
+M2_HER_API_STYLE=openai pytest --run-compat --run-slow
+
+# 离线验证校验器本身
+pytest verifier_regressions/test_*.py
+
 # 3d. 只跑模型行为类
 pytest --run-behavior -m behavior
 
@@ -142,11 +153,13 @@ pytest -v 'm2_her_text_tests.py::TestCombinations::test_13_01_all_seven_roles[no
 
 - **验证分层**：每个 item 的 junit properties 带 `validation_tier`，分别为 `documented_api`（官网/API 格式，202 项）、`implementation_api`（服务端附加字段如 `n`、`metadata`，59 项）、`behavior`（模型行为，91 项）、`endpoint_contract`（兼容项，51 项）。
 - **先做正常对照**：“请求失败”和“接受或拒绝都可以”的用例，先发一个同端点、同模型、同鉴权、同流式模式的正常请求；对照失败时该用例 SKIP 并说明未验证，不把服务故障当成“正确拒绝”。缺字段、非法 JSON、无鉴权等用例走原始请求，测试代码不会自动补参数。无自动重试。
-- **输出长度**：截断 / 正常结束使用有上限的重试阶梯；出现 `finish_reason=length` 时 `completion_tokens` 必须恰好等于上限，缺少真实计数时明确报告无法验证。
-- **上下文**：12_03/12_04 每种模式最多 8 次 1-token 探针，按真实 `prompt_tokens` 拼出接近 64K 的输入，再提高输出上限使其超窗。
-- **流式**：原生流式不要求 `[DONE]`；结尾的完整消息汇总包与 delta 正文分别校验；中间包 usage 允许为 0。
+- **输出长度**。先用最多两种提示或预算触发自然结束和截断。兼容项的输出上限最多用三个续写提示。合规回复始终没有触及目标时记 SKIP。已截断时，生成 token 数必须恰好等于上限；必要的计数缺失或矛盾均失败。
+- **上下文**。自动校准每种模式最多用 8 次探针。使用外部文件时，窗口内外须共用合法的同一组消息、相同的实测输入 token 数，且输入距 64K 边界不超过 384 token。单跑超窗用例也会先复测这份输入，再提高预留输出。
+- **流式**。原生接口不强制提供 `[DONE]`。每个带 usage 的事件都检查字段类型和计数，中间包允许为零。`14_08` 还要求在结束事件或之后观察到正数最终用量。
 - **分包大小（15_08）**：每个响应首包 ≤6 字符、中间包 ≥5 字符、单包 ≤512 字符；M3 的五项分档比例只记录不判定。
-- **回复语言（19_*）**：[`language.py`](language.py) 按 Unicode 文字区段、简繁 / 中日区分字符集和拉丁语系功能词判定，不调用模型或第三方检测器；回复只能使用目标语言（拉丁字母外来词除外）。
+- **回复语言（19_01、19_04）**。本地规则检查文字、语言特有字符和常用词。每个变体最多采三次。两次明确匹配为 PASS，两次明确不匹配为 FAIL，其余为 SKIP。任何请求或格式错误都立即失败。单独的模型行为项不参与默认的格式验收。
+
+`18_01/18_03` 对 255/256 个 ASCII 字符保留已有的通过和拒绝要求。另发同字节数的多字节输入，记录供应商接受或拒绝；既有 ASCII 实测不能单独确定供应商按字节还是按字符计数。
 
 ## 替换内置预期值
 
@@ -167,4 +180,4 @@ pytest -v 'm2_her_text_tests.py::TestCombinations::test_13_01_all_seven_roles[no
 ## 输出
 
 - **stdout**：pytest 标准输出，开头打印 jsonl 路径，如 `[m2_her_api_test] run log → .../logs/run_20261105T120000Z.jsonl`；`--junitxml` 可保存每项的 `validation_tier`。
-- **jsonl 日志**：与 M3 套件相同的机制（`helpers.RUN_LOG_PATH` + `_write_log_line`），默认写入 `logs/run_<UTC-ts>.jsonl`，xdist 并发时为 `run_<UTC-ts>_gw<N>.jsonl`。每行一条请求记录：`ts`、`case_id`、`endpoint`、`url`、`model`、`stream`、`elapsed_ms`、`status`、`trace_id`、`request`、`request_headers`（Authorization 只保留首尾字符）、`response`（含原始响应字节与 SSE 事件），以及异常信息；分包、校准等测量记录以 `kind` 区分，统计请求数时只计带 `request_number` 的记录。日志含真实响应，不要提交。
+- **JSONL 日志**与 M3 一样，每个 worker 单独写文件。请求记录含 case ID、请求序号、协议、路径、模型、状态及响应证据。URL 去掉用户信息和查询串。请求和响应头仅保留 Accept、Content-Type、Content-Length 的值，其他值遮蔽。若证据中出现配置的私有值，则省略该条正文及其原始编码副本。分包和校准等测量记录有独立的 kind 字段。日志仍含真实模型输入和输出。

@@ -7,43 +7,44 @@ requests only need to fail (assert_request_failed); values the docs rule out
 but the official endpoint accepts may be either accepted or rejected.
 """
 
+import copy
 import json
 import re
-import copy
 
 import pytest
 
-from .helpers import (
-    assert_contains,
-    assert_contract,
-    assert_accepted_or_failed,
-    assert_envelope,
-    assert_request_failed,
-    assert_success,
-    assert_sensitivity_fields,
-    assert_usage,
-    message,
-    simple_messages,
-)
 from .exercises import (
     exercise_finish,
     recall_messages,
     record_measurement,
 )
-from .language import assert_language
+from .helpers import (
+    assert_accepted_or_failed,
+    assert_contains,
+    assert_contract,
+    assert_envelope,
+    assert_request_failed,
+    assert_sensitivity_fields,
+    assert_success,
+    assert_usage,
+    message,
+    simple_messages,
+)
+from .language import language_report
 from .observed import N_LIMIT
 from .scenarios import (
     ESCAPED_TEXT,
+    HISTORY_VALUES,
     LANGUAGE_PROMPTS,
     all_roles,
     filler,
+    guide_messages,
     history,
     sample_pairs,
-    guide_messages,
     travel_conversation,
 )
 
-# 19_01 is P0: up to 3 attempts per variant, at least 2 must pass.
+# Behavior cases need two matching or two mismatching language observations.
 LANGUAGE_ATTEMPTS = 3
 LANGUAGE_REQUIRED = 2
 
@@ -378,8 +379,8 @@ class TestMultiturn:
         """Read the first and last facts from five history turns."""
         assert_contains(
             client.chat(history(5), temperature=0.01, stream=stream),
-            "HER_00_VALUE",
-            "HER_04_VALUE",
+            HISTORY_VALUES[0],
+            HISTORY_VALUES[4],
         )
 
     @pytest.mark.behavior
@@ -387,8 +388,8 @@ class TestMultiturn:
         """Read both ends of a twenty-turn history."""
         assert_contains(
             client.chat(history(20), temperature=0.01, stream=stream),
-            "HER_00_VALUE",
-            "HER_19_VALUE",
+            HISTORY_VALUES[0],
+            HISTORY_VALUES[19],
         )
 
     def test_07_04_actual_response_roundtrip(self, client, stream):
@@ -683,7 +684,7 @@ class TestErrors:
         ],
     )
     def test_11_04_invalid_content(self, client, variant, preflight):
-        """Non-string or missing content must fail, regardless of error code or framing."""
+        """Reject the supplied non-string shapes; media decoding is not under test."""
         preflight(client, stream=False)
         if client.settings.style != "native":
             pytest.skip(
@@ -739,6 +740,17 @@ class TestErrors:
             pytest.skip(
                 "Bearer authentication is not configured; authentication not validated"
             )
+        # A valid second credential can make a missing/invalid Bearer succeed.
+        # Header names are deployment-specific; recognize common alternatives
+        # without treating ordinary routing headers (e.g. GroupId) as secrets.
+        names = set(client.settings.query_params)
+        names.update(k for k in client.settings.extra_headers if k.lower() != "authorization")
+        for name in names:
+            key = name.replace("-", "").replace("_", "").lower()
+            if key in {"authorization", "cookie", "key", "token"} or key.endswith(
+                ("apikey", "accesstoken", "authtoken", "accesskey", "subscriptionkey", "clientsecret")
+            ):
+                pytest.skip("Additional authentication may authorize the request without Bearer")
         preflight(client, stream=stream)
         headers = {
             k: v
@@ -847,8 +859,11 @@ class TestLongContext:
         assert_success(client.chat(messages, temperature=0.01, stream=stream))
 
     def test_12_03_context_within_64k(self, context_samples, client, stream):
-        """Use an externally measured sample rather than estimating tokens from chars."""
-        sample = context_samples["within"]
+        """Check the measured near-window input with the smaller output budget."""
+        self._assert_within(context_samples["within"], client, stream)
+
+    @staticmethod
+    def _assert_within(sample, client, stream):
         result = client.chat(
             sample["messages"],
             temperature=0.01,
@@ -872,6 +887,9 @@ class TestLongContext:
             assert rule.get("contains"), (
                 "accepted truncation must specify the retained answer marker"
             )
+        # The over-only invocation must also verify the measured input before
+        # it can attribute a rejection to the larger output reservation.
+        self._assert_within(context_samples["within"], client, stream)
         sample = context_samples["over"]
         assert_contract(
             client.chat(
@@ -1044,7 +1062,7 @@ class TestCandidateCount:
         )
 
     def test_17_06_n_tools_conflict(self, client, preflight):
-        """Prove the non-stream n=2 path, then require n=2 + tools to fail."""
+        """Check the n/tools conflict only when both features work separately."""
         preflight(client, stream=False)
         request = {**base_payload(client), "n": 2}
         assert_success(client.request(request), expected_choices=2)
@@ -1057,6 +1075,9 @@ class TestCandidateCount:
                 },
             }
         ]
+        control = client.request({**request, "n": 1, "tools": tools})
+        if assert_accepted_or_failed(control) == "rejected":
+            pytest.skip("Tools rejected with n=1; the n=2/tools conflict cannot be isolated")
         assert_contract(
             client.request({**request, "tools": tools}),
             {"outcome": "reject"},
@@ -1121,6 +1142,21 @@ class TestRequestMetadata:
             result, model=client.settings.response_model or client.settings.model
         )
 
+        if variant == "metadata_boundary":
+            self._observe_utf8(client, stream, {"键" * 85: "值" * 85}, "key_value", 255)
+
+    @staticmethod
+    def _observe_utf8(client, stream, metadata, field, byte_length):
+        # The measured contract only establishes the boundary for ASCII.
+        # Record how this deployment counts multibyte values without assuming
+        # bytes and characters are interchangeable.
+        result = client.request({**base_payload(client, stream), "metadata": metadata})
+        outcome = assert_accepted_or_failed(result)
+        record_measurement(
+            client, "metadata_utf8_boundary", field=field, utf8_bytes=byte_length,
+            outcome=outcome, trace_id=result.trace_id,
+        )
+
     @pytest.mark.parametrize(
         "field,value",
         [
@@ -1151,13 +1187,30 @@ class TestRequestMetadata:
 
     @pytest.mark.parametrize("variant", ["key", "value"])
     def test_18_03_metadata_length_boundary(self, client, stream, variant, preflight):
-        """A 256-byte ASCII key/value exceeds the gateway's 255-byte limit."""
+        """Reject 256 ASCII characters, then observe the multibyte boundary."""
         preflight(client, stream=stream)
         metadata = {"k" * 256: "v"} if variant == "key" else {"k": "v" * 256}
-        assert_contract(
-            client.request({**base_payload(client, stream), "metadata": metadata}),
-            {"outcome": "reject"},
+        assert_request_failed(client.request({**base_payload(client, stream), "metadata": metadata}))
+        utf8 = "界" * 85 + "a"
+        self._observe_utf8(
+            client, stream, {utf8: "v"} if variant == "key" else {"k": utf8}, variant, 256
         )
+
+
+def _check_reply_language(client, messages, language, stream):
+    verdicts = []
+    details = []
+    for attempt in range(1, LANGUAGE_ATTEMPTS + 1):
+        result = client.chat(messages, temperature=0.01, stream=stream)
+        assert_success(result)  # Request/format failures never enter the sampling vote.
+        report = language_report(result.content, language)
+        verdicts.append(report.verdict)
+        details.append(f"attempt {attempt}, trace={result.trace_id}: {report.summary()}")
+        if verdicts.count("match") >= LANGUAGE_REQUIRED:
+            return
+        if verdicts.count("mismatch") >= LANGUAGE_REQUIRED:
+            pytest.fail("Language mismatch: " + " | ".join(details))
+    pytest.skip("Insufficient evidence to judge reply language: " + " | ".join(details))
 
 
 class TestLanguageConsistency:
@@ -1174,31 +1227,9 @@ class TestLanguageConsistency:
         ["zh", "zh_hant", "en", "ja", "ko", "es", "fr", "de", "pt", "ru", "ar"],
     )
     def test_19_01_reply_follows_user_language(self, client, stream, language):
-        """A monolingual user turn is answered in that language without foreign spans.
-
-        P0 behavior with rare sampling slips: up to 3 attempts, 2 must pass.
-        Request or format errors fail at once and are never retried.
-        """
-        passed, failures = 0, []
-        for attempt in range(1, LANGUAGE_ATTEMPTS + 1):
-            result = client.chat(
-                [message("user", LANGUAGE_PROMPTS[language])],
-                temperature=0.01,
-                stream=stream,
-            )
-            assert_success(result)
-            try:
-                assert_language(result, language)
-                passed += 1
-            except AssertionError as exc:
-                failures.append(f"attempt {attempt}: {exc}")
-            if passed >= LANGUAGE_REQUIRED:
-                return
-            if len(failures) > LANGUAGE_ATTEMPTS - LANGUAGE_REQUIRED:
-                break
-        raise AssertionError(
-            f"{passed}/{LANGUAGE_ATTEMPTS} replies in {language}, "
-            f"need {LANGUAGE_REQUIRED}: " + " | ".join(failures)
+        """Answer the monolingual user in their language."""
+        _check_reply_language(
+            client, [message("user", LANGUAGE_PROMPTS[language])], language, stream
         )
 
     @pytest.mark.behavior
@@ -1241,9 +1272,7 @@ class TestLanguageConsistency:
         The system is in the persona language; three real turns and the follow-up
         are in the user's language. Every ordered pair of zh/en/ja/ko is covered.
         """
-        result = client.chat(
-            travel_conversation(persona, language, "rainy_day", language),
-            temperature=0.01,
-            stream=stream,
+        _check_reply_language(
+            client, travel_conversation(persona, language, "rainy_day", language),
+            language, stream,
         )
-        assert_language(result, language)

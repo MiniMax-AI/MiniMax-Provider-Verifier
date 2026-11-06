@@ -9,6 +9,15 @@ LONG_OUTPUT = (
 ESCAPED_TEXT = '引号"HER"\\目录\n下一行🙂🚀'
 
 
+# Opaque facts keep an agent from reconstructing a lost turn from its index.
+HISTORY_VALUES = (
+    "CEDAR_87", "COBALT_32", "AMBER_91", "REEF_56", "FERN_24",
+    "OPAL_79", "PINE_48", "AGATE_65", "TIDE_13", "CORAL_92",
+    "DUNE_51", "SAGE_34", "FLINT_76", "WAVE_42", "ASPEN_89",
+    "ONYX_25", "BIRCH_63", "RUBY_17", "SILT_58", "MOSS_36",
+)
+
+
 def history(rounds=5):
     messages = []
     for number in range(rounds):
@@ -16,7 +25,7 @@ def history(rounds=5):
             [
                 message(
                     "user",
-                    f"编号 {number} 对应的记录值为 HER_{number:02}_VALUE。请记住。",
+                    f"编号 {number} 对应的记录值为 {HISTORY_VALUES[number]}。请记住。",
                 ),
                 message("assistant", "已经记住这条记录。"),
             ]

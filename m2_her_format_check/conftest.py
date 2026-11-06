@@ -1,14 +1,16 @@
 """Configuration is local to this suite; collect-only never needs credentials."""
 
-import os
-import json
 import copy
-from datetime import datetime, timezone
+import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 import httpx
+import pytest
 
+from . import helpers as _helpers
+from .exercises import calibrate_context
 from .helpers import (
     ChatClient,
     Settings,
@@ -18,8 +20,6 @@ from .helpers import (
     read_contract,
     simple_messages,
 )
-from .exercises import calibrate_context
-from . import helpers as _helpers
 
 
 def _resolve_log_path(config) -> Path:
@@ -39,7 +39,7 @@ def _resolve_log_path(config) -> Path:
         ts = workerinput["m2_her_run_ts"]
     else:
         ts = getattr(config, "_m2_her_run_ts", None) or datetime.now(
-            timezone.utc
+            UTC
         ).strftime("%Y%m%dT%H%M%SZ")
     return Path(__file__).parent / "logs" / f"run_{ts}{suffix}.jsonl"
 
@@ -88,11 +88,35 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    # Check on the controller, before xdist starts workers. Explicit offline
+    # regression files and collection-only inventory need no live configuration.
+    suite_dir = Path(__file__).parent
+    targets = [Path(arg.split("::", 1)[0]).resolve() for arg in config.args]
+    live = any(
+        target == suite_dir
+        or target in suite_dir.parents
+        or (target.parent == suite_dir and target.match("m2_her_*_tests.py"))
+        for target in targets
+    )
+    if live and not config.option.collectonly:
+        settings = Settings.from_env()
+        if settings.style == "openai" and not config.getoption("--run-compat"):
+            raise pytest.UsageError(
+                "OpenAI verification requires --run-compat (add --run-slow for packet sampling)"
+            )
+        if not settings.base_url or (
+            settings.auth_type == "bearer" and not settings.api_key
+        ):
+            raise pytest.UsageError(
+                "Set M2_HER_BASE_URL and configure M2_HER_API_KEY or M2_HER_AUTH_TYPE=none"
+            )
+    if not hasattr(config, "workerinput"):
+        config.pluginmanager.register(_LiveCoverage(), "m2-her-live-coverage")
     n_limit = config.getoption("--n-limit")
     if n_limit is not None and n_limit < 1:
         raise pytest.UsageError("--n-limit must be a confirmed positive integer")
     if _is_xdist_controller(config) and not hasattr(config, "_m2_her_run_ts"):
-        config._m2_her_run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        config._m2_her_run_ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     if config.pluginmanager.hasplugin("xdist") and not config.pluginmanager.has_plugin(
         "m2-her-xdist-hooks"
     ):
@@ -147,9 +171,32 @@ class _XdistHooks:
     def pytest_configure_node(self, node):
         """Share the controller's log timestamp with each worker."""
         ts = getattr(node.config, "_m2_her_run_ts", None) or datetime.now(
-            timezone.utc
+            UTC
         ).strftime("%Y%m%dT%H%M%SZ")
         node.workerinput["m2_her_run_ts"] = ts
+
+
+class _LiveCoverage:
+    """SKIP remains visible per case. A run with zero live verdicts cannot certify a provider."""
+
+    def __init__(self):
+        self.seen = False
+        self.validated = False
+
+    def pytest_runtest_logreport(self, report):
+        if Path(report.location[0]).match("m2_her_*_tests.py"):
+            self.seen = True
+            if report.when == "call" and report.passed:
+                self.validated = True
+
+    def pytest_sessionfinish(self, session, exitstatus):
+        if exitstatus == pytest.ExitCode.OK and self.seen and not self.validated:
+            session.exitstatus = pytest.ExitCode.NO_TESTS_COLLECTED
+            reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+            if reporter is not None:
+                reporter.write_line(
+                    "No M2-Her live case produced a verdict. See the SKIP reasons."
+                )
 
 
 @pytest.fixture(scope="session")
@@ -171,8 +218,6 @@ def log_path():
 
 @pytest.fixture
 def client(settings, log_path, request):
-    if not settings.base_url or (settings.auth_type == "bearer" and not settings.api_key):
-        pytest.skip("Live API not validated: set M2_HER_BASE_URL and M2_HER_API_KEY")
     if settings.style != "native" and not request.node.get_closest_marker("compat"):
         pytest.skip(
             "M2-her native contract only; use explicit endpoint cases for OpenAI"

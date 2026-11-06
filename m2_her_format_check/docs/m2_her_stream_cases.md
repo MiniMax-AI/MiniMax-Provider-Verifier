@@ -19,17 +19,17 @@
 
 | Case ID | 函数名 | 结果规则 | 场景说明 | 主要校验点 | 执行条件 |
 |:---:|:---|:---|:---|:---|:---|
-| 14_01 | [`test_14_01_sse_framing`](../m2_her_stream_tests.py#L17) | [S：必须成功](../README.md#verdict-rules) | 普通流式请求。 | Content-Type 为 text/event-stream，每个事件都能完整解析，没有损坏的事件。 | 默认运行 |
-| 14_02 | [`test_14_02_chunk_envelope_consistency`](../m2_her_stream_tests.py#L23) | [S：必须成功](../README.md#verdict-rules) | 普通流式请求，检查每个数据包的顶层字段。 | 各包 id、model 为非空字符串，created 为正整数，且响应内一致；model 匹配配置的响应模型名。delta 包与完整消息汇总包各使用对应 object 类型。 | 默认运行 |
-| 14_03 | [`test_14_03_delta_role_content_types`](../m2_her_stream_tests.py#L31) | [S：必须成功](../README.md#verdict-rules) | 普通流式请求，检查 delta.role 和 delta.content。 | 至少一个 delta.role 为 assistant；role 出现时只能为 assistant。delta.content 可缺省、为 null 或字符串，最终拼接正文非空。 | 默认运行 |
-| 14_04 | [`test_14_04_content_reassembly`](../m2_her_stream_tests.py#L40) | [S：必须成功](../README.md#verdict-rules) | 先给一个示例，再让模型照抄 12 个按顺序排列的标记。 | 拼接后的内容恰好是这 12 个标记且顺序正确；如果最后有完整消息汇总包，其内容须与拼接结果一致。 | 需 --run-behavior（模型行为，单独统计） |
-| 14_05 | [`test_14_05_unicode_escape_chunks`](../m2_her_stream_tests.py#L62) | [S：必须成功](../README.md#verdict-rules) | 流式下让模型照抄含引号、反斜杠、换行和 emoji 的文本。 | 能正常解码，且内容里确实有 "、\、换行、🙂、🚀。 | 需 --run-behavior（模型行为，单独统计） |
-| 14_06 | [`test_14_06_stream_stop`](../m2_her_stream_tests.py#L79) | [S：必须成功](../README.md#verdict-rules) | 流式下让模型只回答 OK；上限 128 token，若被截断放宽到 512 再试。 | 两次内至少一次 finish_reason=stop，不要求正文恰好 OK 或有 [DONE]；两次仍未 stop 判失败。计数出现时验证输出上限，length 结束时必须提供准确计数。 | 默认运行 |
-| 14_07 | [`test_14_07_stream_length`](../m2_her_stream_tests.py#L83) | [S：必须成功](../README.md#verdict-rules) | 流式长篇续写，上限 8 token；若提前写完，换提示并把上限降到 1 再试。 | 两次内至少一次 finish_reason=length，输出 token 数恰好等于上限；每次都必须有完整计数且不能超上限。缺计数或两次未截断均失败；只有上限 1 允许正文为空。 | 默认运行；需返回 completion_tokens，缺失时判为无法验证 |
-| 14_08 | [`test_14_08_stream_usage`](../m2_her_stream_tests.py#L87) | [S：必须成功](../README.md#verdict-rules) | 普通流式请求，检查带 usage 的数据包。 | 至少一个数据包带 usage，最终 total_tokens 大于 0；中间包可以为 0。 | 默认运行 |
-| 14_09 | [`test_14_09_native_summary_message`](../m2_her_stream_tests.py#L100) | [S：必须成功](../README.md#verdict-rules) | 原生接口流式请求，检查结束包和完整消息汇总包。 | 有带 finish_reason 的结束包；如果有汇总包，其内容须与拼接结果一致。 | 默认运行；仅原生接口 |
-| 14_10 | [`test_14_10_stream_error_response`](../m2_her_stream_tests.py#L116) | [F：必须失败](../README.md#verdict-rules) | stream=true，但 messages 为 null。 | 请求失败，不能是一个空的“成功”流。 先做同端点、模型、鉴权和流式模式的正常对照；对照失败记 SKIP。 | 默认运行 |
-| 14_11 | [`test_14_11_repeated_emoji_integrity`](../m2_her_stream_tests.py#L126) | [S：必须成功](../README.md#verdict-rules) | 流式请求 20 次，每次让模型输出 30 个 emoji（上限 512 token）。 | 20 次回复全部成功解码、格式正确，且每次至少包含一个 U+1F300..U+1FAFF 范围字符；不要求恰好 30 个 emoji。 | 需 --run-behavior（模型行为，单独统计）；需 --run-slow |
+| 14_01 | [`test_14_01_sse_framing`](../m2_her_stream_tests.py#L16) | [S：必须成功](../README.md#verdict-rules) | 发一条普通聊天消息，请接口边生成边返回。 | 响应类型须为 text/event-stream。事件能按 SSE 解码，拼出的正文非空，并有合法结束原因。此项不测出字速度。 | 默认运行 |
+| 14_02 | [`test_14_02_chunk_envelope_consistency`](../m2_her_stream_tests.py#L22) | [S：必须成功](../README.md#verdict-rules) | 查看同一次回复里的每个数据包是否都属于同一条消息。 | id、model、created 三项在包间一致；id 非空，model 匹配配置的响应模型名，created 为正整数。增量包和完整消息包各用对应的 object 类型。 | 默认运行 |
+| 14_03 | [`test_14_03_delta_role_content_types`](../m2_her_stream_tests.py#L30) | [S：必须成功](../README.md#verdict-rules) | 检查增量包有没有说明“这句话是助手说的”，以及正文的类型。 | 至少一个增量包声明 role=assistant，之后可以省略。提供 role 时必须为 assistant；content 可以缺省、为 null 或是字符串。整段拼出来要有正文。 | 默认运行 |
+| 14_04 | [`test_14_04_content_reassembly`](../m2_her_stream_tests.py#L39) | [S：必须成功](../README.md#verdict-rules) | 给一个照抄示例，请模型按顺序抄下 HER_00 至 HER_11，用竖线分隔。 | 先校验流式格式。去掉首尾空白后，全文须与目标一致；漏字、增字或换序均记为行为失败。如有完整消息，必须与拼接结果逐字一致。 | 需 --run-behavior（模型行为，单独统计） |
+| 14_05 | [`test_14_05_unicode_escape_chunks`](../m2_her_stream_tests.py#L61) | [S：必须成功](../README.md#verdict-rules) | 请模型照抄一段含引号、反斜杠、换行和 emoji 的文字。 | UTF-8 或 SSE/JSON 解码错误直接失败。格式正常后还须在回复里找齐引号、反斜杠、换行、🙂、🚀；缺字符记为行为失败，不据此推断传输丢字。 | 需 --run-behavior（模型行为，单独统计） |
+| 14_06 | [`test_14_06_stream_stop`](../m2_her_stream_tests.py#L78) | [S：必须成功](../README.md#verdict-rules) | 请模型只答 OK，先给 128 token；若截断，放宽到 512 再试。 | 观察到 stop 即通过；两次合法回复都未自然结束则 SKIP。已返回的计数须满足限额，报告 length 时须有恰好等于上限的计数。 | 默认运行 |
+| 14_07 | [`test_14_07_stream_length`](../m2_her_stream_tests.py#L82) | [S：必须成功](../README.md#verdict-rules) | 请模型续写长故事，先给 8 token；若它自己写完了，换提示并把预算降到 1。 | 至少一次报告 length 且生成数等于上限才通过。每次都须提供完整计数并遵守预算；两次均合法但未截断记 SKIP。只有预算 1 允许空正文。 | 默认运行；需返回 completion_tokens，缺失时判为无法验证 |
+| 14_08 | [`test_14_08_stream_usage`](../m2_her_stream_tests.py#L86) | [S：必须成功](../README.md#verdict-rules) | 让模型流式回答一句话，检查它生成结束时有没有报告本次用量。 | 每份 usage 都须合法，早期包可以报 0。首个带 finish_reason 的包或其后的包须给出用量，最后一份 total_tokens 必须大于 0。只在早期报数会失败。 | 默认运行 |
+| 14_09 | [`test_14_09_native_summary_message`](../m2_her_stream_tests.py#L103) | [S：必须成功](../README.md#verdict-rules) | 看原生接口怎样结束流式回复。有的实现会再发送一条包含全文的消息。 | 必须有有效的 finish_reason。如果发送全文，就须与先前增量拼出的内容一致。没有全文包也可通过，出现次数另记入日志。 | 默认运行；仅原生接口 |
+| 14_10 | [`test_14_10_stream_error_response`](../m2_her_stream_tests.py#L119) | [F：必须失败](../README.md#verdict-rules) | 先确认同一个接口、模型和凭据能完成正常流式对话，再把 messages 改为 null。 | 正常对照失败记 SKIP。目标请求须被拒绝且没有正常回复正文；允许返回普通 JSON 错误。 | 默认运行 |
+| 14_11 | [`test_14_11_repeated_emoji_integrity`](../m2_her_stream_tests.py#L129) | [S：必须成功](../README.md#verdict-rules) | 连续请求 20 次，每次请模型输出 30 个 emoji，每次最多 512 token。 | 每次先验流式格式，出错立即 FAIL。20 次均出现至少一个 U+1F300..U+1FAFF 字符才 PASS；有合法回复未生成目标字符则记录覆盖次数并 SKIP。不要求生成恰好 30 个。 | 需 --run-behavior（模型行为，单独统计）；需 --run-slow |
 
 ---
 

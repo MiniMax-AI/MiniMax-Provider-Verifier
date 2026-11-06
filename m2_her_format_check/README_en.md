@@ -19,7 +19,7 @@ The measured error scenarios all returned HTTP 200 with a business error code, s
 
 Error responses may use JSON, SSE, or several consecutive complete JSON objects. Parsing must consume the complete response: invalid UTF-8, trailing JSON garbage, and malformed or incomplete SSE events fail. Non-200 plain-text or HTML error pages may also indicate rejection; responses declared as JSON / SSE or starting with a JSON object or array must parse correctly.
 
-Model-behavior cases (`--run-behavior`) are limited to core capabilities that passed in all 10 full runs against the official API. 19_01 (reply in the user's language) allows up to 3 attempts per language and needs 2 to pass.
+Model behavior is opt-in via `--run-behavior`. The historical ten-run official baseline used the earlier prompts and verifier. Both language cases now take up to three samples per variant under the voting rule below.
 
 Expected values live in [`observed.py`](observed.py) (the `n` limit), [`acceptance_baseline.json`](acceptance_baseline.json) (compatibility cases) and the test functions; the per-case expectations are listed in the case docs under `docs/`.
 
@@ -37,11 +37,16 @@ S / F / E specify the **target request's expected outcome**, not the test result
 
 **HTTP boundaries:** Under the agreed non-200 rule, F can accept 3xx, 4xx (including 429), and 5xx as the HTTP failure condition; E always fails on 5xx. This proves failure, not that the mutated field caused it. A healthy control reduces outage-related false positives but cannot exclude a later fault. Connection failures and timeouts without a usable response are not passing rejections; such exceptions on the target request are reported as errors.
 
-**Error parsing:** Accept one JSON object, several consecutive complete objects, or complete SSE events with parseable data. Invalid UTF-8, trailing JSON garbage, malformed or incomplete events fail. Non-200 plain-text/HTML errors may represent rejection; declared JSON/SSE or bodies starting with a JSON object/array must parse accordingly. Codes, wording and JSON/SSE framing need not match the official endpoint.
+**Error parsing:** Accept one JSON object, several consecutive complete objects, or complete SSE events with parseable data. Invalid UTF-8, NaN/Infinity/-Infinity, trailing JSON garbage and malformed or incomplete events fail. Non-200 plain-text/HTML errors may represent rejection; declared JSON/SSE or bodies starting with a JSON object/array must parse accordingly. Codes, wording and JSON/SSE framing need not match the official endpoint.
 
 **Common success checks:** Non-streaming expects one reply unless an n case specifies otherwise, checking indexes, message role/content, finish reason and usage. Streaming checks SSE, delta types, assembled content, a consistent terminal reason, no content after termination, and any full-message summary against the deltas. Text is nonempty by default; `09_03` permits empty text for nonpositive budgets, while output-budget checks permit it only at limit=1. Mandatory streaming usage and envelope id/model/created checks are stated by each case; a generic format check does not imply every optional field is checked everywhere.
 
-**Preparation and SKIP:** F/E branches usually call `preflight`, cached per worker by endpoint, model, auth headers, stream mode and control messages; controls are not resent for every variant. Failed control assertions or network errors produce SKIP, never PASS. `17_05/17_06/17_08` also contain in-case success requests whose failure is FAIL. Calibration failure in `12_03/12_04` is a preparation error. `15_08` skips only when observed packet shapes are valid but 50 requests cannot reach the sample size. Disabled run flags, missing endpoint/credentials, inapplicable protocols and bearer-auth cases with `AUTH_TYPE=none` also skip.
+**Interpreting SKIP and exit codes**
+
+- F/E cases usually need a healthy control using the same endpoint, model, credentials and stream mode. Each worker caches its control results. A failed preflight skips the dependent case.
+- In-case positive controls must succeed. For example, `12_04` remeasures the same near-window input and `17_05/06/08` establish the supported candidate count. If even a single candidate with tools is explicitly rejected, `17_06` skips the untestable combination.
+- Cases can skip for an inapplicable protocol, disabled flags, an unobserved finish reason or output ceiling, inconclusive language votes, or insufficient emoji or packet samples. Observed protocol, count and packet violations still fail.
+- A live command with missing endpoint/credentials, or OpenAI mode without `--run-compat`, exits with configuration error 4. A live run producing only skips exits with 5. Collection and explicit offline regressions need no credentials.
 
 **Name scope:** Required rejection for missing names only covers the concrete combinations in `05_04`, `13_01`, `13_05` and `16_01`. Unnamed standalone user_system in `03_01`, standalone group in `04_01`, and plain user in `06_01` still must succeed. Do not generalize this into a requirement that every advanced role must have a name.
 
@@ -87,7 +92,7 @@ The request URL, headers and the `model` in the request body all come from envir
 |------|------|------|
 | `M2_HER_MODEL` | `M2-her` | Model ID sent in requests; may be the provider's model name |
 | `M2_HER_RESPONSE_MODEL` | same as `M2_HER_MODEL` | Expected `model` in responses; set it when the API returns a different name |
-| `M2_HER_AUTH_TYPE` | `bearer` | `none` disables automatic bearer authentication (case 11_06 is skipped); explicitly configured headers in `M2_HER_EXTRA_HEADERS`, including custom `Authorization`, are preserved. HTTP and SDK use the same rules |
+| `M2_HER_AUTH_TYPE` | `bearer` | `none` disables automatic bearer authentication (case 11_06 is skipped); explicitly configured headers in `M2_HER_EXTRA_HEADERS`, including custom `Authorization`, are preserved. HTTP and SDK use the same rules. 11_06 also skips when another recognized credential might authorize requests without Bearer |
 | `M2_HER_API_STYLE` | `native` | `native` → `/v1/text/chatcompletion_v2`; `openai` → `/v1/chat/completions` (the 15_* and 10_07 compatibility cases run) |
 | `M2_HER_TIMEOUT` | `120` | Per-request timeout in seconds |
 | `M2_HER_EXTRA_HEADERS` | (empty) | JSON string of extra request headers, e.g. `'{"X-Custom-Header": "value"}'` |
@@ -106,7 +111,7 @@ The request URL, headers and the `model` in the request body all come from envir
 | `--context-window` | Context window, `64000` (default) or `65536` |
 | `--n-limit N` | Change the `n` limit used by 17_08 (default: the official 4) |
 
-Without options, the documented_api and implementation_api tiers run (251 items); everything not selected is SKIPPED with an explicit reason.
+Native mode selects 251 items by default. OpenAI mode requires `--run-compat` for its 47 regular cases. Add `--run-slow` to run all 49 applicable items. Both OpenAI clients stay on the configured compatible endpoint.
 
 ## Running
 
@@ -129,6 +134,12 @@ pytest m2_her_text_tests.py
 pytest m2_her_stream_tests.py
 pytest m2_her_compat_tests.py --run-compat --run-slow
 
+# Provider exposing only the OpenAI-compatible API
+M2_HER_API_STYLE=openai pytest --run-compat --run-slow
+
+# Offline verifier regressions
+pytest verifier_regressions/test_*.py
+
 # 3d. Model-behavior cases only
 pytest --run-behavior -m behavior
 
@@ -142,11 +153,13 @@ When checking a new endpoint for the first time, run the default cases serially 
 
 - **Validation tiers**: each item carries a `validation_tier` junit property: `documented_api` (public API format, 202 items), `implementation_api` (server-side extra fields such as `n` and `metadata`, 59 items), `behavior` (model behavior, 91 items) and `endpoint_contract` (compatibility, 51 items).
 - **Healthy control first**: "must fail" and "accept or reject" cases first send a normal request with the same endpoint, model, auth and stream mode. If that control fails, the case is SKIPPED as not validated, so an outage is never counted as a correct rejection. Missing-field, malformed-JSON and no-auth cases go through the raw request path; the test code never fills in parameters. There are no automatic retries.
-- **Output length**: truncation and natural stops use a bounded retry ladder. With `finish_reason=length`, `completion_tokens` must equal the limit exactly; a missing real count is reported as unverifiable.
-- **Context**: 12_03/12_04 use up to 8 one-token probes per mode to build an input close to 64K from real `prompt_tokens`, then raise the output limit to exceed the window.
-- **Streaming**: native streams are not required to send `[DONE]`; the final full-message summary packet and the delta text are checked separately; usage on intermediate packets may be 0.
+- **Output length.** Finish-reason checks use up to two stimuli. Compatibility ceilings use up to three continuations. A sequence of valid replies that never exercises the target yields SKIP. A truncated reply must report exactly the budget. Missing required counts or inconsistent counts fail.
+- **Context.** Automatic calibration uses up to eight probes per mode. An external fixture must use the same valid messages and measured prompt count on both sides, within 384 tokens of the window. Even the over-window case run alone remeasures this input before increasing the reserved output.
+- **Streaming.** Native streams may omit `[DONE]`. Every usage-bearing event must have valid counts, including intermediate zero placeholders. Case `14_08` requires positive final usage at or after the finish event.
 - **Packet size (15_08)**: per response, first packet ≤6 characters, middle packets ≥5 characters, any packet ≤512 characters. The five M3 bucket ratios are recorded only.
-- **Reply language (19_*)**: [`language.py`](language.py) decides the language from Unicode script runs, Simplified/Traditional and Chinese/Japanese character sets, and function words for Latin-script languages; no model or third-party detector is used. The reply may only use the target language (Latin-script loanwords excepted).
+- **Reply language (19_01 and 19_04).** Local rules use scripts, distinctive letters and common words. Each variant samples up to three replies. Two clear matches pass, two clear mismatches fail, and all other combinations skip. Request or protocol errors fail immediately. Model behavior is excluded from the default format gate.
+
+Cases `18_01/18_03` retain the observed acceptance and rejection requirements for 255/256 ASCII characters. Additional multibyte probes record the provider’s outcome. The original ASCII measurements alone cannot distinguish a byte limit from a character limit.
 
 ## Replacing the built-in expectations
 
@@ -167,4 +180,4 @@ Every rule needs a non-empty `source` and an `outcome`: `success` (must succeed)
 ## Output
 
 - **stdout**: standard pytest output; the jsonl path is printed first, e.g. `[m2_her_api_test] run log → .../logs/run_20261105T120000Z.jsonl`. `--junitxml` keeps each item's `validation_tier`.
-- **jsonl logs**: the same mechanism as the M3 suite (`helpers.RUN_LOG_PATH` + `_write_log_line`). Written to `logs/run_<UTC-ts>.jsonl` by default, or `run_<UTC-ts>_gw<N>.jsonl` per xdist worker. One line per request: `ts`, `case_id`, `endpoint`, `url`, `model`, `stream`, `elapsed_ms`, `status`, `trace_id`, `request`, `request_headers` (Authorization keeps only its first and last characters), `response` (including raw response bytes and SSE events) and any exception. Measurement records (packets, calibration) are tagged by `kind`; count requests only from records that have `request_number`. Logs contain real responses; do not commit them.
+- **JSONL logs.** Each worker writes its own file using the M3 convention. Request records include the case ID, request number, protocol, path, model, status and response evidence. Logged URLs exclude user information and the query string. Only Accept, Content-Type and Content-Length header values are retained, for both requests and responses. Evidence repeating a configured private value is withheld together with its wire copies. Packet and calibration measurements have separate kind fields. Logs contain real model input and output.

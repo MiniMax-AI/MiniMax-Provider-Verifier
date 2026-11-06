@@ -13,13 +13,21 @@ import json
 import os
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 PATHS = {"native": "/v1/text/chatcompletion_v2", "openai": "/v1/chat/completions"}
+_LOG_PUBLIC_HEADERS = {"accept", "content-type", "content-length"}
+
+
+def _reject_json_constant(value: str):
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
+_WIRE_JSON = json.JSONDecoder(parse_constant=_reject_json_constant)
 
 
 @dataclass(frozen=True)
@@ -69,8 +77,7 @@ class Settings:
     def url(self) -> str:
         # Accept either a server origin or the familiar SDK base ending in /v1.
         base = self.base_url.rstrip("/")
-        if base.endswith("/v1"):
-            base = base[:-3]
+        base = base.removesuffix("/v1")
         return str(
             httpx.URL(base + PATHS[self.style]).copy_merge_params(self.query_params)
         )
@@ -92,11 +99,13 @@ RUN_LOG_PATH: Path | None = None
 
 
 def _fallback_log_path() -> Path:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return Path(__file__).parent / "logs" / f"run_{ts}.jsonl"
 
 
-def _write_log_line(record: dict, path: Path | None = None) -> None:
+def _write_log_line(
+    record: dict, path: Path | None = None, *, settings: Settings | None = None
+) -> None:
     """Append one jsonl record; path overrides the session log when given."""
     global RUN_LOG_PATH
     if path is None:
@@ -105,6 +114,30 @@ def _write_log_line(record: dict, path: Path | None = None) -> None:
         path = RUN_LOG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, default=str)
+    if settings:
+        # Some gateways echo credentials in error bodies or trace IDs. Omit the
+        # evidence together with its raw/base64 copies when a configured value recurs.
+        values = [settings.api_key, *settings.query_params.values()]
+        for key, value in settings.extra_headers.items():
+            if key.lower() not in _LOG_PUBLIC_HEADERS:
+                values.append(value)
+                if key.lower() == "authorization":
+                    values.append(value.partition(" ")[2])
+
+        def disclosed(value):
+            quoted = json.dumps(value, ensure_ascii=False)
+            # Match short routing values as whole fields to avoid erasing
+            # unrelated evidence (e.g. a group identifier of "1").
+            return (quoted if len(value) < 8 else quoted[1:-1]) in line
+
+        if any(disclosed(value) for value in values if value):
+            summary = {
+                k: record[k]
+                for k in ("ts", "case_id", "kind", "request_number", "status")
+                if k in record
+            }
+            summary["evidence_withheld"] = "contains a configured header or query value"
+            line = json.dumps(summary, ensure_ascii=False)
     with open(path, "a", encoding="utf-8") as f:
         f.write(line + "\n")
         f.flush()
@@ -142,11 +175,11 @@ def parse_sse(text: str) -> tuple[list[dict], list[str]]:
                     done = True
                 else:
                     try:
-                        value_json = json.loads(value)
+                        value_json = _WIRE_JSON.decode(value)
                         if not isinstance(value_json, dict):
-                            raise ValueError("SSE data must be a JSON object")
+                            raise TypeError("SSE data must be a JSON object")
                         event["json"] = value_json
-                    except ValueError as exc:
+                    except (ValueError, TypeError) as exc:
                         errors.append(f"invalid SSE data: {exc}")
                 events.append(event)
             data, event_lines, event_type = [], [], "message"
@@ -231,15 +264,11 @@ class Response:
 
 
 def redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Request logs show which credential was sent, never the credential itself."""
-    redacted = {}
-    for key, value in headers.items():
-        if key.lower() == "authorization":
-            scheme, _, token = str(value).rpartition(" ")
-            shown = f"{token[:4]}…{token[-4:]}" if len(token) > 16 else "***"
-            value = f"{scheme} {shown}" if scheme else shown
-        redacted[key] = value
-    return redacted
+    """Keep protocol metadata. Any other header can contain a vendor credential."""
+    return {
+        key: value if key.lower() in _LOG_PUBLIC_HEADERS else "***"
+        for key, value in headers.items()
+    }
 
 
 class ChatClient:
@@ -313,13 +342,14 @@ class ChatClient:
                         result.errors.extend(parse_errors)
                     else:
                         try:
-                            result.body = json.loads(result.raw_text)
+                            result.body = _WIRE_JSON.decode(result.raw_text)
                         except ValueError as exc:
                             result.errors.append(f"invalid JSON response: {exc}")
             return result
         except Exception as exc:
             original_error = exc
-            error = f"{type(exc).__name__}: {exc}"
+            # A transport exception can include the URL, headers or query string.
+            error = type(exc).__name__
             raise
         finally:
             result.raw_base64 = base64.b64encode(wire).decode()
@@ -332,12 +362,16 @@ class ChatClient:
                 next((str(d["id"]) for d in result.documents if d.get("id")), ""),
             )
             record = {
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
                 "case_id": self.case_id,
                 "request_number": self.request_count,
                 "endpoint": self.settings.style,
                 "api_style": self.settings.style,
-                "url": self.settings.url,
+                "url": str(
+                    httpx.URL(self.settings.url).copy_with(
+                        userinfo=b"", query=None, fragment=None
+                    )
+                ),
                 "model": self.settings.model,
                 "stream": result.stream,
                 "elapsed_ms": round((time.monotonic() - started) * 1000),
@@ -348,11 +382,14 @@ class ChatClient:
                 "request_raw_base64": base64.b64encode(raw).decode()
                 if raw is not None
                 else None,
-                "response": asdict(result),
+                "response": {
+                    **asdict(result),
+                    "headers": redact_headers(result.headers),
+                },
                 "error": error,
             }
             try:
-                _write_log_line(record, self.log_path)
+                _write_log_line(record, self.log_path, settings=self.settings)
             except OSError as log_error:
                 if original_error is None:
                     raise
@@ -420,6 +457,8 @@ def assert_success(result: Response, *, nonempty=True, expected_choices=1):
     assert not result.errors, f"{result.errors}: {context}"
     for doc in result.documents:
         assert doc.get("error") is None, context
+        if doc.get("usage") is not None:
+            assert_usage(doc["usage"])
         if "base_resp" in doc:
             base = doc["base_resp"]
             assert isinstance(base, dict) and type(base.get("status_code")) is int, (
@@ -491,7 +530,9 @@ def assert_success(result: Response, *, nonempty=True, expected_choices=1):
                 assert choice["message"]["content"].strip(), (
                     f"empty assistant content in choice {choice['index']}: {context}"
                 )
-        assert_usage(result.usage)
+        assert result.usage is not None, (
+            f"non-stream response is missing usage: {context}"
+        )
     if result.stream:
         assert result.finish_reason in ("stop", "length"), context
         if nonempty:
@@ -539,14 +580,14 @@ def response_documents(result: Response) -> list[dict]:
         and not result.raw_text.lstrip().startswith(("{", "["))
     ):
         return []
-    decoder, text, index, documents = json.JSONDecoder(), result.raw_text, 0, []
+    text, index, documents = result.raw_text, 0, []
     while index < len(text):
-        while index < len(text) and text[index].isspace():
+        while index < len(text) and text[index] in " \t\r\n":
             index += 1
         if index >= len(text):
             break
         try:
-            document, index = decoder.raw_decode(text, index)
+            document, index = _WIRE_JSON.raw_decode(text, index)
         except ValueError as exc:
             raise AssertionError(
                 f"invalid JSON error response at offset {index}: {exc}"
@@ -707,7 +748,7 @@ def read_contract(path: str | None) -> dict:
         return {}
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError("contract file must be a JSON object")
+        raise ValueError("contract file must be a JSON object")  # noqa: TRY004 - invalid file content
     for key, rule in data.items():
         if (
             not isinstance(rule, dict)
@@ -751,9 +792,13 @@ def assert_contract(result: Response, rule: dict):
     if rule["outcome"] == "reject":
         assert_request_failed(result)
         return
-    if rule["outcome"] == "either" and assert_accepted_or_failed(
-        result, nonempty=rule.get("completion_limit") != 1
-    ) == "rejected":
+    if (
+        rule["outcome"] == "either"
+        and assert_accepted_or_failed(
+            result, nonempty=rule.get("completion_limit") != 1
+        )
+        == "rejected"
+    ):
         return
     assert_success(result, nonempty=rule.get("completion_limit") != 1)
     if result.usage is not None:
@@ -825,7 +870,9 @@ def sdk_request(client: ChatClient, messages: list[dict], *, stream=False) -> Re
     responses = []
 
     def forward(request: httpx.Request):
-        assert str(request.url) == client.settings.url, request.url
+        assert str(request.url) == client.settings.url, (
+            "SDK request URL differs from configured route"
+        )
         # Drop the SDK's automatic bearer header, then apply exactly the same
         # configured headers as direct HTTP (including custom Authorization).
         headers = httpx.Headers(request.headers)
@@ -908,7 +955,26 @@ def read_context_samples(path: str, model: str) -> dict:
     for kind in ("within", "over"):
         sample = data[kind]
         assert isinstance(sample["messages"], list) and sample["messages"]
-        assert type(sample["prompt_tokens"]) is int and sample["prompt_tokens"] > 0
+        assert all(
+            isinstance(item, dict)
+            and item.get("role")
+            in (
+                "system",
+                "user_system",
+                "group",
+                "sample_message_user",
+                "sample_message_ai",
+                "user",
+                "assistant",
+            )
+            and isinstance(item.get("content"), str)
+            and ("name" not in item or isinstance(item["name"], str))
+            for item in sample["messages"]
+        ), f"{kind} sample must contain valid text messages"
+        count = sample["prompt_tokens"]
+        assert type(count) is int and window - 384 <= count < window, (
+            f"{kind} measured input must be within 384 tokens of the window"
+        )
         assert (
             type(sample["max_completion_tokens"]) is int
             and 1 <= sample["max_completion_tokens"] <= 2048
@@ -916,6 +982,10 @@ def read_context_samples(path: str, model: str) -> dict:
         total = sample["prompt_tokens"] + sample["max_completion_tokens"]
         assert (total <= window) == (kind == "within"), (
             f"{kind} sample is on the wrong side of the boundary"
+        )
+    for key in ("messages", "prompt_tokens"):
+        assert data["within"][key] == data["over"][key], (
+            f"within and over must share identical {key}; only the output budget changes"
         )
     if "expected_marker" in data["within"]:
         assert (

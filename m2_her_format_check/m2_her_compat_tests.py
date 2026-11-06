@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from .exercises import continuation_messages, exercise_contract, sample_packet_stream
 from .helpers import (
     ChatClient,
     assert_contract,
@@ -13,7 +14,6 @@ from .helpers import (
     simple_messages,
 )
 from .scenarios import all_roles, sample_pairs
-from .exercises import exercise_contract, continuation_messages, sample_packet_stream
 
 pytestmark = pytest.mark.compat
 
@@ -38,6 +38,8 @@ class TestCompatibility:
         self, contract, client, variant, stream, preflight
     ):
         """Compare protocol/SDK paths using all seven roles and explicit expectations."""
+        if client.settings.style == "openai" and variant == "native_http":
+            pytest.skip("OpenAI-only configuration does not probe the native endpoint")
         rule = contract(f"15_01/{variant}/{'stream' if stream else 'non_stream'}")
         style = "native" if variant == "native_http" else "openai"
         alternate = ChatClient(
@@ -198,8 +200,14 @@ class TestCompatibility:
         result = client.request(request)
         assert_confirmed_contract(result, rule)
         if rule.get("usage_only_last") and not request_failed(result):
-            assert result.chunks[-1].get("usage") is not None
-            assert not any(d.get("usage") is not None for d in result.chunks[:-1])
+            usage_positions = [
+                i
+                for i, chunk in enumerate(result.chunks)
+                if chunk.get("usage") is not None
+            ]
+            assert usage_positions == [len(result.chunks) - 1], (
+                f"expected usage only in the final JSON event, found at {usage_positions}"
+            )
 
     @pytest.mark.parametrize(
         "parameter,value",

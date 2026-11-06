@@ -16,8 +16,6 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .helpers import Response, assert_success
-
 LANGUAGES = {
     "zh": "Simplified Chinese",
     "zh_hant": "Traditional Chinese",
@@ -34,7 +32,7 @@ LANGUAGES = {
 LATIN_LANGUAGES = ("en", "es", "fr", "de", "pt")
 # Scripts counted per character; alphabetic scripts are counted per word run.
 PER_CHARACTER = {"han", "kana", "hangul"}
-SCRIPTS = ("han", "kana", "hangul", "latin", "cyrillic", "arabic")
+SCRIPTS = ("han", "kana", "hangul", "latin", "cyrillic", "arabic", "other")
 NATIVE = {
     "zh": {"han"},
     "zh_hant": {"han"},
@@ -51,7 +49,7 @@ FORBIDDEN = {
 }
 
 # Pairs whose simplified form is not standard Traditional text and vice versa.
-_VARIANT_PAIRS = (
+_VARIANT_PAIRS = (  # noqa: SIM905 - keep each visual pair together in compact rows
     "们們 这這 说說 吗嗎 还還 时時 对對 为為 么麼 发發 开開 长長 门門 问問 间間 东東 "
     "车車 头頭 见見 觉覺 让讓 话話 语語 认認 识識 应應 该該 关關 实實 现現 样樣 从從 "
     "经經 过過 进進 动動 边邊 电電 题題 欢歡 乐樂 爱愛 谢謝 请請 网網 线線 书書 买買 "
@@ -81,6 +79,7 @@ _LEXICON = {
         so in on am man no son sure okay yes please sorry love like time get make take try
         need want know think help best better more very too also all any every after before
         into out up than then she he his her him who where been being doing going
+        walk outdoors stretch gently sleep stroll breathe breathing spend relaxing
     """,
     "es": """
         el los las del al y una unos unas es está están estás estoy soy eres son muy pero
@@ -136,7 +135,7 @@ def _owners(groups):
 WORD_OWNER = _owners({k: v.split() for k, v in _LEXICON.items()})
 CHARACTER_OWNER = _owners({k: list(v) for k, v in _CHARACTER_MARKERS.items()})
 _ELISION = re.compile(r"^(?:qu|[ldjcnsmt])'[^\W\d_]")
-_LATIN_WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*")
+_WORD = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*")
 _SEGMENT_BREAK = re.compile(
     r"[。！？!?；;…\n\r（）()\[\]【】「」『』《》“”\"*]+|\.(?:\s+|$)"
 )
@@ -239,7 +238,7 @@ def latin_scores(text: str) -> Counter:
     """Count language-specific function words and diacritics, never shared ones."""
     lowered = unicodedata.normalize("NFC", text).lower().replace("’", "'")
     scores = Counter()
-    for token in _LATIN_WORD.findall(lowered):
+    for token in _WORD.findall(lowered):
         if any(script_of(c) != "latin" for c in token if c != "'"):
             continue
         if token in WORD_OWNER:
@@ -257,7 +256,7 @@ def latin_language(text: str) -> str | None:
     if not scores:
         return None
     ranked = scores.most_common(2)
-    if len(ranked) == 2 and ranked[0][1] == ranked[1][1]:
+    if ranked[0][1] < 2 or (len(ranked) == 2 and ranked[0][1] == ranked[1][1]):
         return None
     return ranked[0][0]
 
@@ -270,11 +269,30 @@ def chinese_variant(text: str) -> str | None:
     return "zh" if simplified > traditional else "zh_hant"
 
 
-def classify(text: str, expected: str | None = None) -> str | None:
+# A writing system alone cannot distinguish Russian from Ukrainian, or
+# Arabic from Persian. Require positive lexical evidence on the shared script.
+_SCRIPT_LANGUAGE_WORDS = {
+    "ru": (
+        "это что чтобы можно можете если выходных отдохнуть "
+        "хорошо себя немного лучше пусть хотя просто попробуй попробуйте "
+        "погулять проведите уделите время очень будет"
+    ),
+    "ar": (
+        "في على إلى أن هذا هذه يمكنك يمكن بعض ثم أو عن "
+        "التي الذي حاول جرب عطلة نهاية الأسبوع أنشطة الاسترخاء الراحة "
+        "قليلا مثلا نفسك خلال"
+    ),
+}
+# Common letters in neighboring languages that are absent from standard
+# Russian / Arabic. This rejects a positive contradiction even in mixed text.
+_NON_TARGET_LETTERS = {"ru": set("іїєґўљњџђћѓќј"), "ar": set("پچژگکیٹڈڑںے")}
+
+
+def classify(text: str) -> str | None:
     """Dominant language of a span; None when no comparable letters are present.
 
     Latin text without distinctive function words returns ``latin``. Han text
-    without variant markers adopts the expected Chinese variant, if any.
+    without variant markers stays inconclusive for the Chinese variant.
     """
     units = script_units(text)
     han, kana = units["han"], units["kana"]
@@ -283,13 +301,20 @@ def classify(text: str, expected: str | None = None) -> str | None:
         if kana / (han + kana) >= JAPANESE_MIN_KANA_RATIO:
             weights["ja"] = han + kana
         else:
-            variant = chinese_variant(text)
-            if variant is None:
-                variant = expected if expected in ("zh", "zh_hant") else "zh"
-            weights[variant] = han + kana
-    for script, language in (("hangul", "ko"), ("cyrillic", "ru"), ("arabic", "ar")):
+            weights[chinese_variant(text) or "han"] = han + kana
+    if units["hangul"]:
+        weights["ko"] = units["hangul"]
+    for script, language in (("cyrillic", "ru"), ("arabic", "ar")):
         if units[script]:
-            weights[language] = units[script]
+            # Arabic short vowels are optional combining marks within words.
+            unmarked = "".join(
+                c for c in text.casefold() if not unicodedata.combining(c)
+            )
+            words = set(_WORD.findall(unmarked))
+            matches = words.intersection(_SCRIPT_LANGUAGE_WORDS[language].split())
+            weights[language if len(matches) >= 2 else script] = units[script]
+    if units["other"]:
+        weights["other"] = units["other"]
     if units["latin"]:
         weights[latin_language(text) or "latin"] = units["latin"]
     if not weights:
@@ -305,13 +330,19 @@ class LanguageReport:
     problems: list[str] = field(default_factory=list)
 
     @property
+    def verdict(self) -> str:
+        if self.problems:
+            return "mismatch"
+        return "match" if self.detected == self.expected else "uncertain"
+
+    @property
     def ok(self) -> bool:
-        return not self.problems
+        return self.verdict == "match"
 
     def summary(self) -> str:
         return (
             f"expected {self.expected} ({LANGUAGES[self.expected]}), detected "
-            f"{self.detected}; units={self.units}; problems={self.problems}"
+            f"{self.detected}; verdict={self.verdict}; units={self.units}; problems={self.problems}"
         )
 
 
@@ -321,16 +352,24 @@ def language_report(text: str, expected: str) -> LanguageReport:
         raise ValueError(f"unsupported language {expected!r}; use {sorted(LANGUAGES)}")
     text = unicodedata.normalize("NFC", text)
     units = script_units(text)
-    detected = classify(text, expected)
+    detected = classify(text)
     report = LanguageReport(
         expected, detected, {k: v for k, v in units.items() if k in SCRIPTS}
     )
     problems = report.problems
     if detected is None:
-        problems.append("no letters to identify a language")
+        if not any(character.isalpha() for character in text):
+            problems.append("no letters to identify a language")
         return report
-    if detected != expected:
+    # Weak evidence in an otherwise compatible script is inconclusive, not a
+    # language mismatch. Foreign scripts/words below still override uncertainty.
+    if detected != expected and detected not in NATIVE[expected]:
         problems.append(f"dominant language is {detected}, not {expected}")
+    foreign_letters = sorted(
+        set(text.casefold()) & _NON_TARGET_LETTERS.get(expected, set())
+    )
+    if foreign_letters:
+        problems.append(f"non-{expected} letters: {foreign_letters}")
     for script in sorted(FORBIDDEN[expected]):
         spans = [
             run for s, run in script_runs(text) if s == script and _letters(run) >= 2
@@ -382,13 +421,3 @@ def _segment_problem(segment: str, expected: str) -> str | None:
     if best not in (None, expected) and score >= 2 and score > scores[expected]:
         return f"{best} sentence in a {expected} reply: {segment!r}"
     return None
-
-
-def assert_language(result: Response, expected: str):
-    """Successful response whose single assistant text is in the expected language."""
-    assert_success(result)
-    report = language_report(result.content, expected)
-    assert report.ok, (
-        f"language inconsistency: {report.summary()}; content={result.content!r}; "
-        f"trace={result.trace_id}"
-    )

@@ -24,19 +24,19 @@
     "outcome": "success"
   },
   "15_01/openai_http/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
+    "source": "PR #90 reports a passing OpenAI-configuration run (51 items before native-path exclusion). This variant sends the seven-role input to /v1/chat/completions via direct HTTP. See https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/pull/90.",
     "outcome": "success"
   },
   "15_01/openai_http/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
+    "source": "PR #90 reports a passing OpenAI-configuration run (51 items before native-path exclusion). This variant sends the seven-role input to /v1/chat/completions via direct HTTP. See https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/pull/90.",
     "outcome": "success"
   },
   "15_01/openai_sdk/non_stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
+    "source": "PR #90 reports a passing OpenAI-configuration run (51 items before native-path exclusion). This variant sends the seven-role input to /v1/chat/completions via the official OpenAI Python SDK. See https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/pull/90.",
     "outcome": "success"
   },
   "15_01/openai_sdk/stream": {
-    "source": "Observed on the official MiniMax native endpoint (/v1/text/chatcompletion_v2, model M2-her) on 2026-11-05 and repeated across reruns. Expected values follow the live API, not the public docs; override with --contract. See README.md.",
+    "source": "PR #90 reports a passing OpenAI-configuration run (51 items before native-path exclusion). This variant sends the seven-role input to /v1/chat/completions via the official OpenAI Python SDK. See https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/pull/90.",
     "outcome": "success"
   },
   "15_02/legacy_only": {
