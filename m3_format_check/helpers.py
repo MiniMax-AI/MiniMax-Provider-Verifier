@@ -16,6 +16,8 @@ from typing import Optional
 
 import httpx
 
+from stream_protocol import inspect_stream_tool_calls
+
 BASE_URL = os.environ.get("M3_BASE_URL")
 API_KEY = os.environ.get("M3_API_KEY")
 AUTH_TYPE = os.environ.get("M3_AUTH_TYPE", "bearer").strip().lower()
@@ -839,7 +841,7 @@ def assert_oai_stream_success(result):
     so all stream cases benefit automatically (no need to add it case by case).
     If a case intentionally needs "no finish_reason" (very rare extreme tests), use the bare status==200 check instead.
     """
-    assert result["status"] == 200, f"Expected 200, got {result['status']}"
+    assert result["status"] == 200, f"Expected 200, got {result['status']}: {str(result.get('body'))[:300]}"
     assert result.get("stream")
     assert len(result["chunks"]) > 0
     assert_stream_complete(result, msg="assert_oai_stream_success")
@@ -916,6 +918,375 @@ def assert_stream_usage_only_in_last_chunk(result, msg: str = ""):
             f"{msg}: final-chunk usage.{k} should be a positive int, got {v!r}. "
             f"usage={last_usage!r}"
         )
+
+
+# --------------- Strict response contracts ---------------
+# The assert_oai_* helpers above only gate whether a case can be evaluated. The strict
+# helpers below check the full OpenAI response contract on one response and report every
+# violation together; they are called by the cases that exist to verify the format.
+
+FINISH_REASONS = ("stop", "length", "tool_calls", "content_filter")
+
+
+def _int_not_bool(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _ctype(result: dict) -> str:
+    return next((str(v) for k, v in (result.get("response_headers") or {}).items()
+                 if str(k).lower() == "content-type"), "")
+
+
+def stream_data_chunks(result):
+    """JSON data chunks of a stream, without the [DONE] / event / raw sentinels added by oai_chat."""
+    return [
+        c for c in result.get("chunks") or []
+        if isinstance(c, dict) and not (c.get("_done") or "_event" in c or "_raw" in c)
+    ]
+
+
+def stream_finish_reasons(result) -> dict:
+    """{choice_index: finish_reason} of a stream."""
+    out = {}
+    for chunk in stream_data_chunks(result):
+        for choice in chunk.get("choices") or []:
+            if isinstance(choice, dict) and choice.get("finish_reason") is not None:
+                out[choice.get("index", 0)] = choice["finish_reason"]
+    return out
+
+
+def _usage_failures(usage, where: str) -> list:
+    """Token counts are non-negative ints, prompt and completion tokens are positive,
+    total = prompt + completion, and cached / reasoning token details, when present,
+    stay within prompt / completion tokens."""
+    if not isinstance(usage, dict):
+        return [f"{where}: usage should be an object, got {usage!r}"]
+    failures = [
+        f"{where}: usage.{k} should be a non-negative int, got {usage.get(k)!r}"
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens")
+        if not (_int_not_bool(usage.get(k)) and usage[k] >= 0)
+    ]
+    if failures:
+        return failures
+    if usage["total_tokens"] != usage["prompt_tokens"] + usage["completion_tokens"]:
+        failures.append(f"{where}: total_tokens != prompt_tokens + completion_tokens: {usage!r}")
+    for k in ("prompt_tokens", "completion_tokens"):
+        if usage[k] == 0:
+            failures.append(f"{where}: usage.{k} should be positive, got 0")
+    cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+    if cached is not None and not (_int_not_bool(cached) and 0 <= cached <= usage["prompt_tokens"]):
+        failures.append(f"{where}: cached_tokens should be an int within prompt_tokens, got {cached!r}")
+    reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    if reasoning is not None and not (_int_not_bool(reasoning) and 0 <= reasoning <= usage["completion_tokens"]):
+        failures.append(f"{where}: reasoning_tokens should be an int within completion_tokens, got {reasoning!r}")
+    return failures
+
+
+def _report(failures: list, msg: str, what: str):
+    assert not failures, f"{msg}: {what} violations:\n  - " + "\n  - ".join(failures)
+
+
+def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = False):
+    """Full SSE contract of one stream; every violation is reported together.
+
+    Frames: text/event-stream, JSON data frames only, exactly one [DONE] as the last frame,
+    no error object, one id / model per stream, integer created and object=chat.completion.chunk.
+    First chunk of a choice: role=assistant, finish_reason null, no text.
+    Deltas: content / reasoning_content are strings or null.
+    Tool calls: indexes and ids pass inspect_stream_tool_calls, the first fragment of each
+    call carries id, type=function and name, and the joined arguments parse as a JSON object.
+    Finish: exactly one finish chunk per choice with a known finish_reason (equal to
+    `finish` when given), and nothing after it for that choice; a stop finish has
+    non-empty joined content.
+    Usage (usage=True, for requests with include_usage=true): exactly one usage object,
+    in the last JSON chunk, with choices=[] and valid token counts (see _usage_failures).
+    """
+    assert_oai_stream_success(result)
+    failures = []
+    content_type = _ctype(result)
+    if not content_type.lower().startswith("text/event-stream"):
+        failures.append(f"Content-Type should be text/event-stream, got {content_type!r}")
+    frames = [c for c in result.get("chunks") or [] if "_event" not in c]
+    raw = [c["_raw"] for c in frames if "_raw" in c]
+    if raw:
+        failures.append(f"non-JSON data frames: {raw[:2]}")
+    done_at = [i for i, c in enumerate(frames) if c.get("_done")]
+    if done_at != [len(frames) - 1]:
+        failures.append(f"[DONE] should be the single last frame, found at {done_at} of {len(frames)} frames")
+
+    data = stream_data_chunks(result)
+    errors = [c for c in data if "error" in c]
+    if errors:
+        failures.append(f"error object inside the stream: {str(errors[0])[:200]}")
+    ids = {c.get("id") for c in data}
+    if len(ids) != 1 or not all(isinstance(i, str) and i for i in ids):
+        failures.append(f"id should be one non-empty string, got {ids}")
+    created = {c.get("created") for c in data}
+    if not all(_int_not_bool(x) for x in created):
+        failures.append(f"created should be an integer, got {created}")
+    models = {c.get("model") for c in data}
+    if len(models) != 1 or not all(isinstance(m, str) and m for m in models):
+        failures.append(f"model should be one non-empty string, got {models}")
+    objects = {c.get("object") for c in data}
+    if objects != {"chat.completion.chunk"}:
+        failures.append(f"object should be chat.completion.chunk, got {objects}")
+
+    opened, finished = set(), {}
+    for n, chunk in enumerate(data):
+        choices = chunk.get("choices")
+        if not isinstance(choices, list):
+            failures.append(f"chunk {n}: choices should be a list, got {choices!r}")
+            continue
+        for choice in choices:
+            i = choice.get("index", 0)
+            delta = choice.get("delta") or {}
+            reason = choice.get("finish_reason")
+            if i in finished:
+                failures.append(f"chunk {n}: choice {i} continues after its finish chunk: {choice}")
+                continue
+            if i not in opened:
+                opened.add(i)
+                if delta.get("role") != "assistant":
+                    failures.append(f"chunk {n}: first delta of choice {i} should have role=assistant: {delta}")
+                if reason is not None:
+                    failures.append(f"chunk {n}: first chunk of choice {i} already has finish_reason={reason!r}")
+                if delta.get("content"):
+                    failures.append(f"chunk {n}: first delta of choice {i} carries text: {delta}")
+            for key in ("content", "reasoning_content"):
+                if delta.get(key) is not None and not isinstance(delta[key], str):
+                    failures.append(f"chunk {n}: delta.{key} should be a string or null: {delta}")
+            if reason is not None:
+                finished[i] = reason
+                if reason not in FINISH_REASONS:
+                    failures.append(f"chunk {n}: unknown finish_reason {reason!r}")
+    if set(finished) != opened:
+        failures.append(f"every choice needs a finish chunk: opened={sorted(opened)} finished={finished}")
+    if finish is not None and finished.get(0) != finish:
+        failures.append(f"finish_reason should be {finish!r}, got {finished.get(0)!r}")
+    if finished.get(0) == "stop" and not get_oai_content(result).strip():
+        failures.append("finish_reason=stop but the joined content is empty")
+
+    for error in inspect_stream_tool_calls(data).errors:
+        failures.append(f"tool_calls {error['code']}: {json.dumps(error, ensure_ascii=False)}")
+    first_fragments = set()
+    for n, chunk in enumerate(data):
+        for choice in chunk.get("choices") or []:
+            for tc in (choice.get("delta") or {}).get("tool_calls") or []:
+                key = (choice.get("index", 0), tc.get("index"))
+                if key in first_fragments:
+                    continue
+                first_fragments.add(key)
+                if not (tc.get("id") and tc.get("type") == "function" and (tc.get("function") or {}).get("name")):
+                    failures.append(f"chunk {n}: first fragment of tool call {key} should carry id, "
+                                    f"type=function and name: {tc}")
+    for call in get_tool_calls(result):
+        if call["arguments_obj"] is None:
+            failures.append(f"tool call {call['name']!r} arguments are not a JSON object: {call['arguments_raw'][:200]!r}")
+
+    if usage:
+        usage_at = [n for n, c in enumerate(data) if isinstance(c.get("usage"), dict)]
+        if len(usage_at) != 1:
+            failures.append(f"exactly one usage object expected, found at chunks {usage_at}")
+        elif usage_at[0] != len(data) - 1:
+            failures.append(f"usage should be in the last JSON chunk, found at {usage_at[0]} of {len(data)}")
+        else:
+            if data[-1].get("choices") != []:
+                failures.append(f"usage chunk should have choices=[], got {data[-1].get('choices')!r}")
+            failures += _usage_failures(data[-1]["usage"], "usage chunk")
+    _report(failures, msg, "SSE contract")
+
+
+def assert_chat_completion_strict(result, msg: str = "", finish=None):
+    """Full ChatCompletion contract of one non-stream response; every violation is reported together.
+
+    A single JSON object (not SSE) with id / object=chat.completion / created / model,
+    choices with distinct integer indexes, an assistant message that always carries the
+    content key (string or null), refusal string or null, a known finish_reason (equal to
+    `finish` when given), tool_calls absent or a non-empty list whose items have exactly
+    id / type=function / function{name, arguments:string} with distinct ids, and usage
+    with consistent totals.
+    """
+    assert_oai_success(result)
+    failures = []
+    content_type = _ctype(result).lower()
+    if not content_type.startswith("application/json"):
+        failures.append(f"Content-Type should be application/json, got {content_type!r}")
+    body = result["body"]
+    if not isinstance(body.get("id"), str) or not body["id"]:
+        failures.append(f"id should be a non-empty string, got {body.get('id')!r}")
+    if body.get("object") != "chat.completion":
+        failures.append(f"object should be chat.completion, got {body.get('object')!r}")
+    if not _int_not_bool(body.get("created")):
+        failures.append(f"created should be an integer, got {body.get('created')!r}")
+    if not isinstance(body.get("model"), str) or not body["model"]:
+        failures.append(f"model should be a non-empty string, got {body.get('model')!r}")
+    indexes = [c.get("index") for c in body["choices"]]
+    if not all(_int_not_bool(i) for i in indexes) or len(set(indexes)) != len(indexes):
+        failures.append(f"choice indexes should be distinct integers, got {indexes}")
+    for c in body["choices"]:
+        i = c.get("index")
+        message = c.get("message")
+        if not isinstance(message, dict):
+            failures.append(f"choice {i}: message should be an object, got {message!r}")
+            continue
+        if message.get("role") != "assistant":
+            failures.append(f"choice {i}: role should be assistant, got {message.get('role')!r}")
+        if "content" not in message:
+            failures.append(f"choice {i}: message.content key is missing")
+        elif message["content"] is not None and not isinstance(message["content"], str):
+            failures.append(f"choice {i}: content should be a string or null, got {message['content']!r}")
+        if message.get("refusal") is not None and not isinstance(message["refusal"], str):
+            failures.append(f"choice {i}: refusal should be a string or null, got {message['refusal']!r}")
+        reason = c.get("finish_reason")
+        if reason not in FINISH_REASONS:
+            failures.append(f"choice {i}: unknown finish_reason {reason!r}")
+        tool_calls = message.get("tool_calls")
+        if reason == "tool_calls" and not tool_calls:
+            failures.append(f"choice {i}: finish_reason=tool_calls without tool_calls")
+        if tool_calls is not None:
+            if not isinstance(tool_calls, list) or not tool_calls:
+                failures.append(f"choice {i}: tool_calls should be absent/null or a non-empty list, got {tool_calls!r}")
+                tool_calls = []
+            call_ids = []
+            for k, tc in enumerate(tool_calls):
+                fn = tc.get("function") if isinstance(tc, dict) else None
+                if not isinstance(tc, dict) or set(tc) != {"id", "type", "function"}:
+                    failures.append(f"choice {i}: tool_calls[{k}] should have exactly id/type/function: {tc!r}")
+                if not isinstance(fn, dict) or set(fn) != {"name", "arguments"}:
+                    failures.append(f"choice {i}: tool_calls[{k}].function should have exactly name/arguments: {fn!r}")
+                    continue
+                if not isinstance(tc.get("id"), str) or not tc["id"]:
+                    failures.append(f"choice {i}: tool_calls[{k}].id should be a non-empty string")
+                call_ids.append(tc.get("id"))
+                if tc.get("type") != "function":
+                    failures.append(f"choice {i}: tool_calls[{k}].type should be function, got {tc.get('type')!r}")
+                if not isinstance(fn.get("name"), str) or not fn["name"]:
+                    failures.append(f"choice {i}: tool_calls[{k}].function.name should be a non-empty string")
+                if not isinstance(fn.get("arguments"), str):
+                    failures.append(f"choice {i}: tool_calls[{k}].function.arguments should be a string")
+            if len(set(call_ids)) != len(call_ids):
+                failures.append(f"choice {i}: tool_call ids should be distinct, got {call_ids}")
+    if finish is not None and body["choices"][0].get("finish_reason") != finish:
+        failures.append(f"finish_reason should be {finish!r}, got {body['choices'][0].get('finish_reason')!r}")
+    failures += _usage_failures(body.get("usage"), "body")
+    _report(failures, msg, "ChatCompletion contract")
+
+
+def assert_error_response_strict(result, msg: str = ""):
+    """Full error-response contract: HTTP 400 with a JSON (not SSE) body that carries an
+    error object (message string; type string or null; code string, int or null) and no
+    completion; every violation is reported together."""
+    assert_error(result, 400)
+    failures = []
+    content_type = _ctype(result).lower()
+    if not content_type.startswith("application/json"):
+        failures.append(f"Content-Type should be application/json, got {content_type!r}")
+    body = result.get("body")
+    if not isinstance(body, dict) or "_raw" in body:
+        failures.append(f"body should be a JSON object, got {str(body)[:200]!r}")
+    else:
+        if "choices" in body:
+            failures.append("error body should not carry choices")
+        err = body.get("error")
+        if not isinstance(err, dict):
+            failures.append(f"error should be an object, got {err!r}")
+        else:
+            if not isinstance(err.get("message"), str) or not err["message"]:
+                failures.append(f"error.message should be a non-empty string, got {err.get('message')!r}")
+            if err.get("type") is not None and not isinstance(err["type"], str):
+                failures.append(f"error.type should be a string or null, got {err['type']!r}")
+            if err.get("code") is not None and not isinstance(err["code"], (str, int)):
+                failures.append(f"error.code should be a string, int or null, got {err['code']!r}")
+    _report(failures, msg, "error response contract")
+
+
+
+# --------------- Request-field contract (single-field request variants) ---------------
+# A request-field case changes one field of a minimal valid request and sends it as is
+# (oai_chat_verbatim: no injected output budget, no rewritten `stream`), so omitted,
+# explicit-null and mistyped fields reach the wire exactly as authored.
+
+CONTRACT_PROMPT = "Explain caching in one sentence."
+
+
+def oai_chat_verbatim(payload, timeout=300):
+    """POST the payload exactly as given (only `model` is filled in) and read the whole body.
+
+    oai_chat always overwrites `stream`, so it cannot put `stream: null`, an omitted
+    `stream`, or a mistyped value on the wire. Returns the same shape as a non-stream
+    oai_chat call, plus the undecoded response `text`.
+    """
+    payload = {"model": MODEL, **payload}
+    started = time.time()
+    resp = httpx.post(
+        OAI_URL, content=json.dumps(payload).encode("utf-8"), headers=OAI_HEADERS, timeout=timeout,
+    )
+    try:
+        body = resp.json()
+    except Exception:
+        body = {"_raw": resp.text}
+    response_headers = dict(resp.headers)
+    trace_id = _extract_trace_id(response_headers, body, None)
+    try:
+        _write_log_line({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "case_id": _current_case_id(),
+            "endpoint": "oai",
+            "url": OAI_URL,
+            "stream": payload.get("stream", "<omitted>"),
+            "elapsed_ms": int((time.time() - started) * 1000),
+            "status": resp.status_code,
+            "trace_id": trace_id,
+            "request": payload,
+            "response": body,
+            "chunks": None,
+            "response_headers": response_headers,
+        })
+    except Exception:
+        # Logging must never mask a real test failure.
+        pass
+    return {
+        "status": resp.status_code,
+        "body": body,
+        "text": resp.text,
+        "stream": False,
+        "response_headers": response_headers,
+        "trace_id": trace_id,
+    }
+
+
+def contract_request(**fields):
+    """A minimal valid request plus the given top-level fields (model is filled in on send)."""
+    return {"messages": [{"role": "user", "content": CONTRACT_PROMPT}], **fields}
+
+
+def assert_request_accepted(payload, msg: str = "", timeout=300):
+    """A valid request shape must be accepted with a normal ChatCompletion."""
+    result = oai_chat_verbatim(payload, timeout=timeout)
+    assert result["status"] == 200, f"{msg}: expected 200, got {result['status']}: {str(result.get('body'))[:300]}"
+    assert_oai_success(result)
+    return result
+
+
+def assert_request_rejected(payload, msg: str = ""):
+    """An invalid request shape must be rejected with HTTP 400, not silently accepted."""
+    result = oai_chat_verbatim(payload)
+    assert result["status"] == 400, (
+        f"{msg}: expected 400 (200 = invalid request silently accepted), got {result['status']}: "
+        f"{str(result.get('body'))[:300]}"
+    )
+    return result
+
+
+def oai_chat_raw_sse_lines(payload, timeout=TIMEOUT):
+    """Send a streaming request and return (status, raw SSE lines) without parsing frames."""
+    payload.setdefault("model", MODEL)
+    if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
+        payload["max_tokens"] = DEFAULT_MAX_TOKENS
+    payload["stream"] = True
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", OAI_URL, json=payload, headers=OAI_HEADERS) as resp:
+            return resp.status_code, list(resp.iter_lines())
 
 
 def assert_error(result, expected_status):
@@ -1383,3 +1754,121 @@ def long_system_text(tokens_approx=10000):
 def generate_50k_string():
     """Generate ~50K character string for tool result edge tests."""
     return "A" * 50000
+
+
+# --------------- Tool-call contract helpers (OAI Chat Completions) ---------------
+# Tool declarations, history builders and argument checks shared by the tool-call cases.
+
+try:  # jsonschema is declared in requirements; fall back to the in-house subset if absent
+    import jsonschema as _jsonschema
+except ImportError:  # pragma: no cover
+    _jsonschema = None
+
+ECHO_TOOL_OAI = {
+    "type": "function",
+    "function": {
+        "name": "echo",
+        "description": "返回输入文本",
+        "parameters": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+GET_TIME_TOOL_OAI = {
+    "type": "function",
+    "function": {
+        "name": "get_time",
+        "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+    },
+}
+
+ECHO_PROMPT = "请调用echo，text=hello。"
+ECHO_ARGS = '{"text":"hello"}'
+
+
+def tool_fn(name, parameters=None, description=None, strict=None, **extra):
+    """Build a {"type":"function","function":{...}} declaration; None-valued keys are omitted."""
+    fn = {"name": name}
+    if description is not None:
+        fn["description"] = description
+    if parameters is not None:
+        fn["parameters"] = parameters
+    if strict is not None:
+        fn["strict"] = strict
+    fn.update(extra)
+    return {"type": "function", "function": fn}
+
+
+def strict_tool(parameters, name="f", description="按 schema 传参"):
+    return tool_fn(name, parameters=parameters, description=description, strict=True)
+
+
+def named_choice(name):
+    return {"type": "function", "function": {"name": name}}
+
+
+def echo_history(tool_content="hello", assistant_content=None, omit_content=False, call_id="call_1"):
+    """user → assistant(tool_calls=[echo]) → tool reply. assistant.content is None unless given;
+    omit_content=True drops the key entirely."""
+    assistant = {"role": "assistant", "tool_calls": [
+        {"id": call_id, "type": "function", "function": {"name": "echo", "arguments": ECHO_ARGS}}
+    ]}
+    if not omit_content:
+        assistant["content"] = assistant_content
+    return [
+        {"role": "user", "content": ECHO_PROMPT},
+        assistant,
+        {"role": "tool", "tool_call_id": call_id, "content": tool_content},
+    ]
+
+
+def message_tool_calls(result: dict, choice: int = 0) -> list:
+    """Raw message.tool_calls (non-stream) of one choice; [] when absent/null."""
+    choices = (result.get("body") or {}).get("choices") or []
+    if len(choices) <= choice:
+        return []
+    return (choices[choice].get("message") or {}).get("tool_calls") or []
+
+
+def validate_json_schema(instance, schema: dict, msg: str = ""):
+    """Full JSON Schema validation (Draft 2020-12, with format checks for the formats the
+    installed jsonschema supports). Falls back to the in-house subset validator."""
+    if _jsonschema is None:
+        _validate_schema(instance, schema, "args", msg)
+        return
+    cls = _jsonschema.validators.validator_for(schema, default=_jsonschema.Draft202012Validator)
+    validator = cls(schema, format_checker=cls.FORMAT_CHECKER)
+    errors = sorted(validator.iter_errors(instance), key=lambda e: list(e.path))
+    assert not errors, (
+        f"{msg}: arguments violate schema: "
+        + "; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors[:5])
+        + f"\n  arguments={json.dumps(instance, ensure_ascii=False)[:400]}"
+    )
+
+
+def parse_arguments(raw, msg: str = "") -> dict:
+    """function.arguments must be a JSON string that parses to an object."""
+    assert isinstance(raw, str), f"{msg}: function.arguments should be a JSON string, got {type(raw).__name__}={raw!r}"
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise AssertionError(f"{msg}: function.arguments is not valid JSON ({e}): {raw[:300]!r}")
+    assert isinstance(obj, dict), f"{msg}: function.arguments should parse to an object, got {raw[:200]!r}"
+    return obj
+
+
+def assert_text_reply(result: dict, msg: str = "", finishes=("stop",)):
+    """A text answer: no tool call, finish_reason in `finishes`, and non-empty content when it
+    stops normally. Works for stream and non-stream results."""
+    assert_no_tool_called(result, msg=msg)
+    if result.get("stream"):
+        reason = stream_finish_reasons(result).get(0)
+    else:
+        reason = result["body"]["choices"][0].get("finish_reason")
+    assert reason in finishes, f"{msg}: finish_reason should be in {finishes}, got {reason!r}"
+    if reason == "stop":
+        assert get_oai_content(result).strip(), f"{msg}: content is empty"
