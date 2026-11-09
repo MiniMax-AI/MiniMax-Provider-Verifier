@@ -1,6 +1,8 @@
 # M3 图片模态格式校验 case 清单
 
 > 对应文件:`data/m3_api_test/m3_image_tests.py`
+> 模块 14 只适用于 `m3_format_check/m3_1_flash_image_test.py`。
+> 场景说明以 `M3.1-Flash:` 开头的行对应 `m3_format_check/m3_1_flash_image_test.py`。
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
 > 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**109**
 
@@ -21,6 +23,7 @@
 | 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
+| 14 | image_usage | 图片 token 计入 prompt_tokens(仅 M3.1-Flash) | 1 | 1 |
 | | **合计** | | **64** | **109** |
 
 ---
@@ -54,6 +57,7 @@
 | 03_07 | `test_03_07_multi_image_descriptions` | 2 张真图分别描述 | HTTP 200 + content > 50 字符 |
 | 03_08 | `test_03_08_real_resolution_gradient[sx1\|zn6]` | 真图分辨率梯度(sx1 中分辨率 / zn6 高分辨率) | HTTP 200 + content 非空 |
 | 03_09 | `test_03_09_multi_image_count_gradient[5\|10\|20]` | 多图数量梯度 1×1 PNG × {5, 10, 20} | ≤10 必 200;=20 允许 200/4xx |
+| 03_10 | `test_03_10_image_part_composition[image_only\|text_image_text\|url_and_data_url\|same_image_twice\|per_image_detail]` | M3.1-Flash: 只有图片、文-图-文交错、URL 与 data URL 混合、同图两次、每张图各自 detail | `assert_oai_success` |
 
 ## 04 system_multimodal — system 消息含图
 
@@ -100,6 +104,8 @@
 | 09_03 | `test_09_03_corrupted_base64[non_stream\|stream]` | 损坏的 base64 图(随机字节) | HTTP 400 |
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch:PNG 字节标 image/jpeg | HTTP 200(网关宽容) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | 同图 detail=low / high 两次 | HTTP 200 + content > 5 |
+| 09_06 | `test_09_06_detail_auto_and_null[detail=auto\|detail=null]` | M3.1-Flash: detail=auto;detail 显式 null 按省略处理 | `assert_oai_success` |
+| 09_08 | `test_09_08_invalid_image_part[url_missing\|url_not_string]` | M3.1-Flash: image_url 缺 url / url 非字符串 | HTTP 400 |
 
 ## 10 resolution_tier — 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比
 
@@ -114,6 +120,7 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG(>2016 长边,触发缩放) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG(>2016 长边)边界 smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | 不传 detail / 显式 detail="default" 两次对比 | 两次都 HTTP 200 |
+| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: 省略 detail | 原有校验 + `assert_oai_success` |
 | 10_08 | `test_10_08_max_total_pixels_exceeded` | zn6.jpg 真图 4284×5712 = 24.5M 像素(> 12,845,056 上限,规则 c) | 200(自动缩放且答案含 fish/aquarium/water 等真图关键词、prompt_tokens>0)或 400/413/422(拒绝) |
 | 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056(=上限,规则 c 边界) | HTTP 200 + prompt_tokens > 0(=上限应接受) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500(宽高比 8:1)接受性 | HTTP 200 + prompt_tokens > 0 |
@@ -158,3 +165,9 @@ spec 1.3.6:"每条请求最多支持 200 张图片"。at_max 取 200(spec 上限
 | 13_02 | `test_13_02_base64_no_padding` | base64 去掉 `=` padding | HTTP ≠ 500(允许 200/400) |
 | 13_03 | `test_13_03_mime_uppercase` | MIME 大写 `data:image/PNG;base64,...` | HTTP 200(MIME 大小写不敏感) |
 | 13_04 | `test_13_04_data_uri_extra_params` | `data:image/jpeg;charset=utf-8;base64,...` | HTTP 200 / 400 / 422 |
+
+## 14 image_usage — 图片 token 计费
+
+| Case ID | 函数名 | 场景说明 | 主要校验点 |
+|:---:|:---|:---|:---|
+| 14_01 | `test_14_01_image_counted_in_prompt_tokens` | 同一问题分别不带图和带 512×512 PNG(`detail="high"`) | 带图的 `prompt_tokens` 更大;返回 `image_tokens` 时不超过 `prompt_tokens` |

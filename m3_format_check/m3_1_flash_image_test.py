@@ -1,7 +1,7 @@
 """
 M3_1_Flash API Test — image modality format validation case suite
 
-Organized into 13 modules by what they validate:
+Organized into 14 modules by what they validate:
   01 base64_image          — base64 image basic acceptance
   02 url_image             — URL image acceptance / public-URL image SDK compatibility
   03 multi_image           — multi-image stacking / multi-image recognition / multi-image description
@@ -15,6 +15,7 @@ Organized into 13 modules by what they validate:
   11 image_size_limit      — single-image size limit (10MB / 30MB / 65MB request-body limit / size gradient)
   12 image_count_limit     — multi-image count upper bound (spec 1.3.6: 200 images per request, URL form)
   13 base64_compat         — base64 edge-case tolerance (linebreaks / no padding / uppercase MIME / extra data URI params)
+  14 image_usage           — image tokens counted in prompt_tokens
 
 Naming convention: `test_<2-digit module id>_<2-digit in-module order>_<scenario description>`
 
@@ -409,6 +410,29 @@ class TestImageMulti:
             )
 
 
+    @pytest.mark.parametrize("parts", [
+        lambda: [{"type": "image_url", "image_url": {"url": png_base64()}}],
+        lambda: [{"type": "text", "text": "Look at this image first."},
+                 {"type": "image_url", "image_url": {"url": png_base64()}},
+                 {"type": "text", "text": "Describe the main color in one sentence."}],
+        lambda: [{"type": "image_url", "image_url": {"url": size_fixture_url("image_9mb.png")}},
+                 {"type": "image_url", "image_url": {"url": png_base64()}},
+                 {"type": "text", "text": "Compare the two images."}],
+        lambda: [{"type": "image_url", "image_url": {"url": png_base64()}},
+                 {"type": "image_url", "image_url": {"url": png_base64()}},
+                 {"type": "text", "text": "Describe both images."}],
+        lambda: [{"type": "image_url", "image_url": {"url": png_base64(), "detail": "low"}},
+                 {"type": "image_url", "image_url": {
+                     "url": "data:image/png;base64," + base64.b64encode(make_png_672(40, 40, 220)).decode(),
+                     "detail": "high"}},
+                 {"type": "text", "text": "Compare the two images."}],
+    ], ids=["image_only", "text_image_text", "url_and_data_url", "same_image_twice", "per_image_detail"])
+    def test_03_10_image_part_composition(self, parts):
+        """03_10 — Legal image part layouts are accepted: an image without text, text-image-text
+        interleaving, an HTTPS URL next to a data URL, the same image twice, and detail set per image."""
+        assert_request_accepted({"messages": [{"role": "user", "content": parts()}]}, msg="03_10")
+
+
 # ============================================================
 # 04 system_multimodal — system message containing an image
 # ============================================================
@@ -767,6 +791,21 @@ class TestImageParam:
         )
 
 
+    @pytest.mark.parametrize("detail", ["auto", None], ids=["detail=auto", "detail=null"])
+    def test_09_06_detail_auto_and_null(self, detail):
+        """09_06 — detail=auto is accepted, and detail explicitly null is treated like an omitted detail."""
+        parts = [{"type": "image_url", "image_url": {"url": png_base64(), "detail": detail}}]
+        if detail == "auto":
+            parts.append({"type": "text", "text": "Describe the image."})
+        assert_request_accepted({"messages": [{"role": "user", "content": parts}]}, msg=f"09_06 detail={detail}")
+
+    @pytest.mark.parametrize("image_url", [{}, {"url": 12}], ids=["url_missing", "url_not_string"])
+    def test_09_08_invalid_image_part(self, image_url):
+        """09_08 — An image_url object without url, or with a non-string url, is rejected with 400."""
+        payload = {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": image_url}]}]}
+        assert_request_rejected(payload, msg=f"09_08 image_url={image_url}")
+
+
 # ============================================================
 # 10 resolution_tier — detail tier / max_long_side_pixel / max_total_pixels / aspect ratio
 # ============================================================
@@ -909,6 +948,7 @@ class TestImageResolutionTier:
             ]}],
         })
         assert r1["status"] == 200, f"10_07 omitted HTTP={r1['status']}"
+        assert_oai_success(r1)
         assert r2["status"] == 200, f"10_07 explicit HTTP={r2['status']}"
 
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
@@ -1579,3 +1619,45 @@ class TestImageBase64Compat:
             f"13_04 data URI with extra params unexpected status {r['status']}: "
             f"{str(r.get('body'))[:300]}"
         )
+
+
+# ============================================================
+# 14 image usage — image token accounting
+# ============================================================
+
+class TestImageUsageAccounting:
+    """Image input is billed through prompt_tokens."""
+
+    def test_14_01_image_counted_in_prompt_tokens(self):
+        """Adding an image grows prompt_tokens; image_tokens, when returned, stays within prompt_tokens."""
+        question = "Reply with OK."
+        r_text = oai_chat({"messages": oai_simple_messages(question), "max_completion_tokens": 256})
+        assert_oai_success(r_text)
+        r_image = oai_chat({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": make_png_base64(512, 512),
+                            "detail": "high",
+                        },
+                    },
+                ],
+            }],
+            "max_completion_tokens": 256,
+        })
+        assert_oai_success(r_image)
+        text_tokens = _get_prompt_tokens(r_text)
+        image_tokens_total = _get_prompt_tokens(r_image)
+        assert image_tokens_total > text_tokens, (
+            f"image should grow prompt_tokens, got {text_tokens} -> {image_tokens_total}"
+        )
+        details = r_image["body"]["usage"].get("prompt_tokens_details") or {}
+        image_tokens = details.get("image_tokens")
+        if image_tokens is not None:
+            assert image_tokens <= image_tokens_total, (
+                f"image_tokens={image_tokens} should be <= prompt_tokens={image_tokens_total}"
+            )

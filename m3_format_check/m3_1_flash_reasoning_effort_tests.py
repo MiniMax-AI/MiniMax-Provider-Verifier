@@ -625,3 +625,35 @@ class TestReasoningEffort:
 
         _assert_ok(r, stream)
         _assert_thinking_on(r, context)
+
+    def test_01_11_effort_null(self):
+        """reasoning_effort explicitly null is accepted as a normal request.
+
+        Explicit null and an omitted field are recorded separately; the default
+        depth they fall back to is not asserted.
+        """
+        assert_request_accepted(contract_request(reasoning_effort=None), msg="01_11 reasoning_effort=null")
+
+    def test_01_12_effort_switch_multiturn(self):
+        """reasoning_effort switches from low to high between two turns of one conversation.
+
+        The second request replays the first turn's real reply as history and
+        carries the new top-level value; both turns must return a normal completion.
+        """
+        first = contract_request(reasoning_effort="low")
+        r1 = assert_request_accepted(first, msg="01_12 turn 1 effort=low")
+        reply = r1["body"]["choices"][0]["message"].get("content") or ""
+        history = first["messages"] + [
+            {"role": "assistant", "content": reply},
+            {"role": "user", "content": "Add one more sentence."},
+        ]
+        assert_request_accepted({"messages": history, "reasoning_effort": "high"}, msg="01_12 turn 2 effort=high")
+
+    def test_01_13_effort_with_completion_budget(self):
+        """A small max_completion_tokens together with reasoning_effort is accepted.
+
+        Hidden reasoning can use up the budget, so finish_reason=length with no
+        visible content is a legal outcome and not treated as a failure.
+        """
+        payload = contract_request(max_completion_tokens=32, reasoning_effort="low")
+        assert_request_accepted(payload, msg="01_13 max_completion_tokens=32 effort=low")

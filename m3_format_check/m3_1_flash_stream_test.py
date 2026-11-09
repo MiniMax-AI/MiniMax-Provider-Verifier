@@ -7,6 +7,7 @@ records the character length of ``delta.reasoning_content`` and
 distribution and a binary packet-quality result to a companion jsonl file.
 """
 
+import copy
 import json
 import math
 import os
@@ -20,14 +21,71 @@ import pytest
 
 import helpers
 from helpers import (
+    WEATHER_TOOL_OAI,
+    assert_chat_completion_strict,
     assert_oai_stream_success,
+    assert_sse_stream_strict,
     assert_stream_usage_only_in_last_chunk,
+    get_tool_calls,
     oai_chat,
+    oai_chat_verbatim,
     oai_simple_messages,
     png_base64,
+    stream_data_chunks,
 )
 from stream_protocol import inspect_stream_tool_calls
 
+
+ECHO_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "echo",
+        "description": "Return the input text.",
+        "parameters": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+# 02_12 SSE chunk contract: one request per scenario, each producing a different kind of
+# chunk (content, reasoning, length / tool_calls finish, single and parallel tool-call
+# fragments, multimodal input). Every scenario requests the usage chunk.
+# (id, payload, expected finish_reason)
+SSE_CONTRACT_SCENARIOS = (
+    ("text", {
+        "messages": oai_simple_messages("Reply only with: hello"),
+    }, "stop"),
+    ("reasoning", {
+        "messages": oai_simple_messages("Think first, then briefly answer: why is the sky usually blue?"),
+        "reasoning_effort": "high",
+    }, "stop"),
+    ("length", {
+        "messages": oai_simple_messages("Write a detailed 2000-word essay about the history of tea."),
+        "max_completion_tokens": 16,
+    }, "length"),
+    ("tool_single", {
+        "messages": oai_simple_messages("Call echo with text=hello."),
+        "tools": [ECHO_TOOL],
+        "tool_choice": "required",
+    }, "tool_calls"),
+    ("tool_parallel", {
+        "messages": oai_simple_messages(
+            "What's the weather in Beijing and Shanghai? Call get_weather once for each city."
+        ),
+        "tools": [WEATHER_TOOL_OAI],
+        "tool_choice": "required",
+        "parallel_tool_calls": True,
+    }, "tool_calls"),
+    ("image_input", {
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": png_base64()}},
+            {"type": "text", "text": "What color is this image? Answer in one word."},
+        ]}],
+    }, "stop"),
+)
 
 CONTENT_STRING_TOOL = {
     "type": "function",
@@ -976,6 +1034,56 @@ class TestSSEStream:
         assert_oai_stream_success(result)
         assert_stream_usage_only_in_last_chunk(
             result, msg="02_11 image include_usage"
+        )
+
+    @pytest.mark.parametrize(
+        "name,payload,finish", SSE_CONTRACT_SCENARIOS, ids=[sc[0] for sc in SSE_CONTRACT_SCENARIOS],
+    )
+    def test_02_12_stream_chunk_contract(self, name, payload, finish):
+        """Every chunk type of a stream follows the SSE contract (assert_sse_stream_strict).
+
+        One request per scenario; all rules are checked on that response and every
+        violation is reported together. A scenario that does not produce the chunk
+        type it exists for (reasoning deltas, two parallel calls) is skipped.
+        """
+        payload = dict(copy.deepcopy(payload), stream_options={"include_usage": True})
+        result = oai_chat(payload, stream=True)
+        assert_sse_stream_strict(result, msg=f"02_12 {name}", finish=finish, usage=True)
+        if name == "reasoning" and not any(
+            (choice.get("delta") or {}).get("reasoning_content")
+            for chunk in stream_data_chunks(result) for choice in chunk.get("choices") or []
+        ):
+            pytest.skip("02_12 reasoning: no reasoning_content deltas observed")
+        if name.startswith("tool"):
+            calls = get_tool_calls(result)
+            assert calls, f"02_12 {name}: tool_choice=required but no tool calls"
+            if name == "tool_parallel" and len(calls) < 2:
+                pytest.skip("02_12 tool_parallel: parallel tool calls not observed")
+
+    def test_02_14_stream_omitted_returns_json(self):
+        """Omitting stream returns one complete JSON object (assert_chat_completion_strict)."""
+        payload = {"messages": oai_simple_messages("Reply only with: hello")}
+        assert "stream" not in payload
+        result = oai_chat_verbatim(payload)
+        assert_chat_completion_strict(result, msg="02_14")
+
+    def test_02_20_stream_reasoning_tokens_within_completion(self):
+        """Streamed reasoning_tokens stay within completion_tokens when reported."""
+        result = oai_chat({
+            "messages": oai_simple_messages("Think first, then briefly answer: why is the sky usually blue?"),
+            "reasoning_effort": "high",
+            "stream_options": {"include_usage": True},
+        }, stream=True)
+        assert_oai_stream_success(result)
+        usage_chunks = [c for c in result["chunks"] if c.get("usage")]
+        assert usage_chunks, "02_20 no usage chunk in stream despite include_usage=true"
+        usage = usage_chunks[-1]["usage"]
+        details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = details.get("reasoning_tokens", usage.get("reasoning_tokens"))
+        if reasoning_tokens is None:
+            pytest.skip("02_20: reasoning_tokens not reported")
+        assert 0 <= reasoning_tokens <= usage["completion_tokens"], (
+            f"02_20 reasoning_tokens outside completion_tokens: {usage!r}"
         )
 
 

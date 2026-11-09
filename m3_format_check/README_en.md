@@ -15,7 +15,7 @@ m3_format_check/
 ├── m3_image_tests.py        # Image modality, 99 cases (base64, URL, multi-image, resolution tiers, ...)
 ├── m3_video_tests.py        # Video modality, 85 cases (base64, URL, MOV/MKV, fps, resolution, ...)
 ├── pytest.ini               # python_files=m3_*_tests.py / timeout=1800s
-├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist
+├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist + jsonschema
 ├── logs/                    # Per-run jsonl output (auto-created, git-ignored)
 ├── docs/                    # Per-case explanations (bilingual zh/en, one-to-one with m3_*_tests.py)
 │   ├── m3_text_cases.md   / m3_text_cases_en.md    # Text modality case reference
@@ -70,6 +70,8 @@ pytest
 pytest m3_text_tests.py
 pytest m3_image_tests.py
 pytest m3_video_tests.py
+# The M3.1-Flash text suite is not collected by default (pytest.ini only collects m3_*_tests.py), so name it explicitly
+pytest m3_1_flash_text_test.py
 
 # 3c. Parallelize within a modality via pytest-xdist
 pytest m3_text_tests.py -n 8

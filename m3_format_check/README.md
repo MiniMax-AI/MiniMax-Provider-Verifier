@@ -14,7 +14,7 @@ m3_format_check/
 ├── m3_image_tests.py        # 图像模态 99 case  (base64/URL/多图/分辨率档位 等)
 ├── m3_video_tests.py        # 视频模态 85 case  (base64/URL/MOV/MKV/fps/分辨率 等)
 ├── pytest.ini               # python_files=m3_*_tests.py / timeout=1800s
-├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist
+├── requirements.txt         # httpx + pytest + pytest-timeout + pytest-xdist + jsonschema
 ├── logs/                    # 每次运行的 jsonl 日志输出目录(运行时自动生成,已 git 排除)
 ├── docs/                    # case 解释(中/英文双语,与 m3_*_tests.py 一一对应)
 │   ├── m3_text_cases.md   / m3_text_cases_en.md    # 文本模态 case 详解
@@ -69,6 +69,8 @@ pytest
 pytest m3_text_tests.py
 pytest m3_image_tests.py
 pytest m3_video_tests.py
+# M3.1-Flash 文本套件不在默认收集范围(pytest.ini 只收集 m3_*_tests.py),需显式指定
+pytest m3_1_flash_text_test.py
 
 # 3c. pytest-xdist 并发(单 modality 内部多 worker)
 pytest m3_text_tests.py -n 8
