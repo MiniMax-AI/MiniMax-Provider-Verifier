@@ -13,7 +13,6 @@ Module id / topic:
     06  max_tokens           max_tokens / max_completion_tokens boundaries
     07  message_format       message content/role format and edges
     08  model_compat         model-name compatibility
-    09  response_format      response_format type=text
     10  usage_field          usage field semantics / arithmetic / cache
     11  role_root            role=root protocol acceptance & identity follow-through
     12  text_semantic        text semantic follow-through (multilingual / system-prompt compliance / long-form)
@@ -103,8 +102,7 @@ def _assert_calls(r: dict, tools: list, msg: str, schema_check: bool = True) -> 
 def _echo_real_call(tools=None):
     """Turn 1 of a real loop: ask for echo(text=hello) and bind the returned call(s).
 
-    The prompt asks for the call; tool_choice is not sent because the reference
-    endpoint does not enforce it. Returns (user_msg, assistant_msg, calls) where
+    The prompt asks for the call; tool_choice is not sent. Returns (user_msg, assistant_msg, calls) where
     assistant_msg replays the returned tool_calls with their real ids/arguments."""
     tools = tools or [ECHO_TOOL_OAI]
     user = {"role": "user", "content": ECHO_PROMPT}
@@ -445,8 +443,7 @@ class TestSampling:
         ("top_p", 0.1), ("top_p", 1), ("top_p", None),
     ], ids=["top_p=0.1", "top_p=1", "top_p=null"])
     def test_05_01_temperature_top_p_values(self, field, value):
-        """05_01 — top_p in [0, 1], including explicit null. temperature is not covered: the
-        reference endpoint accepts it without applying it."""
+        """05_01 — top_p in [0, 1], including explicit null."""
         assert_request_accepted(contract_request(**{field: value}), msg=f"05_01 {field}={value}")
 
 # ============================================================
@@ -692,15 +689,6 @@ class TestModelCompat:
                 f"HTTP={r_mini['status']} body={str(r_mini.get('body'))[:200]}"
             )
         assert_oai_success(r_mini)
-
-
-# ============================================================
-# 09 response_format — response_format JSON output
-# ============================================================
-
-class TestResponseFormat:
-    """response_format type=text is accepted. json_object and json_schema are not covered:
-    the reference endpoint accepts them without constraining the output."""
 
 # ============================================================
 # 10 usage_field — usage field semantics / arithmetic / cache
@@ -1629,7 +1617,7 @@ class TestToolCallBasic:
         """A very long description (no documented limit) is accepted (200).
 
         The called function name is recorded only: with a 3000-character description the
-        reference endpoint itself sometimes calls an undeclared name."""
+        model sometimes calls an undeclared name."""
         tool = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"], description="说明" * 1500)
         r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
         assert_oai_success(r)
@@ -2257,7 +2245,7 @@ class TestToolCallSchema:
 
         values = body.get("values")
         if values is None:
-            # The model sometimes leaves body empty; the reference endpoint does the same.
+            # The model sometimes leaves body empty.
             pytest.skip(f"14_10 the model did not fill body.values: raw={c['arguments_raw'][:200]!r}")
         # Outer container must be a list ...
         assert isinstance(values, list), (

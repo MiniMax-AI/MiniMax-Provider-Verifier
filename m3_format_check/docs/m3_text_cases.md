@@ -79,7 +79,7 @@
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 05_01 | `test_05_01_temperature_values` | temperature 合法值 [0, 0.5, 1, 2] | 各取值均 200 |
-| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null(不覆盖 temperature:参照端点接受但不生效) | `assert_oai_success` |
+| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null | `assert_oai_success` |
 | 05_02 | `test_05_02_top_p` | top_p 边界值 [0.1, 0.5, 0.95] | 各取值均 200 |
 | 05_03 | `test_05_03_seed_parameter` | seed=42 + temperature=0 | 接口接受用于确定性输出 |
 
@@ -194,7 +194,7 @@
 | 13_13 | `test_13_13_undefined_tool_retry_after_error` | 流式 + adaptive thinking，few-shot 引导:上一轮 assistant 已 tool_call list_skills，tool 回灌“暂不可用，稍后重试”，本轮 user system-reminder 冷却结束重试；请求不带任何 tools 定义，list_skills 仅由上下文建立 | 模型应延续 pattern 重新输出 tool_call 调 list_skills + finish_reason=tool_calls（校验 provider 不依赖 tools 声明即可输出 tool_call，且不重写/丢弃工具名；因请求未声明工具，故不校验 schema） |
 | 13_22 | `test_13_22_echo_without_description_required` | M3.1-Flash: echo 省略 description,由提示词要求调用 | `finish_reason=tool_calls`,每个调用都是 echo,arguments 为字符串 |
 | 13_23 | `test_13_23_function_name_charset` | M3.1-Flash: 函数名含 a-z、A-Z、0-9、`_`、`-` | HTTP 200;若调用工具,函数名已声明、arguments 为 JSON 对象 |
-| 13_24 | `test_13_24_long_description` | M3.1-Flash: description 超长 | HTTP 200;调用的函数名只记录(参照端点在超长描述下也会调用未声明的函数名) |
+| 13_24 | `test_13_24_long_description` | M3.1-Flash: description 超长 | HTTP 200;调用的函数名只记录(超长描述下模型可能调用未声明的函数名) |
 | 13_25 | `test_13_25_duplicate_function_names` | M3.1-Flash: 两个同名函数声明 | HTTP 200;若调用工具,函数名已声明、arguments 为 JSON 对象 |
 | 13_26 | `test_13_26_128_tools_boundary` | M3.1-Flash: 声明 128 个函数,`tool_choice=none` | HTTP 200,返回文本,不调用工具 |
 | 13_27 | `test_13_27_tool_choice_omitted_auto` | M3.1-Flash: 声明 echo + get_time,省略 `tool_choice` | 按 auto 处理:返回文本,或只调用已声明的函数 |

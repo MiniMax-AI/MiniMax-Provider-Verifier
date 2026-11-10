@@ -191,8 +191,8 @@ def _assert_reasoning_tokens(r: dict, expect_positive: bool, context: str = ""):
     present, an int and > 0, which proves the provider reports the field.
 
     Thinking off: a missing completion_tokens_details / reasoning_tokens counts as
-    0, because the reference endpoint omits the details object when the model
-    does not think. A reported value must still be exactly 0.
+    0, since the details object may be omitted when the model does not think. A
+    reported value must still be exactly 0.
 
     Per project decision the magnitude is NOT sanity-checked against the
     reasoning text (no tokenizer is introduced): > 0 is sufficient.

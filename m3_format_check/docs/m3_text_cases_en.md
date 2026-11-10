@@ -79,7 +79,7 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 05_01 | `test_05_01_temperature_values` | Valid temperatures [0, 0.5, 1, 2] | All values return 200 |
-| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null (temperature is not covered: accepted but not applied by the reference endpoint) | `assert_oai_success` |
+| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null | `assert_oai_success` |
 | 05_02 | `test_05_02_top_p` | top_p boundaries [0.1, 0.5, 0.95] | All values return 200 |
 | 05_03 | `test_05_03_seed_parameter` | seed=42 + temperature=0 | API accepts for deterministic output |
 
@@ -195,7 +195,7 @@
 | 13_13 | `test_13_13_undefined_tool_retry_after_error` | Streaming + adaptive thinking, few-shot priming: prior assistant tool_called `list_skills`, tool result says "unavailable, retry later"; current user system-reminder says cooldown is over, retry; the request declares NO `tools`, `list_skills` is only established by the in-context history | Model should follow the pattern and re-emit tool_call invoking `list_skills` + finish_reason=tool_calls (validates provider does not require a declared tool inventory to emit a tool_call, and does not rewrite/drop the tool name; schema not validated since no tool is declared) |
 | 13_22 | `test_13_22_echo_without_description_required` | M3.1-Flash: echo without description, call requested by the prompt | `finish_reason=tool_calls`; every call is echo with string arguments |
 | 13_23 | `test_13_23_function_name_charset` | M3.1-Flash: Function name using a-z, A-Z, 0-9, `_` and `-` | HTTP 200; any call uses a declared name with JSON-object arguments |
-| 13_24 | `test_13_24_long_description` | M3.1-Flash: Very long description | HTTP 200; the called name is recorded only (the reference endpoint also calls undeclared names with a very long description) |
+| 13_24 | `test_13_24_long_description` | M3.1-Flash: Very long description | HTTP 200; the called name is recorded only (the model may call undeclared names with a very long description) |
 | 13_25 | `test_13_25_duplicate_function_names` | M3.1-Flash: Two declarations with the same name | HTTP 200; any call uses a declared name with JSON-object arguments |
 | 13_26 | `test_13_26_128_tools_boundary` | M3.1-Flash: 128 function declarations, `tool_choice=none` | HTTP 200 with a text answer and no tool call |
 | 13_27 | `test_13_27_tool_choice_omitted_auto` | M3.1-Flash: echo + get_time declared, `tool_choice` omitted | Behaves as auto: a text answer, or calls to declared functions only |
