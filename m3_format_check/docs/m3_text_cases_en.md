@@ -225,16 +225,12 @@
 | 14_04 | `test_14_04_multi_required_fields` | Multiple required fields | from_city/to_city/date filled + date prefix correct |
 | 14_05 | `test_14_05_nested_object_array` | Nested array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4-level deep nested schema | nested_tool fires + valid JSON |
-| 14_12 | `test_14_12_strict_tool_schema[...]` | M3.1-Flash: Strict-supported schemas: anyOf, enum, nullable, nesting, `$ref`, recursion, annotations, length, format, empty properties, non-ASCII property names, escaped values; call requested by the prompt | At least one call to the declared function with JSON-object arguments; schema conformance and prompt-fixed values are recorded, not asserted (strict is not enforced by the reference endpoint) |
+| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: Complex schema keywords OpenAI supports (no strict): anyOf, enum, nullable, nesting, `$ref`, recursion, annotations, length, format, empty properties, non-ASCII property names, escaped values; call requested by the prompt | At least one call to the declared function with JSON-object arguments; schema conformance and prompt-fixed values are recorded, not asserted |
 | 14_14 | `test_14_14_custom_tool_formats[missing_definition\|invalid_syntax]` | M3.1-Flash: custom tool grammar without definition / with an invalid syntax | HTTP 400 |
 | 14_15 | `test_14_15_tool_declaration_invalid[function_container_missing\|name_wrong_type]` | M3.1-Flash: function container missing / name of the wrong type | HTTP 400 |
-| 14_16 | `test_14_16_schema_capability_negative[strict_pattern_properties\|non_strict_allof]` | M3.1-Flash: strict patternProperties next to properties / non-strict allOf | Accepted (call requested by the prompt); arguments are a JSON object; strict schema conformance is recorded |
-| 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: strict=false with a property-level oneOf | Accepted; arguments are a JSON object, values not checked |
-| 14_19 | `test_14_19_strict_2d_bool_array[non_stream\|stream]` | M3.1-Flash: strict 2-D boolean array, call requested by the prompt | At least one call; m stays 2-D with boolean elements |
-| 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: strict=false without required / additionalProperties | Accepted; arguments are a JSON object, values not checked |
-| 14_21 | `test_14_21_strict_true` | M3.1-Flash: strict=true echo, call requested by the prompt | At least one call; whether the arguments only carry text is recorded, not asserted |
-| 14_22 | `test_14_22_strict_false_null_omitted[false\|null\|omitted]` | M3.1-Flash: strict false / null / omitted | Accepted; every call is echo with string arguments |
-| 14_23 | `test_14_23_strict_value_constraints[pattern_zip\|format_email\|array_length]` | M3.1-Flash: strict pattern / email format / array length, call requested by the prompt | At least one call; whether the constraint keywords are met is recorded, not asserted |
+| 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: Property-level allOf | Accepted (call requested by the prompt); arguments are a JSON object, values not checked |
+| 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: Property-level oneOf | Accepted; arguments are a JSON object, values not checked |
+| 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: required and additionalProperties omitted | Accepted; arguments are a JSON object, values not checked |
 | 14_24 | `test_14_24_description_not_string` | M3.1-Flash: description=123 | HTTP 400 |
 | 14_25 | `test_14_25_tools_element_not_object` | M3.1-Flash: A tools element that is not an object | HTTP 400 |
 

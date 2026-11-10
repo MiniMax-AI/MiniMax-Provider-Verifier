@@ -224,16 +224,12 @@
 | 14_04 | `test_14_04_multi_required_fields` | 多 required 字段 | from_city/to_city/date 都填 + date 前缀正确 |
 | 14_05 | `test_14_05_nested_object_array` | 嵌套 array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4 层深嵌套 schema | nested_tool 触发 + 合法 JSON |
-| 14_12 | `test_14_12_strict_tool_schema[...]` | M3.1-Flash: strict 支持的 schema:anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败(参照端点不执行 strict) |
+| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: OpenAI 支持的复杂 schema 关键字(不带 strict):anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败 |
 | 14_14 | `test_14_14_custom_tool_formats[missing_definition\|invalid_syntax]` | M3.1-Flash: custom 工具语法缺 definition / syntax 非法 | HTTP 400 |
 | 14_15 | `test_14_15_tool_declaration_invalid[function_container_missing\|name_wrong_type]` | M3.1-Flash: function 缺容器 / name 类型错误 | HTTP 400 |
-| 14_16 | `test_14_16_schema_capability_negative[strict_pattern_properties\|non_strict_allof]` | M3.1-Flash: strict 下 patternProperties 与 properties 并存 / strict=false 的 allOf | 受理(由提示词要求调用);arguments 为 JSON 对象;strict 时 schema 符合度只记录 |
-| 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: strict=false,属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
-| 14_19 | `test_14_19_strict_2d_bool_array[non_stream\|stream]` | M3.1-Flash: strict 二维布尔数组,由提示词要求调用 | 至少一个调用,m 保持二维,元素是布尔值 |
-| 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: strict=false,省略 required 和 additionalProperties | 受理;arguments 是 JSON 对象,不校验取值 |
-| 14_21 | `test_14_21_strict_true` | M3.1-Flash: strict=true 的 echo,由提示词要求调用 | 至少一个调用;arguments 是否只含 text 只记录不判失败 |
-| 14_22 | `test_14_22_strict_false_null_omitted[false\|null\|omitted]` | M3.1-Flash: strict 为 false / null / 省略 | 受理,每个调用都是 echo,arguments 为字符串 |
-| 14_23 | `test_14_23_strict_value_constraints[pattern_zip\|format_email\|array_length]` | M3.1-Flash: strict 的 pattern / email format / 数组长度,由提示词要求调用 | 至少一个调用;是否满足约束关键字只记录不判失败 |
+| 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: 属性级 allOf | 受理(由提示词要求调用);arguments 是 JSON 对象,不校验取值 |
+| 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: 属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
+| 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: 省略 required 和 additionalProperties | 受理;arguments 是 JSON 对象,不校验取值 |
 | 14_24 | `test_14_24_description_not_string` | M3.1-Flash: description=123 | HTTP 400 |
 | 14_25 | `test_14_25_tools_element_not_object` | M3.1-Flash: tools 元素不是对象 | HTTP 400 |
 

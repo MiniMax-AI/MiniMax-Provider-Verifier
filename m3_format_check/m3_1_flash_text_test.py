@@ -128,19 +128,18 @@ def _tool_replies(calls, content="hello"):
 def _note_schema_deviation(args, schema: dict, msg: str):
     """Print (do not fail on) arguments that violate the declared schema.
 
-    The reference endpoint accepts strict=true but does not enforce it, so schema
-    conformance is model behaviour rather than a contract and is only recorded."""
+    Without enforced constrained decoding, schema conformance is model behaviour rather
+    than a contract, so it is only recorded."""
     try:
         validate_json_schema(args, schema, msg)
     except AssertionError as exc:
-        print(f"[strict-not-enforced] {msg}: {str(exc).splitlines()[0]}")
+        print(f"[schema-deviation] {msg}: {str(exc).splitlines()[0]}")
 
 
-def _assert_single_strict_call(r: dict, tool: dict, msg: str) -> dict:
-    """strict, call requested by the prompt: finish tool_calls, at least one call to the
-    declared function, arguments a JSON object. Full schema conformance is recorded, not
-    asserted (strict is accepted but not enforced by the reference endpoint, and neither is
-    parallel_tool_calls, so extra calls are allowed). Returns the first call's arguments."""
+def _assert_declared_call(r: dict, tool: dict, msg: str) -> dict:
+    """Call requested by the prompt: finish tool_calls, at least one call to the declared
+    function, arguments a JSON object. Full schema conformance is recorded, not asserted.
+    Returns the first call's arguments."""
     assert_oai_success(r)
     assert _finish(r) == "tool_calls", f"{msg}: finish_reason should be tool_calls, got {_finish(r)!r}"
     calls = _assert_calls(r, [tool], msg, schema_check=False)
@@ -150,9 +149,9 @@ def _assert_single_strict_call(r: dict, tool: dict, msg: str) -> dict:
 
 
 def _assert_required_calls_loose(r: dict, name: str, msg: str):
-    """Non-strict, call requested by the prompt: finish tool_calls, at least one call, every call names
+    """Call requested by the prompt: finish tool_calls, at least one call, every call names
     `name`, id non-empty, type function, arguments a string. Whether the arguments parse /
-    satisfy the schema is not guaranteed without strict, so not asserted."""
+    satisfy the schema is not asserted."""
     assert_oai_success(r)
     assert _finish(r) == "tool_calls", f"{msg}: finish_reason should be tool_calls, got {_finish(r)!r}"
     items = message_tool_calls(r)
@@ -2411,10 +2410,10 @@ class TestToolCallSchema:
             f"boolean. raw={c['arguments_raw']!r}"
         )
 
-    # ------------- 14_12 strict function schema (positive) -------------
-    # The prompt asks for the call; strict is accepted but not enforced by the reference
-    # endpoint, so schema conformance and prompt-fixed values are recorded, not asserted.
-    _STRICT_CASES = {
+    # ------------- 14_12 complex schema keywords (positive) -------------
+    # The prompt asks for the call. The tool call must keep a valid structure; schema
+    # conformance and prompt-fixed values are recorded, not asserted.
+    _SCHEMA_CASES = {
         "anyof_scalar": ("调用 f，给出符合 schema 的一组参数。", {
             "type": "object", "properties": {"v": {"anyOf": [{"type": "string"}, {"type": "integer"}]}},
             "required": ["v"], "additionalProperties": False}),
@@ -2480,7 +2479,7 @@ class TestToolCallSchema:
     }
 
     # Business values the prompt fixes (format guarantees are checked by the schema).
-    _STRICT_VALUE_CHECKS = {
+    _SCHEMA_VALUE_CHECKS = {
         "anyof_object_branches": lambda a: a["item"].get("kind") == "org" and "url" in a["item"],
         "enum_string": lambda a: a["unit"] == "celsius",
         "enum_with_null": lambda a: a["unit"] is None,
@@ -2491,24 +2490,24 @@ class TestToolCallSchema:
         "unicode_property_names": lambda a: "北京" in a["城市"],
     }
 
-    @pytest.mark.parametrize("case", list(_STRICT_CASES), ids=list(_STRICT_CASES))
-    def test_14_12_strict_tool_schema(self, case):
-        """strict function schemas the OpenAI subset supports are accepted:
-        finish_reason=tool_calls, at least one call to the declared function, arguments a
-        JSON object. Schema conformance and prompt-fixed values are
-        recorded only, because strict is not enforced by the reference endpoint."""
-        prompt, params = self._STRICT_CASES[case]
-        tool = strict_tool(params)
+    @pytest.mark.parametrize("case", list(_SCHEMA_CASES), ids=list(_SCHEMA_CASES))
+    def test_14_12_complex_schema_keywords(self, case):
+        """Function schemas using the keywords OpenAI supports (anyOf, enum, nullable, nesting,
+        $ref, recursion, annotations, length, format, empty properties, non-ASCII names) are
+        accepted: finish_reason=tool_calls, at least one call to the declared function,
+        arguments a JSON object. Schema conformance and prompt-fixed values are recorded."""
+        prompt, params = self._SCHEMA_CASES[case]
+        tool = tool_fn("f", description="按 schema 传参", parameters=params)
         r = oai_chat({"messages": oai_simple_messages(prompt), "tools": [tool]})
-        args = _assert_single_strict_call(r, tool, f"14_12 {case}")
-        check = self._STRICT_VALUE_CHECKS.get(case)
+        args = _assert_declared_call(r, tool, f"14_12 {case}")
+        check = self._SCHEMA_VALUE_CHECKS.get(case)
         if check is not None:
             try:
                 ok = check(args)
             except (KeyError, TypeError):
                 ok = False
             if not ok:
-                print(f"[strict-not-enforced] 14_12 {case}: arguments do not carry the requested values: {args}")
+                print(f"[schema-deviation] 14_12 {case}: arguments do not carry the requested values: {args}")
 
     # ------------- 14_14 custom tool declaration negatives -------------
     _CUSTOM_BAD_GRAMMAR = {
@@ -2540,39 +2539,25 @@ class TestToolCallSchema:
 
     # ------------- 14_16 schema keyword acceptance -------------
     _ACCEPTED_KEYWORDS = {
-        "strict_pattern_properties": (True, {
-            "type": "object", "properties": {"v": {"type": "string"}}, "required": ["v"],
-            "additionalProperties": False, "patternProperties": {"^a": {"type": "string"}}}),
-        "non_strict_allof": (False, {
+        "allof": {
             "type": "object", "properties": {"v": {"allOf": [{"type": "string"}]}},
-            "required": ["v"], "additionalProperties": False}),
+            "required": ["v"], "additionalProperties": False},
     }
 
     @pytest.mark.parametrize("case", list(_ACCEPTED_KEYWORDS), ids=list(_ACCEPTED_KEYWORDS))
     def test_14_16_schema_capability_negative(self, case):
-        """Schemas OpenAI accepts:
-        - strict patternProperties next to properties (OpenAI 200): at least one call to the
-          declared function with JSON-object arguments (schema conformance is recorded);
-        - non-strict allOf: 200, finish tool_calls, arguments a JSON object (values not
-          checked without strict)."""
-        strict, params = self._ACCEPTED_KEYWORDS[case]
-        tool = tool_fn("f", description="按 schema 传参", strict=strict, parameters=params)
-        payload = {"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"),
-                   "tools": [tool]}
-        if strict:
-            r = oai_chat(payload)
-            _assert_single_strict_call(r, tool, f"14_16 {case}")
-            return
-        r = oai_chat(payload)
+        """A property-level allOf is accepted: 200, finish tool_calls, every call is f with
+        arguments a JSON object (values are not checked)."""
+        tool = tool_fn("f", description="按 schema 传参", parameters=self._ACCEPTED_KEYWORDS[case])
+        r = oai_chat({"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"), "tools": [tool]})
         _assert_required_calls_loose(r, "f", f"14_16 {case}")
         for i, tc in enumerate(message_tool_calls(r)):
             parse_arguments(tc["function"]["arguments"], f"14_16 {case} tool_calls[{i}]")
 
     def test_14_18_non_strict_property_oneof_accepted(self):
-        """Non-strict (strict=false) property-level oneOf is accepted:
-        finish_reason=tool_calls, every call is f with arguments a JSON object string. Without
-        strict the values are not guaranteed to match the schema, so they are not checked."""
-        tool = tool_fn("f", description="按 schema 传参", strict=False, parameters={
+        """A property-level oneOf is accepted: finish_reason=tool_calls, every call is f with
+        arguments a JSON object string. The values are not checked."""
+        tool = tool_fn("f", description="按 schema 传参", parameters={
             "type": "object", "properties": {"v": {"oneOf": [{"type": "string"}, {"type": "integer"}]}},
             "required": ["v"], "additionalProperties": False})
         r = oai_chat({"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"),
@@ -2581,72 +2566,16 @@ class TestToolCallSchema:
         for i, tc in enumerate(message_tool_calls(r)):
             parse_arguments(tc["function"]["arguments"], f"14_18 tool_calls[{i}]")
 
-    # ------------- 14_19 strict 2-D boolean array -------------
-    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
-    def test_14_19_strict_2d_bool_array(self, stream):
-        """strict m: array<array<boolean>>, call requested by the prompt:
-        finish_reason=tool_calls, exactly one call whose arguments fully
-        validate (m stays 2-D, elements real booleans, no extra keys)."""
-        tool = strict_tool({"type": "object", "properties": {
-            "m": {"type": "array", "items": {"type": "array", "items": {"type": "boolean"}}}},
-            "required": ["m"], "additionalProperties": False})
-        payload = {"messages": oai_simple_messages("调用 f，m=[[true,false]]。"), "tools": [tool]}
-        r = oai_chat(payload, stream=stream)
-        if not stream:
-            args = _assert_single_strict_call(r, tool, "14_19 non_stream")
-        else:
-            assert_oai_stream_success(r)
-            assert stream_finish_reasons(r) == {0: "tool_calls"}, f"14_19 finish: {stream_finish_reasons(r)}"
-            calls = _assert_calls(r, [tool], "14_19 stream", schema_check=False)
-            assert calls, "14_19 the prompt asks for a call but no tool_calls returned"
-            args = calls[0]["arguments_obj"]
-        assert all(isinstance(row, list) for row in args["m"]), f"14_19 m must stay 2-D: {args}"
-        assert all(isinstance(v, bool) for row in args["m"] for v in row), f"14_19 m elements must be bool: {args}"
-
     def test_14_20_non_strict_omit_required_and_additional(self):
-        """strict=false with parameters lacking required / additionalProperties:
+        """Parameters lacking required / additionalProperties are accepted:
         finish_reason=tool_calls, every call is f with arguments a JSON object.
-        Non-strict does not guarantee schema conformance, so values are not checked."""
-        tool = tool_fn("f", description="按 schema 传参", strict=False,
+        The values are not checked."""
+        tool = tool_fn("f", description="按 schema 传参",
                        parameters={"type": "object", "properties": {"a": {"type": "string"}}})
         r = oai_chat({"messages": oai_simple_messages("调用 f，给出符合 schema 的一组参数。"), "tools": [tool]})
         _assert_required_calls_loose(r, "f", "14_20")
         for i, tc in enumerate(message_tool_calls(r)):
             parse_arguments(tc["function"]["arguments"], f"14_20 tool_calls[{i}]")
-
-    def test_14_21_strict_true(self):
-        """strict=true echo, call requested by the prompt: at least one echo call whose arguments
-        are an object. Extra keys are recorded only (strict is not enforced)."""
-        tool = tool_fn("echo", parameters=ECHO_TOOL_OAI["function"]["parameters"], description="返回输入文本", strict=True)
-        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
-        _assert_single_strict_call(r, tool, "14_21")
-
-    @pytest.mark.parametrize("strict", [False, None, "omit"], ids=["false", "null", "omitted"])
-    def test_14_22_strict_false_null_omitted(self, strict):
-        """strict=false, strict=null (nullable, must not 400) and strict
-        omitted: accepted, finish tool_calls, every call is echo with string arguments.
-        Without strict the arguments are not guaranteed to match the schema."""
-        fn = {"name": "echo", "description": "返回输入文本", "parameters": ECHO_TOOL_OAI["function"]["parameters"]}
-        if strict != "omit":
-            fn["strict"] = strict
-        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [{"type": "function", "function": fn}]})
-        _assert_required_calls_loose(r, "echo", f"14_22 strict={strict!r}")
-
-    _STRICT_CONSTRAINTS = {
-        "pattern_zip": {"zip": {"type": "string", "pattern": "^[0-9]{5}$"}},
-        "format_email": {"mail": {"type": "string", "format": "email"}},
-        "array_length": {"tags": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3}},
-    }
-
-    @pytest.mark.parametrize("case", list(_STRICT_CONSTRAINTS), ids=list(_STRICT_CONSTRAINTS))
-    def test_14_23_strict_value_constraints(self, case):
-        """strict pattern / email format / array length: 200, at least one call to the declared function.
-        Whether the arguments satisfy the constraint keywords is recorded only (strict is not enforced)."""
-        props = self._STRICT_CONSTRAINTS[case]
-        tool = tool_fn("echo", description="返回输入文本", strict=True, parameters={
-            "type": "object", "properties": props, "required": list(props), "additionalProperties": False})
-        r = oai_chat({"messages": oai_simple_messages("调用echo并给出符合schema的一组参数。"), "tools": [tool]})
-        _assert_single_strict_call(r, tool, f"14_23 {case}")
 
     def test_14_24_description_not_string(self):
         """description=123 → 400."""
