@@ -192,8 +192,7 @@ def _assert_reasoning_tokens(r: dict, expect_positive: bool, context: str = ""):
 
     Thinking off: a missing completion_tokens_details / reasoning_tokens counts as
     0, because the reference endpoint omits the details object when the model
-    does not think. A reported value may be at most 1 (a single boundary token
-    has no billing impact).
+    does not think. A reported value must still be exactly 0.
 
     Per project decision the magnitude is NOT sanity-checked against the
     reasoning text (no tokenizer is introduced): > 0 is sufficient.
@@ -225,7 +224,7 @@ def _assert_reasoning_tokens(r: dict, expect_positive: bool, context: str = ""):
     if expect_positive:
         assert tokens > 0, f"{context}: expected reasoning_tokens > 0, got {tokens}"
     else:
-        assert tokens <= 1, f"{context}: expected reasoning_tokens <= 1 with thinking off, got {tokens}"
+        assert tokens == 0, f"{context}: expected reasoning_tokens == 0, got {tokens}"
 
 
 def _assert_thinking_on(r: dict, context: str = ""):

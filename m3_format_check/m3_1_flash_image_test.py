@@ -791,9 +791,9 @@ class TestImageParam:
         )
 
 
-    @pytest.mark.parametrize("detail", ["auto"], ids=["detail=auto"])
+    @pytest.mark.parametrize("detail", ["auto", None], ids=["detail=auto", "detail=null"])
     def test_09_06_detail_auto_and_null(self, detail):
-        """09_06 — detail=auto is accepted."""
+        """09_06 — detail=auto is accepted, and detail explicitly null is treated like an omitted detail."""
         parts = [{"type": "image_url", "image_url": {"url": png_base64(), "detail": detail}}]
         if detail == "auto":
             parts.append({"type": "text", "text": "Describe the image."})

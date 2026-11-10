@@ -321,7 +321,7 @@
 | 20_07 | `test_20_07_invalid_api_key` | 非法 API key | HTTP 401 |
 | 20_08 | `test_20_08_content_moderation` | 内容审核:有害内容请求 | 400(过滤)或 200(拒答) |
 | 20_14 | `test_20_14_messages_wrong_type[messages=null\|message_is_number]` | M3.1-Flash: `messages=null` / 元素为数值 | HTTP 400 |
-| 20_26 | `test_20_26_parameter_contract_negative[...]` | M3.1-Flash: `max_completion_tokens=8.5`、`stop` 含非字符串、`n=1.5`、`reasoning_effort` 为数组 | HTTP 400;错误体格式(`assert_error_response_strict`)只记录不判失败;不得被取整或忽略 |
+| 20_26 | `test_20_26_parameter_contract_negative[...]` | M3.1-Flash: `max_completion_tokens=8.5`、`stop` 含非字符串、`n=1.5`、`reasoning_effort` 为数组 | `assert_error_response_strict`;不得被取整或忽略 |
 | 20_28 | `test_20_28_model_wrong_type` | M3.1-Flash: `model` 为数组 | 4xx 拒绝 |
 
 ---

@@ -322,7 +322,7 @@
 | 20_07 | `test_20_07_invalid_api_key` | Invalid API key | HTTP 401 |
 | 20_08 | `test_20_08_content_moderation` | Content moderation: harmful request | 400 (filtered) or 200 (refused) |
 | 20_14 | `test_20_14_messages_wrong_type[messages=null\|message_is_number]` | M3.1-Flash: `messages=null` / a numeric element | HTTP 400 |
-| 20_26 | `test_20_26_parameter_contract_negative[...]` | M3.1-Flash: `max_completion_tokens=8.5`, a non-string `stop` element, `n=1.5`, `reasoning_effort` as an array | HTTP 400; error-body format (`assert_error_response_strict`) is recorded, not asserted; must not be coerced or ignored |
+| 20_26 | `test_20_26_parameter_contract_negative[...]` | M3.1-Flash: `max_completion_tokens=8.5`, a non-string `stop` element, `n=1.5`, `reasoning_effort` as an array | `assert_error_response_strict`; must not be coerced or ignored |
 | 20_28 | `test_20_28_model_wrong_type` | M3.1-Flash: `model` is an array | A 4xx rejection |
 
 ---

@@ -3532,15 +3532,11 @@ class TestErrorCodes:
         ("max_completion_tokens", 8.5), ("stop", ["a", 1]), ("n", 1.5), ("reasoning_effort", ["low"]),
     ], ids=["max_completion_tokens=8.5", "stop_element_not_string", "n=1.5", "reasoning_effort_array"])
     def test_20_26_parameter_contract_negative(self, field, value):
-        """20_26 — A mistyped parameter is rejected with 400 instead of being coerced or ignored.
-        Deviations from the full error-response contract (assert_error_response_strict) are
-        recorded, not asserted: the rejection itself is what callers depend on."""
-        msg = f"20_26 {field}={value}"
-        r = assert_request_rejected(contract_request(**{field: value}), msg=msg)
-        try:
-            assert_error_response_strict(r, msg=msg)
-        except AssertionError as exc:
-            print(f"[error-body] {str(exc).splitlines()[0]}")
+        """20_26 — A mistyped parameter is rejected with 400 instead of being coerced or ignored,
+        and the rejection passes the full error-response contract (assert_error_response_strict):
+        a JSON body with an error object and no completion."""
+        r = oai_chat_verbatim(contract_request(**{field: value}))
+        assert_error_response_strict(r, msg=f"20_26 {field}={value}")
 
     def test_20_28_model_wrong_type(self):
         """20_28 — model given as an array is rejected with a 4xx (not silently accepted)."""

@@ -104,7 +104,7 @@
 | 09_03 | `test_09_03_corrupted_base64[non_stream\|stream]` | 损坏的 base64 图(随机字节) | HTTP 400 |
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch:PNG 字节标 image/jpeg | HTTP 200(网关宽容) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | 同图 detail=low / high 两次 | HTTP 200 + content > 5 |
-| 09_06 | `test_09_06_detail_auto_and_null[detail=auto]` | M3.1-Flash: detail=auto | `assert_oai_success` |
+| 09_06 | `test_09_06_detail_auto_and_null[detail=auto\|detail=null]` | M3.1-Flash: detail=auto;detail 显式 null 按省略处理 | `assert_oai_success` |
 | 09_08 | `test_09_08_invalid_image_part[url_missing\|url_not_string]` | M3.1-Flash: image_url 缺 url / url 非字符串 | HTTP 400 |
 
 ## 10 resolution_tier — 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比
