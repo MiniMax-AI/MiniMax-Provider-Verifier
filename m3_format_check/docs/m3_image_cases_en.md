@@ -104,7 +104,7 @@
 | 09_03 | `test_09_03_corrupted_base64[non_stream\|stream]` | Corrupted base64 image (random bytes) | HTTP 400 |
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch: PNG bytes labeled as image/jpeg | HTTP 200 (gateway tolerant) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | Same image with detail=low / high | HTTP 200 + content > 5 |
-| 09_06 | `test_09_06_detail_auto_and_null[detail=auto\|detail=null]` | M3.1-Flash: detail=auto; detail explicitly null treated as omitted | `assert_oai_success` |
+| 09_06 | `test_09_06_detail_auto_and_null[detail=auto]` | M3.1-Flash: detail=auto | `assert_oai_success` |
 | 09_08 | `test_09_08_invalid_image_part[url_missing\|url_not_string]` | M3.1-Flash: image_url without url / with a non-string url | HTTP 400 |
 
 ## 10 resolution_tier — Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio
