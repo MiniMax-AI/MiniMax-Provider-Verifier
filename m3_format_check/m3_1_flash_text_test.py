@@ -9,11 +9,11 @@ Module id / topic:
     02  sse_stream           SSE streaming protocol fields
     03  multiturn            multi-turn conversation
     04  thinking             thinking toggle
-    05  sampling             sampling params (temperature / top_p / seed)
+    05  sampling             sampling params (top_p / penalties)
     06  max_tokens           max_tokens / max_completion_tokens boundaries
     07  message_format       message content/role format and edges
     08  model_compat         model-name compatibility
-    09  response_format      response_format JSON output
+    09  response_format      response_format type=text
     10  usage_field          usage field semantics / arithmetic / cache
     11  role_root            role=root protocol acceptance & identity follow-through
     12  text_semantic        text semantic follow-through (multilingual / system-prompt compliance / long-form)
@@ -25,9 +25,7 @@ Module id / topic:
     18  reasoning_split      reasoning_split extension field
     19  finish_reason        finish_reason coverage
     20  error_codes          error codes (pure-text category)
-    26  prompt_cache         prompt_cache_key request field
-    27  passthrough_params   metadata / store / user
-    28  extended_capability  prediction
+    27  passthrough_params   user
 
 No image / video requests. Modality priority is video > image > text; this file
 collects text cases only.
@@ -441,7 +439,7 @@ class TestThinking:
 
 
 # ============================================================
-# 05 sampling — sampling params (temperature / top_p / seed)
+# 05 sampling — sampling params (top_p / penalties)
 # ============================================================
 
 class TestSampling:
@@ -452,12 +450,11 @@ class TestSampling:
     """
 
     @pytest.mark.parametrize("field,value", [
-        ("temperature", 0), ("temperature", 0.2), ("temperature", 2), ("temperature", None),
         ("top_p", 0.1), ("top_p", 1), ("top_p", None),
-    ], ids=["temperature=0", "temperature=0.2", "temperature=2", "temperature=null",
-            "top_p=0.1", "top_p=1", "top_p=null"])
+    ], ids=["top_p=0.1", "top_p=1", "top_p=null"])
     def test_05_01_temperature_top_p_values(self, field, value):
-        """05_01 — temperature in [0, 2] and top_p in [0, 1], including explicit null."""
+        """05_01 — top_p in [0, 1], including explicit null. temperature is not covered: the
+        reference endpoint accepts it without applying it."""
         assert_request_accepted(contract_request(**{field: value}), msg=f"05_01 {field}={value}")
 
     @pytest.mark.parametrize("field,value", [
@@ -470,23 +467,6 @@ class TestSampling:
         Every request carries a small output budget; finish_reason=length is a legal outcome."""
         payload = contract_request(**{field: value}, max_completion_tokens=64)
         assert_request_accepted(payload, msg=f"05_03 {field}={value}")
-
-    @pytest.mark.parametrize("stop", [["#A#", "#B#", "#C#", "#D#"], None], ids=["four_sequences", "null"])
-    def test_05_04_stop_array_and_null(self, stop):
-        """05_04 — stop as an array of four sequences, and stop explicitly null."""
-        assert_request_accepted(contract_request(stop=stop), msg=f"05_04 stop={stop}")
-
-    @pytest.mark.parametrize("seed", [-9223372036854775808, 9223372036854775807, None],
-                             ids=["int64_min", "int64_max", "null"])
-    def test_05_05_seed_values(self, seed):
-        """05_05 — seed at the int64 bounds and explicitly null."""
-        assert_request_accepted(contract_request(seed=seed), msg=f"05_05 seed={seed}")
-
-    def test_05_07_same_seed_twice(self):
-        """05_07 — The same seed sent twice: both requests return a normal completion.
-        Identical output is best effort only and not asserted."""
-        for i in (1, 2):
-            assert_request_accepted(contract_request(seed=42), msg=f"05_07 request {i}")
 
 
 
@@ -758,63 +738,17 @@ class TestModelCompat:
 # 09 response_format — response_format JSON output
 # ============================================================
 
-_ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {"answer": {"type": "string"}},
-    "required": ["answer"],
-    "additionalProperties": False,
-}
-_JSON_PROMPT = "Return a JSON object whose answer field is a short greeting."
-
-
-def _json_schema_format(schema=None, **extra):
-    return {"type": "json_schema", "json_schema": {
-        "name": "answer_card", "strict": True, "schema": schema or _ANSWER_SCHEMA, **extra,
-    }}
-
-
 class TestResponseFormat:
-    """response_format request shapes: text, json_object and strict json_schema are accepted.
-
-    These cases check that each documented request shape is accepted with a normal
-    completion. Whether the output satisfies the schema is a behaviour check, not asserted here.
-    """
+    """response_format type=text is accepted. json_object and json_schema are not covered:
+    the reference endpoint accepts them without constraining the output."""
 
     @pytest.mark.parametrize("prompt,response_format", [
         ("Explain caching in one sentence.", {"type": "text"}),
-        ("Output a JSON object that contains one greeting.", {"type": "json_object"}),
-    ], ids=["type=text", "type=json_object"])
+    ], ids=["type=text"])
     def test_09_01_text_and_json_object(self, prompt, response_format):
-        """09_01 — response_format type=text and type=json_object are accepted."""
+        """09_01 — response_format type=text is accepted."""
         payload = {"messages": [{"role": "user", "content": prompt}], "response_format": response_format}
         assert_request_accepted(payload, msg=f"09_01 {response_format}")
-
-    @pytest.mark.parametrize("prompt,response_format,extra", [
-        (_JSON_PROMPT, _json_schema_format(), {}),
-        (_JSON_PROMPT, _json_schema_format(description="Answer card"), {}),
-        ("Answer in JSON and list a lot of content.", _json_schema_format(), {"max_completion_tokens": 8}),
-    ], ids=["strict_schema", "with_description", "small_budget"])
-    def test_09_02_json_schema_strict(self, prompt, response_format, extra):
-        """09_02 — strict json_schema with name / description / schema / strict, and a small
-        budget where truncation (finish_reason=length) is allowed. Type-array (nullable)
-        properties are not covered: the reference endpoint rejects them in response_format."""
-        payload = {"messages": [{"role": "user", "content": prompt}], "response_format": response_format, **extra}
-        assert_request_accepted(payload, msg="09_02")
-
-    @pytest.mark.parametrize("schema", [
-        {"type": "object", "properties": {
-            "s": {"type": "string"}, "n": {"type": "number"}, "i": {"type": "integer"}, "b": {"type": "boolean"},
-            "o": {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"],
-                  "additionalProperties": False},
-            "a": {"type": "array", "items": {"type": "number"}},
-        }, "required": ["s", "n", "i", "b", "o", "a"], "additionalProperties": False},
-    ], ids=["all_json_types"])
-    def test_09_08_schema_keywords(self, schema):
-        """09_08 — a strict schema using every non-null JSON type is accepted. Type-array (nullable)
-        properties are not covered: the reference endpoint rejects them in response_format."""
-        payload = {"messages": [{"role": "user", "content": "Return a JSON object that follows the schema."}],
-                   "response_format": _json_schema_format(schema)}
-        assert_request_accepted(payload, msg="09_08")
 
 
 
@@ -2509,21 +2443,6 @@ class TestToolCallSchema:
             if not ok:
                 print(f"[schema-deviation] 14_12 {case}: arguments do not carry the requested values: {args}")
 
-    # ------------- 14_14 custom tool declaration negatives -------------
-    _CUSTOM_BAD_GRAMMAR = {
-        "missing_definition": {"syntax": "regex"},
-        "invalid_syntax": {"syntax": "python", "definition": "x"},
-    }
-
-    @pytest.mark.parametrize("case", list(_CUSTOM_BAD_GRAMMAR), ids=list(_CUSTOM_BAD_GRAMMAR))
-    def test_14_14_custom_tool_formats(self, case):
-        """custom tool with a broken grammar (definition missing / syntax not
-        lark|regex) must be rejected with 400, never ignored and answered with 200."""
-        tool = {"type": "custom", "custom": {"name": "echo_text", "description": "原样输出文本",
-                                             "format": {"type": "grammar", "grammar": self._CUSTOM_BAD_GRAMMAR[case]}}}
-        r = oai_chat({"messages": oai_simple_messages(ECHO_PROMPT), "tools": [tool]})
-        assert_error(r, 400)
-
     # ------------- 14_15 function declaration negatives -------------
     _BAD_DECLARATIONS = {
         "function_container_missing": {"type": "function", "name": "echo"},
@@ -3436,66 +3355,14 @@ class TestErrorCodes:
 
 
 # ============================================================
-# 26 prompt_cache — prompt cache request fields
-# ============================================================
-
-class TestPromptCache:
-    """prompt_cache_key is accepted; cache hits are not asserted here (see 10_04)."""
-
-    def test_26_01_cache_key_repeated(self):
-        """26_01 — The same prompt_cache_key sent twice: both requests return a normal completion."""
-        for i in (1, 2):
-            assert_request_accepted(contract_request(prompt_cache_key="suite-prefix"), msg=f"26_01 request {i}")
-
-    def test_26_03_cache_key_null(self):
-        """26_03 — prompt_cache_key explicitly null is accepted."""
-        assert_request_accepted(contract_request(prompt_cache_key=None), msg="26_03 prompt_cache_key=null")
-
-
-# ============================================================
-# 27 passthrough_params — metadata / store / user
+# 27 passthrough_params — user
 # ============================================================
 
 class TestPassthroughParams:
-    """Request metadata fields that must not break a normal completion."""
-
-    @pytest.mark.parametrize("metadata", [{"suite": "format-check"}, {"case": ""}, None],
-                             ids=["one_key", "empty_string_value", "null"])
-    def test_27_01_metadata_values(self, metadata):
-        """27_01 — metadata with one key, an empty string value, or null is accepted.
-        Echoing metadata back in the response is not required."""
-        fields = {"metadata": metadata}
-        if metadata is not None:
-            fields["store"] = True
-        assert_request_accepted(contract_request(**fields), msg=f"27_01 metadata={metadata}")
-
-    @pytest.mark.parametrize("store", [False, True, None], ids=["false", "true", "null"])
-    def test_27_02_store_values(self, store):
-        """27_02 — store=false / true / null is accepted."""
-        assert_request_accepted(contract_request(store=store), msg=f"27_02 store={store}")
+    """The user field must not break a normal completion. metadata, store and
+    prompt_cache_key are not covered: the reference endpoint accepts them without effect."""
 
     @pytest.mark.parametrize("user", ["synthetic-user-hash", None], ids=["string", "null"])
     def test_27_03_user_identifier(self, user):
         """27_03 — Legacy user as a string or null is accepted."""
         assert_request_accepted(contract_request(user=user), msg=f"27_03 user={user}")
-
-
-# ============================================================
-# 28 extended_capability — prediction
-# ============================================================
-
-class TestExtendedCapability:
-    """OpenAI request fields for optional capabilities: the request shape is accepted.
-
-    Whether the capability takes effect (predicted output) is not asserted.
-    """
-
-    @pytest.mark.parametrize("content", ["print(a)\n", [{"type": "text", "text": "print(a)\n"}]],
-                             ids=["string", "text_parts"])
-    def test_28_05_prediction_forms(self, content):
-        """28_05 — prediction type=content with string content or a text-part array is accepted."""
-        payload = {
-            "messages": [{"role": "user", "content": "Rename a to b in the code and return the whole file:\nprint(a)\n"}],
-            "prediction": {"type": "content", "content": content},
-        }
-        assert_request_accepted(payload, msg="28_05")

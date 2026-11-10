@@ -80,13 +80,10 @@
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 05_01 | `test_05_01_temperature_values` | temperature 合法值 [0, 0.5, 1, 2] | 各取值均 200 |
-| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `temperature` 0 / 0.2 / 2 / null,`top_p` 0.1 / 1 / null | `assert_oai_success`(只校验受理,不校验采样效果) |
+| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null(不覆盖 temperature:参照端点接受但不生效) | `assert_oai_success` |
 | 05_02 | `test_05_02_top_p` | top_p 边界值 [0.1, 0.5, 0.95] | 各取值均 200 |
 | 05_03 | `test_05_03_seed_parameter` | seed=42 + temperature=0 | 接口接受用于确定性输出 |
 | 05_03 | `test_05_03_penalty_and_logit_bias[...]` | M3.1-Flash: presence / frequency penalty 取 -2 / 0 / 2,均带 `max_completion_tokens=64` | `assert_oai_success`,允许 `finish_reason=length` |
-| 05_04 | `test_05_04_stop_array_and_null[four_sequences\|null]` | M3.1-Flash: `stop` 为 4 个序列的数组 / null | `assert_oai_success` |
-| 05_05 | `test_05_05_seed_values[int64_min\|int64_max\|null]` | M3.1-Flash: `seed` 取 int64 上下界 / null | `assert_oai_success` |
-| 05_07 | `test_05_07_same_seed_twice` | M3.1-Flash: 相同 `seed` 连发两次 | 两次均 `assert_oai_success`,不要求输出一致 |
 
 ## 06 max_tokens — max_tokens / max_completion_tokens 边界
 
@@ -137,11 +134,9 @@
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 09_01 | `test_09_01_json_object_non_stream` | json_object 非流式(已 skip) | content 是合法 JSON dict |
-| 09_01 | `test_09_01_text_and_json_object[type=text\|type=json_object]` | M3.1-Flash: `response_format` 为 text / json_object | `assert_oai_success` |
+| 09_01 | `test_09_01_text_and_json_object[type=text]` | M3.1-Flash: `response_format` 为 text(不覆盖 json_object / json_schema:参照端点接受但不约束输出) | `assert_oai_success` |
 | 09_02 | `test_09_02_json_object_stream` | json_object 流式 + thinking=disabled(已 skip) | 流应正常返回 |
-| 09_02 | `test_09_02_json_schema_strict[strict_schema\|with_description\|small_budget]` | M3.1-Flash: strict json_schema(含 description、小预算允许截断);不覆盖 `"type": [..., "null"]` 可空写法(参照端点不支持) | `assert_oai_success`(只校验受理,不校验 schema 符合度) |
 | 09_03 | `test_09_03_json_object_format` | json_object 通用(非流式/流式)(已 skip) | 合法 JSON;BUG-3 包裹则 xfail |
-| 09_08 | `test_09_08_schema_keywords[all_json_types]` | M3.1-Flash: strict schema 覆盖全部非 null 的 JSON 类型;不覆盖可空写法 | `assert_oai_success` |
 
 ## 10 usage_field — usage 字段语义/算术/cache
 
@@ -225,7 +220,6 @@
 | 14_05 | `test_14_05_nested_object_array` | 嵌套 array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4 层深嵌套 schema | nested_tool 触发 + 合法 JSON |
 | 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: OpenAI 支持的复杂 schema 关键字(不带 strict):anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败 |
-| 14_14 | `test_14_14_custom_tool_formats[missing_definition\|invalid_syntax]` | M3.1-Flash: custom 工具语法缺 definition / syntax 非法 | HTTP 400 |
 | 14_15 | `test_14_15_tool_declaration_invalid[function_container_missing\|name_wrong_type]` | M3.1-Flash: function 缺容器 / name 类型错误 | HTTP 400 |
 | 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: 属性级 allOf | 受理(由提示词要求调用);arguments 是 JSON 对象,不校验取值 |
 | 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: 属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
@@ -319,39 +313,13 @@
 
 ---
 
-## 22 logprobs — logprobs 请求字段
+## 27 passthrough_params — user
 
 > 只适用于 `m3_format_check/m3_1_flash_text_test.py`。
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
-
-## 26 prompt_cache — 缓存请求字段
-
-> 只适用于 `m3_format_check/m3_1_flash_text_test.py`。
-
-| Case ID | 函数名 | 场景说明 | 主要校验点 |
-|:---:|:---|:---|:---|
-| 26_01 | `test_26_01_cache_key_repeated` | 相同 `prompt_cache_key` 连发两次 | 两次均 `assert_oai_success`,命中率不在此校验(见 10_04) |
-| 26_03 | `test_26_03_cache_key_null` | `prompt_cache_key` 显式 null | `assert_oai_success` |
-
-## 27 passthrough_params — metadata / store / user / service_tier
-
-> 只适用于 `m3_format_check/m3_1_flash_text_test.py`。
-
-| Case ID | 函数名 | 场景说明 | 主要校验点 |
-|:---:|:---|:---|:---|
-| 27_01 | `test_27_01_metadata_values[one_key\|empty_string_value\|null]` | `metadata` 单键、空字符串值、null | `assert_oai_success`,不要求回显 |
-| 27_02 | `test_27_02_store_values[false\|true\|null]` | `store` 为 false / true / null | `assert_oai_success` |
 | 27_03 | `test_27_03_user_identifier[string\|null]` | 旧字段 `user` 为字符串 / null | `assert_oai_success` |
-
-## 28 extended_capability — modalities / audio / web_search_options / prediction
-
-> 只适用于 `m3_format_check/m3_1_flash_text_test.py`。
-
-| Case ID | 函数名 | 场景说明 | 主要校验点 |
-|:---:|:---|:---|:---|
-| 28_05 | `test_28_05_prediction_forms[string\|text_parts]` | `prediction` content 为字符串 / 文本数组 | `assert_oai_success`,不校验预测是否被采用 |
 
 ---
 

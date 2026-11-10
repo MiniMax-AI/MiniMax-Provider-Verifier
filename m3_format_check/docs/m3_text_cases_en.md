@@ -80,13 +80,10 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 05_01 | `test_05_01_temperature_values` | Valid temperatures [0, 0.5, 1, 2] | All values return 200 |
-| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `temperature` 0 / 0.2 / 2 / null, `top_p` 0.1 / 1 / null | `assert_oai_success` (acceptance only, not the sampling effect) |
+| 05_01 | `test_05_01_temperature_top_p_values[...]` | M3.1-Flash: `top_p` 0.1 / 1 / null (temperature is not covered: accepted but not applied by the reference endpoint) | `assert_oai_success` |
 | 05_02 | `test_05_02_top_p` | top_p boundaries [0.1, 0.5, 0.95] | All values return 200 |
 | 05_03 | `test_05_03_seed_parameter` | seed=42 + temperature=0 | API accepts for deterministic output |
 | 05_03 | `test_05_03_penalty_and_logit_bias[...]` | M3.1-Flash: presence / frequency penalty at -2 / 0 / 2, each with `max_completion_tokens=64` | `assert_oai_success`; `finish_reason=length` is allowed |
-| 05_04 | `test_05_04_stop_array_and_null[four_sequences\|null]` | M3.1-Flash: `stop` as an array of four sequences / null | `assert_oai_success` |
-| 05_05 | `test_05_05_seed_values[int64_min\|int64_max\|null]` | M3.1-Flash: `seed` at the int64 bounds / null | `assert_oai_success` |
-| 05_07 | `test_05_07_same_seed_twice` | M3.1-Flash: The same `seed` sent twice | Both `assert_oai_success`; identical output is not required |
 
 ## 06 max_tokens — max_tokens / max_completion_tokens boundaries
 
@@ -138,11 +135,9 @@
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
 | 09_01 | `test_09_01_json_object_non_stream` | json_object non-stream (SKIPPED) | content is valid JSON dict |
-| 09_01 | `test_09_01_text_and_json_object[type=text\|type=json_object]` | M3.1-Flash: `response_format` text / json_object | `assert_oai_success` |
+| 09_01 | `test_09_01_text_and_json_object[type=text]` | M3.1-Flash: `response_format` type=text (json_object / json_schema are not covered: accepted but not applied by the reference endpoint) | `assert_oai_success` |
 | 09_02 | `test_09_02_json_object_stream` | json_object stream + thinking=disabled (SKIPPED) | Stream returns properly |
-| 09_02 | `test_09_02_json_schema_strict[strict_schema\|with_description\|small_budget]` | M3.1-Flash: strict json_schema (with description, a small budget where truncation is allowed); the `"type": [..., "null"]` nullable form is not covered (rejected by the reference endpoint) | `assert_oai_success` (acceptance only, schema conformance is not asserted) |
 | 09_03 | `test_09_03_json_object_format` | json_object generic (non-stream/stream) (SKIPPED) | Valid JSON; xfail if BUG-3 wrap |
-| 09_08 | `test_09_08_schema_keywords[all_json_types]` | M3.1-Flash: a strict schema using every non-null JSON type; the nullable form is not covered | `assert_oai_success` |
 
 ## 10 usage_field — usage field semantics / arithmetic / cache
 
@@ -226,7 +221,6 @@
 | 14_05 | `test_14_05_nested_object_array` | Nested array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4-level deep nested schema | nested_tool fires + valid JSON |
 | 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: Complex schema keywords OpenAI supports (no strict): anyOf, enum, nullable, nesting, `$ref`, recursion, annotations, length, format, empty properties, non-ASCII property names, escaped values; call requested by the prompt | At least one call to the declared function with JSON-object arguments; schema conformance and prompt-fixed values are recorded, not asserted |
-| 14_14 | `test_14_14_custom_tool_formats[missing_definition\|invalid_syntax]` | M3.1-Flash: custom tool grammar without definition / with an invalid syntax | HTTP 400 |
 | 14_15 | `test_14_15_tool_declaration_invalid[function_container_missing\|name_wrong_type]` | M3.1-Flash: function container missing / name of the wrong type | HTTP 400 |
 | 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: Property-level allOf | Accepted (call requested by the prompt); arguments are a JSON object, values not checked |
 | 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: Property-level oneOf | Accepted; arguments are a JSON object, values not checked |
@@ -320,39 +314,13 @@
 
 ---
 
-## 22 logprobs — logprobs request field
+## 27 passthrough_params — user
 
 > Applies to `m3_format_check/m3_1_flash_text_test.py` only.
 
 | Case ID | Function Name | Scene Description | Key Assertions |
 |:---:|:---|:---|:---|
-
-## 26 prompt_cache — prompt cache request fields
-
-> Applies to `m3_format_check/m3_1_flash_text_test.py` only.
-
-| Case ID | Function Name | Scene Description | Key Assertions |
-|:---:|:---|:---|:---|
-| 26_01 | `test_26_01_cache_key_repeated` | The same `prompt_cache_key` sent twice | Both `assert_oai_success`; cache hits are not checked here (see 10_04) |
-| 26_03 | `test_26_03_cache_key_null` | `prompt_cache_key` explicitly null | `assert_oai_success` |
-
-## 27 passthrough_params — metadata / store / user / service_tier
-
-> Applies to `m3_format_check/m3_1_flash_text_test.py` only.
-
-| Case ID | Function Name | Scene Description | Key Assertions |
-|:---:|:---|:---|:---|
-| 27_01 | `test_27_01_metadata_values[one_key\|empty_string_value\|null]` | `metadata` with one key, an empty string value, null | `assert_oai_success`; no echo required |
-| 27_02 | `test_27_02_store_values[false\|true\|null]` | `store` false / true / null | `assert_oai_success` |
 | 27_03 | `test_27_03_user_identifier[string\|null]` | Legacy `user` as a string / null | `assert_oai_success` |
-
-## 28 extended_capability — modalities / audio / web_search_options / prediction
-
-> Applies to `m3_format_check/m3_1_flash_text_test.py` only.
-
-| Case ID | Function Name | Scene Description | Key Assertions |
-|:---:|:---|:---|:---|
-| 28_05 | `test_28_05_prediction_forms[string\|text_parts]` | `prediction` content as a string / text-part array | `assert_oai_success`; whether the prediction is used is not asserted |
 
 ---
 
