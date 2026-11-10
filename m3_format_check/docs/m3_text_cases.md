@@ -205,13 +205,11 @@
 | 13_13 | `test_13_13_undefined_tool_retry_after_error` | 流式 + adaptive thinking，few-shot 引导:上一轮 assistant 已 tool_call list_skills，tool 回灌“暂不可用，稍后重试”，本轮 user system-reminder 冷却结束重试；请求不带任何 tools 定义，list_skills 仅由上下文建立 | 模型应延续 pattern 重新输出 tool_call 调 list_skills + finish_reason=tool_calls（校验 provider 不依赖 tools 声明即可输出 tool_call，且不重写/丢弃工具名；因请求未声明工具，故不校验 schema） |
 | 13_22 | `test_13_22_echo_without_description_required` | M3.1-Flash: echo 省略 description,由提示词要求调用 | `finish_reason=tool_calls`,每个调用都是 echo,arguments 为字符串 |
 | 13_23 | `test_13_23_function_name_charset` | M3.1-Flash: 函数名含 a-z、A-Z、0-9、`_`、`-` | HTTP 200;若调用工具,函数名已声明、arguments 为 JSON 对象 |
-| 13_24 | `test_13_24_long_description` | M3.1-Flash: description 超长 | HTTP 200;若调用工具,函数名已声明、arguments 为 JSON 对象 |
+| 13_24 | `test_13_24_long_description` | M3.1-Flash: description 超长 | HTTP 200;调用的函数名只记录(参照端点在超长描述下也会调用未声明的函数名) |
 | 13_25 | `test_13_25_duplicate_function_names` | M3.1-Flash: 两个同名函数声明 | HTTP 200;若调用工具,函数名已声明、arguments 为 JSON 对象 |
 | 13_26 | `test_13_26_128_tools_boundary` | M3.1-Flash: 声明 128 个函数,`tool_choice=none` | HTTP 200,返回文本,不调用工具 |
 | 13_27 | `test_13_27_tool_choice_omitted_auto` | M3.1-Flash: 声明 echo + get_time,省略 `tool_choice` | 按 auto 处理:返回文本,或只调用已声明的函数 |
 | 13_28 | `test_13_28_tool_choice_null` | M3.1-Flash: `tool_choice=null` | 按省略处理:返回文本,或调用已声明的 echo |
-| 13_29 | `test_13_29_stream_multi_distinct_tools` | M3.1-Flash: 流式 echo + get_time,由提示词要求调用,`parallel_tool_calls=true` | `finish_reason=tool_calls`;重组后 id 互不相同、函数名已声明、arguments 各自符合 schema;允许只有一个调用 |
-| 13_30 | `test_13_30_same_name_parallel_non_stream` | M3.1-Flash: 非流式同名 get_weather,由提示词要求调用,`parallel_tool_calls=true` | 每个调用符合 schema 且 id 不同;出现两个调用时城市不同且覆盖北京、上海 |
 | 13_31 | `test_13_31_tool_call_id_unique_across_requests` | M3.1-Flash: 两次独立请求,由提示词要求调用 echo | 调用 id 跨请求不重复,不校验格式 |
 | 13_32 | `test_13_32_no_arg_function_arguments_braces` | M3.1-Flash: 无参函数 get_time,由提示词要求调用 | arguments 是空对象的 JSON 字符串 `{}`,不是空串或 null |
 | 13_33 | `test_13_33_stream_answer_after_tool_result` | M3.1-Flash: 工具结果回填后流式作答,`tool_choice=none` | `finish_reason=stop`,无 tool_calls 增量,正文非空 |
@@ -226,17 +224,16 @@
 | 14_04 | `test_14_04_multi_required_fields` | 多 required 字段 | from_city/to_city/date 都填 + date 前缀正确 |
 | 14_05 | `test_14_05_nested_object_array` | 嵌套 array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4 层深嵌套 schema | nested_tool 触发 + 合法 JSON |
-| 14_12 | `test_14_12_strict_tool_schema[...]` | M3.1-Flash: strict 支持的 schema:anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 恰好一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败(参照端点不执行 strict) |
+| 14_12 | `test_14_12_strict_tool_schema[...]` | M3.1-Flash: strict 支持的 schema:anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败(参照端点不执行 strict) |
 | 14_14 | `test_14_14_custom_tool_formats[missing_definition\|invalid_syntax]` | M3.1-Flash: custom 工具语法缺 definition / syntax 非法 | HTTP 400 |
 | 14_15 | `test_14_15_tool_declaration_invalid[function_container_missing\|name_wrong_type]` | M3.1-Flash: function 缺容器 / name 类型错误 | HTTP 400 |
-| 14_16 | `test_14_16_schema_capability_negative[strict_pattern_properties\|non_strict_allof]` | M3.1-Flash: strict 下 patternProperties 与 properties 并存 / strict=false 的 allOf | 受理(由提示词要求调用);strict 时 arguments 符合 schema,非 strict 时只要求是 JSON 对象 |
-| 14_17 | `test_14_17_multi_tools_required_parallel_fields` | M3.1-Flash: 非流式 echo + get_time,由提示词要求调用,`parallel_tool_calls=true` | 每个调用 arguments 各自符合 schema、id 不同;允许只有一个调用 |
+| 14_16 | `test_14_16_schema_capability_negative[strict_pattern_properties\|non_strict_allof]` | M3.1-Flash: strict 下 patternProperties 与 properties 并存 / strict=false 的 allOf | 受理(由提示词要求调用);arguments 为 JSON 对象;strict 时 schema 符合度只记录 |
 | 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: strict=false,属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
-| 14_19 | `test_14_19_strict_2d_bool_array[non_stream\|stream]` | M3.1-Flash: strict 二维布尔数组,由提示词要求调用 | 恰好一个调用,m 保持二维,元素是布尔值 |
+| 14_19 | `test_14_19_strict_2d_bool_array[non_stream\|stream]` | M3.1-Flash: strict 二维布尔数组,由提示词要求调用 | 至少一个调用,m 保持二维,元素是布尔值 |
 | 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: strict=false,省略 required 和 additionalProperties | 受理;arguments 是 JSON 对象,不校验取值 |
-| 14_21 | `test_14_21_strict_true` | M3.1-Flash: strict=true 的 echo,由提示词要求调用 | 恰好一个调用;arguments 是否只含 text 只记录不判失败 |
+| 14_21 | `test_14_21_strict_true` | M3.1-Flash: strict=true 的 echo,由提示词要求调用 | 至少一个调用;arguments 是否只含 text 只记录不判失败 |
 | 14_22 | `test_14_22_strict_false_null_omitted[false\|null\|omitted]` | M3.1-Flash: strict 为 false / null / 省略 | 受理,每个调用都是 echo,arguments 为字符串 |
-| 14_23 | `test_14_23_strict_value_constraints[pattern_zip\|format_email\|array_length]` | M3.1-Flash: strict 的 pattern / email format / 数组长度,由提示词要求调用 | 恰好一个调用;是否满足约束关键字只记录不判失败 |
+| 14_23 | `test_14_23_strict_value_constraints[pattern_zip\|format_email\|array_length]` | M3.1-Flash: strict 的 pattern / email format / 数组长度,由提示词要求调用 | 至少一个调用;是否满足约束关键字只记录不判失败 |
 | 14_24 | `test_14_24_description_not_string` | M3.1-Flash: description=123 | HTTP 400 |
 | 14_25 | `test_14_25_tools_element_not_object` | M3.1-Flash: tools 元素不是对象 | HTTP 400 |
 

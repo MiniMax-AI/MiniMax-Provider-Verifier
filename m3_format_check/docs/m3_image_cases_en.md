@@ -155,7 +155,9 @@ spec 1.3.6: "Each request supports up to 200 images." at_max uses 200 (spec cap)
 | Case ID | Function | Scenario | Assertion |
 |:---:|:---|:---|:---|
 | 12_01 | `test_12_01_count_at_max` | One request with **200** 672×672 synthetic PNGs (spec 1.3.6 cap; RGB varies with idx to defeat dedup; base64 data URL; ~600 tokens/image leaves headroom under max_model_len) | HTTP 200 AND content explicitly acknowledges seeing 200 images (rules out silent truncation to a smaller count) |
+| 12_01 | `test_12_01_count_at_max` / `test_12_01_count_at_max_acknowledged` | M3.1-Flash: Same as above | The format case only asserts HTTP 200; stating 200 images moves to `_acknowledged` (probabilistic) |
 | 12_02 | `test_12_02_count_over_max` | One request with **201** 672×672 synthetic PNGs (one over the cap) | 4xx rejection, OR HTTP 200 AND content explicitly acknowledges seeing 201 images (no silent undercount allowed) |
+| 12_02 | `test_12_02_count_over_max` / `test_12_02_count_over_max_acknowledged` | M3.1-Flash: Same as above | The format case only asserts a 4xx or HTTP 200; stating 201 images moves to `_acknowledged` (probabilistic) |
 
 ## 13 base64_compat — Base64 boundary tolerance
 

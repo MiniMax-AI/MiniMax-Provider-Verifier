@@ -155,7 +155,9 @@ spec 1.3.6:"每条请求最多支持 200 张图片"。at_max 取 200(spec 上限
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
 | 12_01 | `test_12_01_count_at_max` | 一条请求带 **200 张** 672×672 合成 PNG(spec 1.3.6 上限,RGB 按 idx 变化避免 dedup,base64 data URL,单图 ~600 tokens 留出 max_model_len 余量) | HTTP 200 AND content 明确声明"看到 200 张图片"(否则视为静默截断到更小张数) |
+| 12_01 | `test_12_01_count_at_max` / `test_12_01_count_at_max_acknowledged` | M3.1-Flash: 同上 | 格式用例只校验 HTTP 200;「说出 200 张」拆到 `_acknowledged`(概率性) |
 | 12_02 | `test_12_02_count_over_max` | 一条请求带 **201 张** 672×672 合成 PNG(越上限 1 张) | 4xx 拒绝,或 HTTP 200 AND content 明确声明"看到 201 张图片"(不允许静默少计) |
+| 12_02 | `test_12_02_count_over_max` / `test_12_02_count_over_max_acknowledged` | M3.1-Flash: 同上 | 格式用例只校验 4xx 或 HTTP 200;「说出 201 张」拆到 `_acknowledged`(概率性) |
 
 ## 13 base64_compat — Base64 边界容错
 

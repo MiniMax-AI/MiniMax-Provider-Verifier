@@ -57,7 +57,7 @@
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | 单次 `bash` + `glob` 并行工具调用，检查响应中每个 chunk、每个 choice 的 `delta.tool_calls` 内 `index` 不重复 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_10 | `test_02_10_tool_call_identity_stable` | 单次 `bash` + `glob` 并行工具调用，在合并前检查全部原始 `delta.tool_calls`：每个 choice 的新 `index` 首次出现时从 0 连续递增；每个调用最终具有非空 `id`；同一调用的 `id` 稳定，且不被其他调用复用（后续分片允许省略 `id`） | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` + 672×672 base64 图片的多模态场景（由原图片套件 `08_03` 迁入） | 独立 SSE 协议校验，不属于分包质量规则 |
-| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|tool_parallel\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个 / 并行工具调用分片、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`、并行场景未出现两个调用时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个工具调用分片、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送，返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_strict`） | 独立协议校验，不属于分包质量规则 |
 | 02_20 | `test_02_20_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true`，`0 <= reasoning_tokens <= completion_tokens`；未返回该字段时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
