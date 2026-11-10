@@ -80,6 +80,14 @@ pytest m3_text_tests.py -n 8
 pytest m3_image_tests.py::TestImageBase64::test_01_01_base64_image -v
 ```
 
+**Probabilistic cases (M3.1-Flash suites):** cases that assert model output or behaviour (counting, image content, tool use, thinking, cache hits) carry the `probabilistic` marker and vary between runs. Format runs deselect them:
+
+```bash
+pytest m3_1_flash_text_test.py m3_1_flash_stream_test.py m3_1_flash_image_test.py m3_1_flash_reasoning_effort_tests.py -m "not probabilistic"
+```
+
+Currently marked: text 10_04, 14_06, 14_07, 14_08, 16_11; image 03_01, 07_04, 11_04, `test_12_01_count_at_max_acknowledged`, `test_12_02_count_over_max_acknowledged`; reasoning_effort `test_01_01_valid_effort_thinking`, `test_01_09_effort_with_image_thinking`.
+
 ## Output
 
 - **stdout**: standard pytest output. The first line shows the jsonl path, e.g.

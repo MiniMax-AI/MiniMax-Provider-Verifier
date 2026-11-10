@@ -104,8 +104,6 @@
 | 09_03 | `test_09_03_corrupted_base64[non_stream\|stream]` | Corrupted base64 image (random bytes) | HTTP 400 |
 | 09_04 | `test_09_04_mime_mismatch[non_stream\|stream]` | MIME mismatch: PNG bytes labeled as image/jpeg | HTTP 200 (gateway tolerant) |
 | 09_05 | `test_09_05_detail_low_vs_high[low\|high]` | Same image with detail=low / high | HTTP 200 + content > 5 |
-| 09_06 | `test_09_06_detail_auto_and_null[detail=auto\|detail=null]` | M3.1-Flash: detail=auto; detail explicitly null treated as omitted | `assert_oai_success` |
-| 09_08 | `test_09_08_invalid_image_part[url_missing\|url_not_string]` | M3.1-Flash: image_url without url / with a non-string url | HTTP 400 |
 
 ## 10 resolution_tier — Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio
 
@@ -155,7 +153,9 @@ spec 1.3.6: "Each request supports up to 200 images." at_max uses 200 (spec cap)
 | Case ID | Function | Scenario | Assertion |
 |:---:|:---|:---|:---|
 | 12_01 | `test_12_01_count_at_max` | One request with **200** 672×672 synthetic PNGs (spec 1.3.6 cap; RGB varies with idx to defeat dedup; base64 data URL; ~600 tokens/image leaves headroom under max_model_len) | HTTP 200 AND content explicitly acknowledges seeing 200 images (rules out silent truncation to a smaller count) |
+| 12_01 | `test_12_01_count_at_max` / `test_12_01_count_at_max_acknowledged` | M3.1-Flash: Same as above | The format case only asserts HTTP 200; stating 200 images moves to `_acknowledged` (probabilistic) |
 | 12_02 | `test_12_02_count_over_max` | One request with **201** 672×672 synthetic PNGs (one over the cap) | 4xx rejection, OR HTTP 200 AND content explicitly acknowledges seeing 201 images (no silent undercount allowed) |
+| 12_02 | `test_12_02_count_over_max` / `test_12_02_count_over_max_acknowledged` | M3.1-Flash: Same as above | The format case only asserts a 4xx or HTTP 200; stating 201 images moves to `_acknowledged` (probabilistic) |
 
 ## 13 base64_compat — Base64 boundary tolerance
 

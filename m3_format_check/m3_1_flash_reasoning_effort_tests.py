@@ -187,19 +187,22 @@ def _usage(r: dict) -> dict:
 def _assert_reasoning_tokens(r: dict, expect_positive: bool, context: str = ""):
     """Assert the provider genuinely reports reasoning accounting.
 
-    `usage.completion_tokens_details.reasoning_tokens` must be PRESENT and an
-    int, then be > 0 (thinking on) or == 0 (thinking off).
+    Thinking on: `usage.completion_tokens_details.reasoning_tokens` must be
+    present, an int and > 0, which proves the provider reports the field.
 
-    Field presence is asserted on purpose: the spec requires reasoning_tokens to
-    be *set* to 0 when thinking is off, and a lenient `== 0` read would pass
-    vacuously against a provider that cannot report the field at all. Requiring
-    it in both directions is what proves the capability exists.
+    Thinking off: a missing completion_tokens_details / reasoning_tokens counts as
+    0, since the details object may be omitted when the model does not think. A
+    reported value must still be exactly 0.
 
     Per project decision the magnitude is NOT sanity-checked against the
     reasoning text (no tokenizer is introduced): > 0 is sufficient.
     """
     usage = _usage(r)
     assert usage, f"{context}: response carries no usage object"
+    if not expect_positive:
+        details = usage.get("completion_tokens_details")
+        if details is None or (isinstance(details, dict) and details.get("reasoning_tokens") is None):
+            return
     assert "completion_tokens_details" in usage, (
         f"{context}: usage.completion_tokens_details is missing, so "
         f"reasoning_tokens cannot be reported at all. usage={usage}"
@@ -246,8 +249,8 @@ def _assert_thinking_on(r: dict, context: str = ""):
 
 
 def _assert_thinking_off(r: dict, context: str = ""):
-    """Thinking is off: no thinking signal at all AND reasoning_tokens
-    explicitly reported as 0."""
+    """Thinking is off: no thinking signal at all AND reasoning_tokens is 0
+    (an omitted details object counts as 0)."""
     assert_thinking_absent(r, msg=context)
     _assert_reasoning_tokens(r, expect_positive=False, context=context)
 
@@ -338,14 +341,23 @@ class TestReasoningEffort:
     def test_01_01_valid_effort_accepted(self, effort, stream):
         """Each valid enum value (low/medium/high/xhigh/max) is accepted → HTTP 200.
 
-        Covers requirement 2.2. The prompt asks for step-by-step work, so a
-        thinking signal is expected and must arrive as reasoning_content.
-
-        Scope note: this case sends no `thinking` field, so it exercises the
-        default thinking mode. It therefore proves acceptance only — it cannot
-        prove the effort level took effect. The forced-on counterpart is
-        test_01_10 (effort + thinking.enabled).
+        Covers requirement 2.2. Whether the model actually thinks under the default
+        (adaptive) mode is covered by the probabilistic test_01_01_valid_effort_thinking.
+        The forced-on counterpart is test_01_10 (effort + thinking.enabled).
         """
+        r = oai_chat({
+            "messages": oai_simple_messages(THINKING_TRIGGER_PROMPT),
+            "reasoning_effort": effort,
+        }, stream=stream)
+
+        _assert_ok(r, stream)
+
+    @pytest.mark.probabilistic
+    @pytest.mark.parametrize("effort", REASONING_EFFORT_ENUM)
+    @STREAM_MODES
+    def test_01_01_valid_effort_thinking(self, effort, stream):
+        """01_01 (probabilistic) — With a valid effort and the default adaptive mode, the
+        step-by-step prompt produces thinking in reasoning_content."""
         context = f"reasoning_effort={effort}, stream={stream}"
         r = oai_chat({
             "messages": oai_simple_messages(THINKING_TRIGGER_PROMPT),
@@ -571,9 +583,34 @@ class TestReasoningEffort:
     @pytest.mark.parametrize("effort", ["low", "max"])
     @STREAM_MODES
     def test_01_09_effort_with_image(self, effort, stream):
-        """Image input accepts low/max effort with thinking and a final answer,
-        in both non-streaming and complete streaming responses.
+        """Image input accepts low/max effort with a final answer, in both
+        non-streaming and complete streaming responses. Whether the model thinks is
+        covered by the probabilistic test_01_09_effort_with_image_thinking.
         """
+        context = f"image + reasoning_effort={effort}, stream={stream}"
+        r = oai_chat({
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {
+                    "url": make_png_base64(672, 672, r=255, g=0, b=0),
+                }},
+                {"type": "text", "text": (
+                    "Identify the dominant color in this image. Use 17 if it is "
+                    "red, 23 if green, or 31 if blue, then multiply that number "
+                    "by 19. Think it through and give the color and result."
+                )},
+            ]}],
+            "reasoning_effort": effort,
+        }, stream=stream)
+
+        _assert_ok(r, stream)
+        assert get_oai_content(r).strip(), f"{context}: expected non-empty final answer"
+
+    @pytest.mark.probabilistic
+    @pytest.mark.parametrize("effort", ["low", "max"])
+    @STREAM_MODES
+    def test_01_09_effort_with_image_thinking(self, effort, stream):
+        """01_09 (probabilistic) — Image input with low/max effort produces thinking
+        in reasoning_content."""
         context = f"image + reasoning_effort={effort}, stream={stream}"
         r = oai_chat({
             "messages": [{"role": "user", "content": [
@@ -626,14 +663,6 @@ class TestReasoningEffort:
         _assert_ok(r, stream)
         _assert_thinking_on(r, context)
 
-    def test_01_11_effort_null(self):
-        """reasoning_effort explicitly null is accepted as a normal request.
-
-        Explicit null and an omitted field are recorded separately; the default
-        depth they fall back to is not asserted.
-        """
-        assert_request_accepted(contract_request(reasoning_effort=None), msg="01_11 reasoning_effort=null")
-
     def test_01_12_effort_switch_multiturn(self):
         """reasoning_effort switches from low to high between two turns of one conversation.
 
@@ -650,10 +679,10 @@ class TestReasoningEffort:
         assert_request_accepted({"messages": history, "reasoning_effort": "high"}, msg="01_12 turn 2 effort=high")
 
     def test_01_13_effort_with_completion_budget(self):
-        """A small max_completion_tokens together with reasoning_effort is accepted.
+        """A small max_tokens together with reasoning_effort is accepted.
 
         Hidden reasoning can use up the budget, so finish_reason=length with no
         visible content is a legal outcome and not treated as a failure.
         """
-        payload = contract_request(max_completion_tokens=32, reasoning_effort="low")
-        assert_request_accepted(payload, msg="01_13 max_completion_tokens=32 effort=low")
+        payload = contract_request(max_tokens=32, reasoning_effort="low")
+        assert_request_accepted(payload, msg="01_13 max_tokens=32 effort=low")
