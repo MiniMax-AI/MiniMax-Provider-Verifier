@@ -69,14 +69,12 @@ SSE_CONTRACT_SCENARIOS = (
     ("tool_single", {
         "messages": oai_simple_messages("Call echo with text=hello."),
         "tools": [ECHO_TOOL],
-        "tool_choice": "required",
     }, "tool_calls"),
     ("tool_parallel", {
         "messages": oai_simple_messages(
             "What's the weather in Beijing and Shanghai? Call get_weather once for each city."
         ),
         "tools": [WEATHER_TOOL_OAI],
-        "tool_choice": "required",
         "parallel_tool_calls": True,
     }, "tool_calls"),
     ("image_input", {
@@ -1056,7 +1054,7 @@ class TestSSEStream:
             pytest.skip("02_12 reasoning: no reasoning_content deltas observed")
         if name.startswith("tool"):
             calls = get_tool_calls(result)
-            assert calls, f"02_12 {name}: tool_choice=required but no tool calls"
+            assert calls, f"02_12 {name}: the prompt asks for a call but no tool calls"
             if name == "tool_parallel" and len(calls) < 2:
                 pytest.skip("02_12 tool_parallel: parallel tool calls not observed")
 

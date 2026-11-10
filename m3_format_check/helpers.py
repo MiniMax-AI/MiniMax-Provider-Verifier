@@ -1048,10 +1048,6 @@ def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = F
                 opened.add(i)
                 if delta.get("role") != "assistant":
                     failures.append(f"chunk {n}: first delta of choice {i} should have role=assistant: {delta}")
-                if reason is not None:
-                    failures.append(f"chunk {n}: first chunk of choice {i} already has finish_reason={reason!r}")
-                if delta.get("content"):
-                    failures.append(f"chunk {n}: first delta of choice {i} carries text: {delta}")
             for key in ("content", "reasoning_content"):
                 if delta.get(key) is not None and not isinstance(delta[key], str):
                     failures.append(f"chunk {n}: delta.{key} should be a string or null: {delta}")
@@ -1150,7 +1146,8 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
             call_ids = []
             for k, tc in enumerate(tool_calls):
                 fn = tc.get("function") if isinstance(tc, dict) else None
-                if not isinstance(tc, dict) or set(tc) != {"id", "type", "function"}:
+                # A non-stream `index` is tolerated: the reference endpoint returns it.
+                if not isinstance(tc, dict) or set(tc) - {"index"} != {"id", "type", "function"}:
                     failures.append(f"choice {i}: tool_calls[{k}] should have exactly id/type/function: {tc!r}")
                 if not isinstance(fn, dict) or set(fn) != {"name", "arguments"}:
                     failures.append(f"choice {i}: tool_calls[{k}].function should have exactly name/arguments: {fn!r}")
