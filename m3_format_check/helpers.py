@@ -1170,7 +1170,8 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
 def assert_error_response_strict(result, msg: str = ""):
     """Full error-response contract: HTTP 400 with a JSON (not SSE) body that carries an
     error object (message string; type string or null; code string, int or null) and no
-    completion; every violation is reported together."""
+    completion; every violation is reported together. A flat body with those fields at the
+    top level ({"object": "error", "message": ...}) is accepted as the error object."""
     assert_error(result, 400)
     failures = []
     content_type = _ctype(result).lower()
@@ -1183,6 +1184,8 @@ def assert_error_response_strict(result, msg: str = ""):
         if "choices" in body:
             failures.append("error body should not carry choices")
         err = body.get("error")
+        if err is None and body.get("object") == "error" and "message" in body:
+            err = body
         if not isinstance(err, dict):
             failures.append(f"error should be an object, got {err!r}")
         else:

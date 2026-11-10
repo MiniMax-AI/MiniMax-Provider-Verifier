@@ -4,7 +4,7 @@
 > Rows whose scenario starts with `M3.1-Flash:` correspond to `m3_format_check/m3_1_flash_text_test.py`; all other rows correspond to the file above.
 > The strict assertions used by `M3.1-Flash:` rows (`helpers.py`) check every rule on one response and report all violations together:
 > - `assert_chat_completion_strict`: one JSON object (not SSE) with `id` / `object=chat.completion` / `created` / `model`; choice `index` values are distinct integers; the assistant message `content` is a string or null (an omitted `content` key is read as null) and `refusal` is a string or null; a known `finish_reason`; `tool_calls` is absent / null or a non-empty list whose items have exactly `id` / `type=function` / `function{name, arguments (string)}` with distinct ids; usage follows the same rules as the stream helper (see `m3_stream_cases_en.md`).
-> - `assert_error_response_strict`: HTTP 400 with a JSON `Content-Type` and an `error` object (`message` a non-empty string, `type` a string or null, `code` a string, int or null) and no `choices`.
+> - `assert_error_response_strict`: HTTP 400 with a JSON `Content-Type` and an `error` object (`message` a non-empty string, `type` a string or null, `code` a string, int or null; the same fields flat at the top level with `object=error` are also accepted) and no `choices`.
 > - The stream counterpart `assert_sse_stream_strict` is described in `m3_stream_cases_en.md`.
 > Naming convention: `test_<module_id>_<intra_module_seq>_<scene>`
 > Modules: **20**; Test functions: **107**; Pytest collected items: **139**
