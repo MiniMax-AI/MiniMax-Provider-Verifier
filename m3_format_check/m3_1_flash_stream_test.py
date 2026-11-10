@@ -396,7 +396,6 @@ def _bash_glob_stream_result(case_id: str):
         "tool_choice": "auto",
         "parallel_tool_calls": True,
         "max_tokens": 64000,
-        "reasoning_split": True,
     }, stream=True)
     response_id = next(
         (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
