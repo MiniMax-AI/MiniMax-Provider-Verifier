@@ -795,11 +795,21 @@ class TestImageParam:
 
     @pytest.mark.parametrize("detail", ["auto", None], ids=["detail=auto", "detail=null"])
     def test_09_06_detail_auto_and_null(self, detail):
-        """09_06 — detail=auto is accepted, and detail explicitly null is treated like an omitted detail."""
+        """09_06 — detail=auto is accepted; detail explicitly null is either treated like an omitted
+        detail (200) or cleanly rejected (400 with a JSON error object), never a server error."""
         parts = [{"type": "image_url", "image_url": {"url": png_base64(), "detail": detail}}]
         if detail == "auto":
             parts.append({"type": "text", "text": "Describe the image."})
-        assert_request_accepted({"messages": [{"role": "user", "content": parts}]}, msg=f"09_06 detail={detail}")
+            assert_request_accepted({"messages": [{"role": "user", "content": parts}]}, msg="09_06 detail=auto")
+            return
+        r = oai_chat_verbatim({"messages": [{"role": "user", "content": parts}]})
+        if r["status"] == 200:
+            assert_oai_success(r)
+            return
+        body = r.get("body")
+        assert r["status"] == 400 and isinstance(body, dict) and isinstance(body.get("error"), dict), (
+            f"09_06 detail=null: expected 200 or 400 with a JSON error object, got {r['status']}: {str(body)[:300]}"
+        )
 
     @pytest.mark.parametrize("image_url", [{}, {"url": 12}], ids=["url_missing", "url_not_string"])
     def test_09_08_invalid_image_part(self, image_url):

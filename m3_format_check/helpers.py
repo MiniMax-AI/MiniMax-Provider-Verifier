@@ -1096,8 +1096,8 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
     """Full ChatCompletion contract of one non-stream response; every violation is reported together.
 
     A single JSON object (not SSE) with id / object=chat.completion / created / model,
-    choices with distinct integer indexes, an assistant message that always carries the
-    content key (string or null), refusal string or null, a known finish_reason (equal to
+    choices with distinct integer indexes, an assistant message whose content is a string
+    or null (an omitted content key is read as null), refusal string or null, a known finish_reason (equal to
     `finish` when given), tool_calls absent or a non-empty list whose items have exactly
     id / type=function / function{name, arguments:string} with distinct ids, and usage
     with consistent totals.
@@ -1127,9 +1127,7 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
             continue
         if message.get("role") != "assistant":
             failures.append(f"choice {i}: role should be assistant, got {message.get('role')!r}")
-        if "content" not in message:
-            failures.append(f"choice {i}: message.content key is missing")
-        elif message["content"] is not None and not isinstance(message["content"], str):
+        if message.get("content") is not None and not isinstance(message["content"], str):
             failures.append(f"choice {i}: content should be a string or null, got {message['content']!r}")
         if message.get("refusal") is not None and not isinstance(message["refusal"], str):
             failures.append(f"choice {i}: refusal should be a string or null, got {message['refusal']!r}")

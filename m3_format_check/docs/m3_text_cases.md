@@ -3,7 +3,7 @@
 > 对应文件:`data/m3_api_test/m3_text_tests.py`
 > 场景说明以 `M3.1-Flash:` 开头的行对应 `m3_format_check/m3_1_flash_text_test.py`,其余行对应上述文件。
 > `M3.1-Flash:` 行用到的严格断言(`helpers.py`)在一次响应上检查全部规则,并把所有违规项一起报出:
-> - `assert_chat_completion_strict`:单个 JSON 对象(非 SSE),带 `id` / `object=chat.completion` / `created` / `model`;choice `index` 为互不相同的整数;assistant 消息必带 `content` 键(字符串或 null),`refusal` 为字符串或 null;`finish_reason` 取值合法;`tool_calls` 缺省 / null 或为非空数组,元素恰好含 `id` / `type=function` / `function{name, arguments(字符串)}` 且 id 互不相同;usage 规则同流式(见 `m3_stream_cases.md`)。
+> - `assert_chat_completion_strict`:单个 JSON 对象(非 SSE),带 `id` / `object=chat.completion` / `created` / `model`;choice `index` 为互不相同的整数;assistant 消息 `content` 为字符串或 null(省略 `content` 键按 null 处理),`refusal` 为字符串或 null;`finish_reason` 取值合法;`tool_calls` 缺省 / null 或为非空数组,元素恰好含 `id` / `type=function` / `function{name, arguments(字符串)}` 且 id 互不相同;usage 规则同流式(见 `m3_stream_cases.md`)。
 > - `assert_error_response_strict`:HTTP 400,`Content-Type` 为 JSON,错误体带 `error` 对象(`message` 为非空字符串,`type` 为字符串或 null,`code` 为字符串、整数或 null),不带 `choices`。
 > - 流式的 `assert_sse_stream_strict` 见 `m3_stream_cases.md`。
 > 命名规范:`test_<模块编号>_<模块内顺序编号>_<场景说明>`
