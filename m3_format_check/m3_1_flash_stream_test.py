@@ -64,7 +64,7 @@ SSE_CONTRACT_SCENARIOS = (
     }, "stop"),
     ("length", {
         "messages": oai_simple_messages("Write a detailed 2000-word essay about the history of tea."),
-        "max_completion_tokens": 16,
+        "max_tokens": 16,
     }, "length"),
     ("tool_single", {
         "messages": oai_simple_messages("Call echo with text=hello."),

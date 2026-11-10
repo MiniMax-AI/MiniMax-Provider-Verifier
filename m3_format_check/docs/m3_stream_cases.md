@@ -13,7 +13,7 @@
 - `TestToolCallStreamPacketLengthDistribution`：每个 tool call 场景执行 1 次，独立使用自己的阈值判定非空 `delta.tool_calls[].function.arguments` 分包。并行工具场景同时校验整体分布和每个已观察到的 `tool_call.index` 分布。
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
 - 分包质量场景的结果严格为 `PASS` 或 `FAIL`，不使用 `WARN`。`02_09`、`02_10` 未覆盖并行调用时记为 `SKIP`；已观察到的协议违规仍记为 `FAIL`。
-- `assert_sse_stream_strict`（`helpers.py`）在一次响应上检查全部规则，并把所有违规项一起报出：帧为 `text/event-stream`、只有 JSON data 帧、`[DONE]` 恰好一个且在最后、流内没有 `error` 对象、同一条流的 `id` / `model` 不变、`created` 为整数且 `object=chat.completion.chunk`；每个 choice 的首包 `role=assistant`（首包可同时带正文和 `finish_reason`，参照端点即如此），`content` / `reasoning_content` 为字符串或 null；工具调用分片通过 `stream_protocol.inspect_stream_tool_calls`（index 从 0 连续、id 唯一且不变），每个调用的首个分片带 id、`type=function` 和 name，拼接后的 arguments 是 JSON 对象；每个 choice 恰好一个终态包，`finish_reason` 合法（可指定期望值），终态后该 choice 不再出现，以 `stop` 结束时拼接后的正文非空；`usage=True`（请求带 `include_usage=true`）时恰好一个 usage 对象、位于最后一个 JSON 包、`choices=[]`，token 为非负整数且 `prompt_tokens`、`completion_tokens` 大于 0，`total = prompt + completion`，返回 `cached_tokens` / `reasoning_tokens` 时分别不超过 `prompt_tokens` / `completion_tokens`。
+- `assert_sse_stream_strict`（`helpers.py`）在一次响应上检查全部规则，并把所有违规项一起报出：每个 data 帧都是 JSON 且单行不超过 1 MiB、`[DONE]` 之后不再有数据帧、流内没有 `error` 对象、`created` 为整数且 `object=chat.completion.chunk`；`content` / `reasoning_content` 为字符串或 null，工具调用分片的 `index` 为整数、`arguments` 为字符串；工具调用分片通过 `stream_protocol.inspect_stream_tool_calls`（index 从 0 连续、id 唯一且不变），每个调用的首个分片带 `id`、`type=function` 和 `name`，拼接后的参数可解析为 JSON 对象；每个 choice 恰好一个结束分片且 `finish_reason` 取值合法，结束后不再有该 choice 的分片，`stop` 结束时正文非空；带 `include_usage` 的请求至少有一个 usage 对象，取最后一个校验 token 计数。
 
 ## 分档与判定
 

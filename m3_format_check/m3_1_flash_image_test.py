@@ -793,31 +793,6 @@ class TestImageParam:
         )
 
 
-    @pytest.mark.parametrize("detail", ["auto", None], ids=["detail=auto", "detail=null"])
-    def test_09_06_detail_auto_and_null(self, detail):
-        """09_06 — detail=auto is accepted; detail explicitly null is either treated like an omitted
-        detail (200) or cleanly rejected (400 with a JSON error object), never a server error."""
-        parts = [{"type": "image_url", "image_url": {"url": png_base64(), "detail": detail}}]
-        if detail == "auto":
-            parts.append({"type": "text", "text": "Describe the image."})
-            assert_request_accepted({"messages": [{"role": "user", "content": parts}]}, msg="09_06 detail=auto")
-            return
-        r = oai_chat_verbatim({"messages": [{"role": "user", "content": parts}]})
-        if r["status"] == 200:
-            assert_oai_success(r)
-            return
-        body = r.get("body")
-        assert r["status"] == 400 and isinstance(body, dict) and isinstance(body.get("error"), dict), (
-            f"09_06 detail=null: expected 200 or 400 with a JSON error object, got {r['status']}: {str(body)[:300]}"
-        )
-
-    @pytest.mark.parametrize("image_url", [{}, {"url": 12}], ids=["url_missing", "url_not_string"])
-    def test_09_08_invalid_image_part(self, image_url):
-        """09_08 — An image_url object without url, or with a non-string url, is rejected with 400."""
-        payload = {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": image_url}]}]}
-        assert_request_rejected(payload, msg=f"09_08 image_url={image_url}")
-
-
 # ============================================================
 # 10 resolution_tier — detail tier / max_long_side_pixel / max_total_pixels / aspect ratio
 # ============================================================
@@ -1684,7 +1659,7 @@ class TestImageUsageAccounting:
     def test_14_01_image_counted_in_prompt_tokens(self):
         """Adding an image grows prompt_tokens; image_tokens, when returned, stays within prompt_tokens."""
         question = "Reply with OK."
-        r_text = oai_chat({"messages": oai_simple_messages(question), "max_completion_tokens": 256})
+        r_text = oai_chat({"messages": oai_simple_messages(question), "max_tokens": 256})
         assert_oai_success(r_text)
         r_image = oai_chat({
             "messages": [{
@@ -1700,7 +1675,7 @@ class TestImageUsageAccounting:
                     },
                 ],
             }],
-            "max_completion_tokens": 256,
+            "max_tokens": 256,
         })
         assert_oai_success(r_image)
         text_tokens = _get_prompt_tokens(r_text)

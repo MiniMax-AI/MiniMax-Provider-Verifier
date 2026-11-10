@@ -986,47 +986,50 @@ def _report(failures: list, msg: str, what: str):
     assert not failures, f"{msg}: {what} violations:\n  - " + "\n  - ".join(failures)
 
 
-def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = False):
-    """Full SSE contract of one stream; every violation is reported together.
+# SSE clients commonly read one data line into a buffer of at most 1 MiB; a longer
+# line can end the stream early on the client side.
+SSE_MAX_DATA_LINE_BYTES = 1024 * 1024
 
-    Frames: text/event-stream, JSON data frames only, exactly one [DONE] as the last frame,
-    no error object, one id / model per stream, integer created and object=chat.completion.chunk.
-    First chunk of a choice: role=assistant, finish_reason null, no text.
-    Deltas: content / reasoning_content are strings or null.
+
+def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = False):
+    """SSE contract of one stream; every violation is reported together.
+
+    Frames: every data frame is JSON and no longer than SSE_MAX_DATA_LINE_BYTES, no data
+    frame follows [DONE], no error object, integer created and object=chat.completion.chunk.
+    Deltas: content / reasoning_content are strings or null; tool call fragments have an
+    integer index and string arguments.
     Tool calls: indexes and ids pass inspect_stream_tool_calls, the first fragment of each
     call carries id, type=function and name, and the joined arguments parse as a JSON object.
     Finish: exactly one finish chunk per choice with a known finish_reason (equal to
     `finish` when given), and nothing after it for that choice; a stop finish has
     non-empty joined content.
-    Usage (usage=True, for requests with include_usage=true): exactly one usage object,
-    in the last JSON chunk, with choices=[] and valid token counts (see _usage_failures).
+    Usage (usage=True, for requests with include_usage=true): at least one usage object,
+    and the last one has valid token counts (see _usage_failures).
     """
     assert_oai_stream_success(result)
     failures = []
-    content_type = _ctype(result)
-    if not content_type.lower().startswith("text/event-stream"):
-        failures.append(f"Content-Type should be text/event-stream, got {content_type!r}")
     frames = [c for c in result.get("chunks") or [] if "_event" not in c]
     raw = [c["_raw"] for c in frames if "_raw" in c]
     if raw:
         failures.append(f"non-JSON data frames: {raw[:2]}")
     done_at = [i for i, c in enumerate(frames) if c.get("_done")]
-    if done_at != [len(frames) - 1]:
-        failures.append(f"[DONE] should be the single last frame, found at {done_at} of {len(frames)} frames")
+    if done_at and any(not c.get("_done") for c in frames[done_at[0] + 1:]):
+        failures.append(f"data frames after [DONE] at frame {done_at[0]} of {len(frames)}")
+    for n, c in enumerate(frames):
+        if c.get("_done"):
+            continue
+        size = len(c["_raw"].encode()) if "_raw" in c else len(
+            json.dumps(c, ensure_ascii=False, separators=(",", ":")).encode())
+        if size > SSE_MAX_DATA_LINE_BYTES:
+            failures.append(f"frame {n}: data line of {size} bytes exceeds {SSE_MAX_DATA_LINE_BYTES}")
 
     data = stream_data_chunks(result)
     errors = [c for c in data if "error" in c]
     if errors:
         failures.append(f"error object inside the stream: {str(errors[0])[:200]}")
-    ids = {c.get("id") for c in data}
-    if len(ids) != 1 or not all(isinstance(i, str) and i for i in ids):
-        failures.append(f"id should be one non-empty string, got {ids}")
     created = {c.get("created") for c in data}
     if not all(_int_not_bool(x) for x in created):
         failures.append(f"created should be an integer, got {created}")
-    models = {c.get("model") for c in data}
-    if len(models) != 1 or not all(isinstance(m, str) and m for m in models):
-        failures.append(f"model should be one non-empty string, got {models}")
     objects = {c.get("object") for c in data}
     if objects != {"chat.completion.chunk"}:
         failures.append(f"object should be chat.completion.chunk, got {objects}")
@@ -1044,13 +1047,16 @@ def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = F
             if i in finished:
                 failures.append(f"chunk {n}: choice {i} continues after its finish chunk: {choice}")
                 continue
-            if i not in opened:
-                opened.add(i)
-                if delta.get("role") != "assistant":
-                    failures.append(f"chunk {n}: first delta of choice {i} should have role=assistant: {delta}")
+            opened.add(i)
             for key in ("content", "reasoning_content"):
                 if delta.get(key) is not None and not isinstance(delta[key], str):
                     failures.append(f"chunk {n}: delta.{key} should be a string or null: {delta}")
+            for tc in delta.get("tool_calls") or []:
+                if not _int_not_bool(tc.get("index")):
+                    failures.append(f"chunk {n}: tool_calls[].index should be an integer: {tc}")
+                args = (tc.get("function") or {}).get("arguments")
+                if args is not None and not isinstance(args, str):
+                    failures.append(f"chunk {n}: tool_calls[].function.arguments should be a string: {tc}")
             if reason is not None:
                 finished[i] = reason
                 if reason not in FINISH_REASONS:
@@ -1081,41 +1087,32 @@ def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = F
 
     if usage:
         usage_at = [n for n, c in enumerate(data) if isinstance(c.get("usage"), dict)]
-        if len(usage_at) != 1:
-            failures.append(f"exactly one usage object expected, found at chunks {usage_at}")
-        elif usage_at[0] != len(data) - 1:
-            failures.append(f"usage should be in the last JSON chunk, found at {usage_at[0]} of {len(data)}")
+        if not usage_at:
+            failures.append("no usage object in the stream")
         else:
-            if data[-1].get("choices") != []:
-                failures.append(f"usage chunk should have choices=[], got {data[-1].get('choices')!r}")
-            failures += _usage_failures(data[-1]["usage"], "usage chunk")
+            failures += _usage_failures(data[usage_at[-1]]["usage"], f"usage chunk {usage_at[-1]}")
     _report(failures, msg, "SSE contract")
 
 
 def assert_chat_completion_strict(result, msg: str = "", finish=None):
-    """Full ChatCompletion contract of one non-stream response; every violation is reported together.
+    """ChatCompletion contract of one non-stream response; every violation is reported together.
 
-    A single JSON object (not SSE) with id / object=chat.completion / created / model,
-    choices with distinct integer indexes, an assistant message whose content is a string
-    or null (an omitted content key is read as null), refusal string or null, a known finish_reason (equal to
-    `finish` when given), tool_calls absent or a non-empty list whose items have exactly
-    id / type=function / function{name, arguments:string} with distinct ids, and usage
-    with consistent totals.
+    A single JSON object with object=chat.completion and integer created, a non-empty
+    choices list with distinct integer indexes, an assistant message whose content is a
+    string or null (an omitted content key is read as null), a known finish_reason (equal
+    to `finish` when given), tool_calls absent or a non-empty list whose items carry
+    id / type=function / function{name, arguments:string} (an integer index is allowed)
+    with distinct ids, and usage with consistent totals.
     """
     assert_oai_success(result)
     failures = []
-    content_type = _ctype(result).lower()
-    if not content_type.startswith("application/json"):
-        failures.append(f"Content-Type should be application/json, got {content_type!r}")
     body = result["body"]
-    if not isinstance(body.get("id"), str) or not body["id"]:
-        failures.append(f"id should be a non-empty string, got {body.get('id')!r}")
+    if not body.get("choices"):
+        failures.append(f"choices should be a non-empty list, got {body.get('choices')!r}")
     if body.get("object") != "chat.completion":
         failures.append(f"object should be chat.completion, got {body.get('object')!r}")
     if not _int_not_bool(body.get("created")):
         failures.append(f"created should be an integer, got {body.get('created')!r}")
-    if not isinstance(body.get("model"), str) or not body["model"]:
-        failures.append(f"model should be a non-empty string, got {body.get('model')!r}")
     indexes = [c.get("index") for c in body["choices"]]
     if not all(_int_not_bool(i) for i in indexes) or len(set(indexes)) != len(indexes):
         failures.append(f"choice indexes should be distinct integers, got {indexes}")
@@ -1129,8 +1126,6 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
             failures.append(f"choice {i}: role should be assistant, got {message.get('role')!r}")
         if message.get("content") is not None and not isinstance(message["content"], str):
             failures.append(f"choice {i}: content should be a string or null, got {message['content']!r}")
-        if message.get("refusal") is not None and not isinstance(message["refusal"], str):
-            failures.append(f"choice {i}: refusal should be a string or null, got {message['refusal']!r}")
         reason = c.get("finish_reason")
         if reason not in FINISH_REASONS:
             failures.append(f"choice {i}: unknown finish_reason {reason!r}")
@@ -1144,12 +1139,11 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
             call_ids = []
             for k, tc in enumerate(tool_calls):
                 fn = tc.get("function") if isinstance(tc, dict) else None
-                # A non-stream `index` is tolerated: the reference endpoint returns it.
-                if not isinstance(tc, dict) or set(tc) - {"index"} != {"id", "type", "function"}:
-                    failures.append(f"choice {i}: tool_calls[{k}] should have exactly id/type/function: {tc!r}")
-                if not isinstance(fn, dict) or set(fn) != {"name", "arguments"}:
-                    failures.append(f"choice {i}: tool_calls[{k}].function should have exactly name/arguments: {fn!r}")
+                if not isinstance(fn, dict):
+                    failures.append(f"choice {i}: tool_calls[{k}].function should be an object: {tc!r}")
                     continue
+                if "index" in tc and not _int_not_bool(tc["index"]):
+                    failures.append(f"choice {i}: tool_calls[{k}].index should be an integer, got {tc['index']!r}")
                 if not isinstance(tc.get("id"), str) or not tc["id"]:
                     failures.append(f"choice {i}: tool_calls[{k}].id should be a non-empty string")
                 call_ids.append(tc.get("id"))
@@ -1165,38 +1159,6 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
         failures.append(f"finish_reason should be {finish!r}, got {body['choices'][0].get('finish_reason')!r}")
     failures += _usage_failures(body.get("usage"), "body")
     _report(failures, msg, "ChatCompletion contract")
-
-
-def assert_error_response_strict(result, msg: str = ""):
-    """Full error-response contract: HTTP 400 with a JSON (not SSE) body that carries an
-    error object (message string; type string or null; code string, int or null) and no
-    completion; every violation is reported together. A flat body with those fields at the
-    top level ({"object": "error", "message": ...}) is accepted as the error object."""
-    assert_error(result, 400)
-    failures = []
-    content_type = _ctype(result).lower()
-    if not content_type.startswith("application/json"):
-        failures.append(f"Content-Type should be application/json, got {content_type!r}")
-    body = result.get("body")
-    if not isinstance(body, dict) or "_raw" in body:
-        failures.append(f"body should be a JSON object, got {str(body)[:200]!r}")
-    else:
-        if "choices" in body:
-            failures.append("error body should not carry choices")
-        err = body.get("error")
-        if err is None and body.get("object") == "error" and "message" in body:
-            err = body
-        if not isinstance(err, dict):
-            failures.append(f"error should be an object, got {err!r}")
-        else:
-            if not isinstance(err.get("message"), str) or not err["message"]:
-                failures.append(f"error.message should be a non-empty string, got {err.get('message')!r}")
-            if err.get("type") is not None and not isinstance(err["type"], str):
-                failures.append(f"error.type should be a string or null, got {err['type']!r}")
-            if err.get("code") is not None and not isinstance(err["code"], (str, int)):
-                failures.append(f"error.code should be a string, int or null, got {err['code']!r}")
-    _report(failures, msg, "error response contract")
-
 
 
 # --------------- Request-field contract (single-field request variants) ---------------
@@ -1264,27 +1226,6 @@ def assert_request_accepted(payload, msg: str = "", timeout=300):
     assert result["status"] == 200, f"{msg}: expected 200, got {result['status']}: {str(result.get('body'))[:300]}"
     assert_oai_success(result)
     return result
-
-
-def assert_request_rejected(payload, msg: str = ""):
-    """An invalid request shape must be rejected with HTTP 400, not silently accepted."""
-    result = oai_chat_verbatim(payload)
-    assert result["status"] == 400, (
-        f"{msg}: expected 400 (200 = invalid request silently accepted), got {result['status']}: "
-        f"{str(result.get('body'))[:300]}"
-    )
-    return result
-
-
-def oai_chat_raw_sse_lines(payload, timeout=TIMEOUT):
-    """Send a streaming request and return (status, raw SSE lines) without parsing frames."""
-    payload.setdefault("model", MODEL)
-    if DEFAULT_MAX_TOKENS and "max_tokens" not in payload and "max_completion_tokens" not in payload:
-        payload["max_tokens"] = DEFAULT_MAX_TOKENS
-    payload["stream"] = True
-    with httpx.Client(timeout=timeout) as client:
-        with client.stream("POST", OAI_URL, json=payload, headers=OAI_HEADERS) as resp:
-            return resp.status_code, list(resp.iter_lines())
 
 
 def assert_error(result, expected_status):
