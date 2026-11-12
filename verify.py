@@ -298,7 +298,7 @@ class ValidatorRunner:
                     provider = event.provider
 
                 if hasattr(event, 'usage') and event.usage:
-                    usage = event.usage
+                    usage = event.usage.model_dump()
 
                 if not hasattr(event, 'choices') or not event.choices:
                     # Spec-legitimate: providers send a terminal chunk with
