@@ -197,11 +197,10 @@
 | 13_23 | `test_13_23_function_name_charset` | M3.1-Flash: Function name using a-z, A-Z, 0-9, `_` and `-` | HTTP 200; any call uses a declared name with JSON-object arguments |
 | 13_24 | `test_13_24_long_description` | M3.1-Flash: Very long description | HTTP 200; the called name is recorded only (the model may call undeclared names with a very long description) |
 | 13_25 | `test_13_25_duplicate_function_names` | M3.1-Flash: Two declarations with the same name | HTTP 200; any call uses a declared name with JSON-object arguments |
-| 13_26 | `test_13_26_128_tools_boundary` | M3.1-Flash: 128 function declarations, `tool_choice=none` | HTTP 200 with a text answer and no tool call |
-| 13_27 | `test_13_27_tool_choice_omitted_auto` | M3.1-Flash: echo + get_time declared, `tool_choice` omitted | Behaves as auto: a text answer, or calls to declared functions only |
+| 13_26 | `test_13_26_128_tools_boundary` | M3.1-Flash: 128 function declarations | HTTP 200 with a text answer, or calls to declared functions only |
 | 13_31 | `test_13_31_tool_call_id_unique_across_requests` | M3.1-Flash: Two independent requests asking for echo in the prompt | Call ids do not repeat across requests; the id format is not checked |
 | 13_32 | `test_13_32_no_arg_function_arguments_braces` | M3.1-Flash: No-parameter get_time, call requested by the prompt | arguments is the JSON string of an empty object `{}`, never an empty string or null |
-| 13_33 | `test_13_33_stream_answer_after_tool_result` | M3.1-Flash: Streamed answer after a tool result, `tool_choice=none` | `finish_reason=stop`, no tool_calls deltas, non-empty content |
+| 13_33 | `test_13_33_stream_answer_after_tool_result` | M3.1-Flash: Streamed answer after a tool result | A text answer (`finish_reason=stop`, non-empty content), or calls to declared functions only |
 
 ## 14 tool_call_schema — Tool call advanced schema validation
 
@@ -228,9 +227,9 @@
 | 15_04 | `test_15_04_extreme_agent_thinking_fc` | Extreme agent: thinking+FC+4 rounds | HTTP 200 |
 | 15_05 | `test_15_05_system_thinking_tools_combo` | system + thinking + tools combo | get_weather + Tokyo |
 | 15_06 | `test_15_06_tool_roundtrip` | Full tool roundtrip | With tool result, user follow-up answered directly |
-| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\|stream]` | M3.1-Flash: History mixing tool turns and plain turns, `tool_choice=none` | Accepted with a text answer and no new tool call |
-| 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: Turn 1 asks for echo in the prompt; replay the real turn-1 id and arguments with a string tool result | Turn 2 answers with text and no new tool call |
-| 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: History assistant with tool_calls and content "" or text (non-stream / stream) | Accepted with a text answer |
+| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\| M3.1-Flash: History mixing tool turns and plain turns | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer and no new tool call |
+| 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: Turn 1 asks for echo in the prompt; replay the real turn-1 id and arguments with a string tool result | Turn 2 answers with text, or calls declared functions only |
+| 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: History assistant with tool_calls and content "" or text (non-stream / stream) | Accepted with a text answer, or calls to declared functions only |
 
 ## 16 tool_call_edge — Tool call boundary / exception handling
 
@@ -251,9 +250,9 @@
 | 16_12 | `test_16_12_invalid_json_arguments` | tool_calls.arguments invalid JSON | HTTP 400 |
 | 16_13 | `test_16_13_long_arguments_10k` | 10K char arguments | HTTP 200 |
 | 16_14 | `test_16_14_tool_choice_nonexistent_tool` | tool_choice specifies nonexistent tool | 200 or 400; model must not invent call |
-| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\|text_parts]` | M3.1-Flash: Real loop, tool.content "" or a text-parts array, `tool_choice=none` | Accepted with a text answer |
-| 16_18 | `test_16_18_tool_content_array_variants[empty_array\|image_part]` | M3.1-Flash: Real loop, tool.content an empty array / an image part | Accepted with a text answer |
-| 16_19 | `test_16_19_tool_result_json_string[non_stream\|stream]` | M3.1-Flash: tool.content is a JSON string, `tool_choice=none` | Accepted with a text answer |
+| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\| M3.1-Flash: Real loop, tool.content "" or a text-parts array | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
+| 16_18 | `test_16_18_tool_content_array_variants[empty_array\| M3.1-Flash: Real loop, tool.content an empty array / an image part | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
+| 16_19 | `test_16_19_tool_result_json_string[non_stream\| M3.1-Flash: tool.content is a JSON string | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
 
 ## 17 param_stress — Parameter stress (long conversation / long system)
 
@@ -315,7 +314,7 @@
 |:---:|:---|:---|:---|
 | 29_01 | `test_29_01_prompt_cache_key[empty\|non_empty]` | `prompt_cache_key` empty / a non-empty key | `assert_oai_success` |
 | 29_02 | `test_29_02_combined_text[non_stream\|stream]` | Plain text with `max_tokens`, `thinking=adaptive` and `prompt_cache_key` together | Strict contract + `finish_reason=stop` |
-| 29_03 | `test_29_03_combined_tool_loop[non_stream\|stream]` | Tool loop with the same fields: turn-2 assistant `content=""` + tool result | Turn 1 `tool_calls`; turn 2 strict contract + text answer |
+| 29_03 | `test_29_03_combined_tool_loop[non_stream\| Tool loop with the same fields: turn-2 assistant `content=""` + tool result | Turn 1 `tool_calls`; turn 2 strict contract + a text answer or calls to declared functions only | Turn 1 `tool_calls`; turn 2 strict contract + text answer |
 | 29_04 | `test_29_04_context_overflow_is_recognisable` | Input above the context window | 413, or 400 naming the context limit (`maximum context length` / `context window`); skip when it fits |
 
 ---

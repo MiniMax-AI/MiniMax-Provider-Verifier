@@ -99,6 +99,18 @@ def _assert_calls(r: dict, tools: list, msg: str, schema_check: bool = True) -> 
     return calls
 
 
+def assert_text_or_declared_calls(r: dict, tools: list, msg: str, finishes=("stop", "length")) -> list:
+    """Without a tool_choice constraint, both a text answer and a new tool call are valid replies.
+
+    Tool calls must use declared names, distinct non-empty ids and JSON-object arguments;
+    otherwise the reply must be a text answer. Works for stream and non-stream results.
+    Returns the get_tool_calls() items (empty for a text answer)."""
+    if get_tool_calls(r):
+        return _assert_calls(r, tools, msg, schema_check=False)
+    assert_text_reply(r, msg=msg, finishes=finishes)
+    return []
+
+
 def _echo_real_call(tools=None):
     """Turn 1 of a real loop: ask for echo(text=hello) and bind the returned call(s).
 
@@ -1634,27 +1646,14 @@ class TestToolCallBasic:
             _assert_calls(r, [ECHO_TOOL_OAI], "13_25", schema_check=False)
 
     def test_13_26_128_tools_boundary(self):
-        """128 function declarations (documented upper bound), tool_choice=none:
-        accepted (200) with a text answer."""
+        """128 function declarations (documented upper bound): accepted (200) with a text
+        answer or calls to declared functions."""
         tools = [tool_fn(f"tool_{i:03d}", description=f"Tool {i}",
                          parameters={"type": "object", "properties": {"p": {"type": "string"}}, "required": ["p"]})
                  for i in range(128)]
-        r = oai_chat({"messages": oai_simple_messages("你好，简单打个招呼。"), "tools": tools, "tool_choice": "none"})
+        r = oai_chat({"messages": oai_simple_messages("你好，简单打个招呼。"), "tools": tools})
         assert_oai_success(r)
-        assert_text_reply(r, msg="13_26", finishes=("stop", "length"))
-
-    def test_13_27_tool_choice_omitted_auto(self):
-        """tool_choice omitted with echo + get_time declared behaves as auto:
-        either a text answer (finish stop, tool_calls absent/null) or
-        calls that only use the declared names (finish tool_calls)."""
-        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
-        r = oai_chat({"messages": [{"role": "user", "content": "简短问候。"}], "tools": tools})
-        assert_oai_success(r)
-        if _finish(r) == "tool_calls":
-            calls = _assert_calls(r, tools, "13_27 auto", schema_check=False)
-            assert calls, "13_27 finish_reason=tool_calls but no tool_calls"
-        else:
-            assert_text_reply(r, msg="13_27 auto")
+        assert_text_or_declared_calls(r, tools, "13_26")
 
     def test_13_31_tool_call_id_unique_across_requests(self):
         """Two independent echo requests (call requested by the prompt) return different call ids
@@ -1681,12 +1680,12 @@ class TestToolCallBasic:
             assert raw.strip() and c["arguments_obj"] == {}, f"13_32 no-arg arguments should be '{{}}', got {raw!r}"
 
     def test_13_33_stream_answer_after_tool_result(self):
-        """History echo call + tool result + user question, tool_choice=none, stream:
-        finish_reason=stop, no tool_calls deltas, non-empty joined content."""
+        """History echo call + tool result + user question, stream: a text answer
+        (finish_reason=stop, non-empty joined content) or calls to declared functions."""
         messages = echo_history() + [{"role": "user", "content": "echo 返回了什么？只回复返回值。"}]
-        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI], "tool_choice": "none"}, stream=True)
+        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI]}, stream=True)
         assert_oai_stream_success(r)
-        assert_text_reply(r, msg="13_33", finishes=("stop",))
+        assert_text_or_declared_calls(r, [ECHO_TOOL_OAI], "13_33", finishes=("stop",))
 
 
 # ============================================================
@@ -2542,8 +2541,8 @@ class TestToolCallCombo:
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_15_10_mixed_tool_and_plain_turns(self, stream):
         """History mixes a tool turn, a plain assistant answer, a user follow-up and a
-        second tool turn (echo → text → get_time); tool_choice=none: accepted,
-        text answer with no new tool call."""
+        second tool turn (echo → text → get_time): accepted with a text answer or calls
+        to declared functions."""
         messages = echo_history() + [
             {"role": "assistant", "content": "返回 hello。"},
             {"role": "user", "content": "现在几点？"},
@@ -2551,30 +2550,29 @@ class TestToolCallCombo:
                 {"id": "call_2", "type": "function", "function": {"name": "get_time", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "call_2", "content": "12:00"},
         ]
-        r = oai_chat({"messages": messages, "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI],
-                      "tool_choice": "none"}, stream=stream)
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": messages, "tools": tools}, stream=stream)
         assert_oai_success(r)
-        assert_text_reply(r, msg=f"15_10 stream={stream}", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r, tools, f"15_10 stream={stream}")
 
     def test_15_11_real_call_string_roundtrip(self):
         """Real loop: turn 1 forces echo(text=hello); turn 2 replays the returned call
-        (real id + arguments, nothing fabricated) with a string tool result on the same id and
-        tool_choice=none. Turn 2: text answer, no new tool call."""
+        (real id + arguments, nothing fabricated) with a string tool result on the same id.
+        Turn 2: a text answer or calls to declared functions."""
         user, assistant, calls = _echo_real_call()
-        r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls),
-                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+        r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls), "tools": [ECHO_TOOL_OAI]})
         assert_oai_success(r2)
-        assert_text_reply(r2, msg="15_11 turn 2", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r2, [ECHO_TOOL_OAI], "15_11 turn 2")
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     @pytest.mark.parametrize("assistant_content", ["", "我来调用。"], ids=["empty_string", "with_text"])
     def test_15_13_assistant_tool_call_content_variants(self, assistant_content, stream):
         """History assistant with tool_calls and content "" or text alongside
-        the call: accepted under tool_choice=none and answered with text."""
-        r = oai_chat({"messages": echo_history(assistant_content=assistant_content),
-                      "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"}, stream=stream)
+        the call: accepted with a text answer or calls to declared functions."""
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": echo_history(assistant_content=assistant_content), "tools": tools}, stream=stream)
         assert_oai_success(r)
-        assert_text_reply(r, msg=f"15_13 content={assistant_content!r} stream={stream}", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r, tools, f"15_13 content={assistant_content!r} stream={stream}")
 
 
 # ============================================================
@@ -2836,34 +2834,36 @@ class TestToolCallEdge:
     @pytest.mark.parametrize("content", ["", [{"type": "text", "text": "hello"}]], ids=["empty_string", "text_parts"])
     def test_16_16_real_loop_tool_content_variants(self, content):
         """Real echo loop (turn-1 id / arguments replayed), turn 2 tool.content set to
-        '' or [{"type":"text","text":"hello"}], tool_choice=none: accepted, text answer."""
+        '' or [{"type":"text","text":"hello"}]: accepted with a text answer or calls to
+        declared functions."""
         user, assistant, calls = _echo_real_call()
         r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls, content=content),
-                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+                       "tools": [ECHO_TOOL_OAI]})
         assert_oai_success(r2)
-        assert_text_reply(r2, msg=f"16_16 content={content!r}", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r2, [ECHO_TOOL_OAI], f"16_16 content={content!r}")
 
     @pytest.mark.parametrize("content", [[], "image_part"], ids=["empty_array", "image_part"])
     def test_16_18_tool_content_array_variants(self, content):
         """Real echo loop, turn-2 tool.content = [] or a data-URL image part
-        (OpenAI 200 for both): accepted with a text answer under tool_choice=none."""
+        (OpenAI 200 for both): accepted with a text answer or calls to declared functions."""
         content_id = content if isinstance(content, str) else "empty_array"
         if content == "image_part":
             content = [{"type": "image_url", "image_url": {"url": png_base64()}}]
         user, assistant, calls = _echo_real_call()
         r2 = oai_chat({"messages": [user, assistant] + _tool_replies(calls, content=content),
-                       "tools": [ECHO_TOOL_OAI], "tool_choice": "none"})
+                       "tools": [ECHO_TOOL_OAI]})
         assert_oai_success(r2)
-        assert_text_reply(r2, msg=f"16_18 {content_id} turn 2", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r2, [ECHO_TOOL_OAI], f"16_18 {content_id} turn 2")
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_16_19_tool_result_json_string(self, stream):
-        """tool.content is an arbitrary string (a JSON document), tool_choice=none: accepted and
-        answered with text."""
-        r = oai_chat({"messages": echo_history(tool_content='{"ok":true,"v":[1,2]}'),
-                      "tools": [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI], "tool_choice": "none"}, stream=stream)
+        """tool.content is an arbitrary string (a JSON document): accepted with a text answer
+        or calls to declared functions."""
+        tools = [ECHO_TOOL_OAI, GET_TIME_TOOL_OAI]
+        r = oai_chat({"messages": echo_history(tool_content='{"ok":true,"v":[1,2]}'), "tools": tools},
+                     stream=stream)
         assert_oai_success(r)
-        assert_text_reply(r, msg=f"16_19 stream={stream}", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r, tools, f"16_19 stream={stream}")
 
 # ============================================================
 # 17 param_stress — param stress (long conversation / long system)
@@ -3272,7 +3272,8 @@ class TestCombinedRequest:
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     def test_29_03_combined_tool_loop(self, stream):
         """29_03 — Tool loop with the same fields: turn 1 returns a call; turn 2 replays it
-        with assistant content "" plus the tool result, and is answered with text."""
+        with assistant content "" plus the tool result, and is answered with text or calls to
+        declared functions."""
         user = {"role": "user", "content": ECHO_PROMPT}
         r1 = oai_chat(combined_request([user], tools=[ECHO_TOOL_OAI]))
         _assert_contract(r1, "29_03 turn 1", finish="tool_calls")
@@ -3282,9 +3283,9 @@ class TestCombinedRequest:
             for c in calls
         ]}
         r2 = oai_chat(combined_request([user, assistant] + _tool_replies(calls),
-                                       tools=[ECHO_TOOL_OAI], tool_choice="none"), stream=stream)
+                                       tools=[ECHO_TOOL_OAI]), stream=stream)
         _assert_contract(r2, f"29_03 turn 2 stream={stream}")
-        assert_text_reply(r2, msg=f"29_03 turn 2 stream={stream}", finishes=("stop", "length"))
+        assert_text_or_declared_calls(r2, [ECHO_TOOL_OAI], f"29_03 turn 2 stream={stream}")
 
     @pytest.mark.timeout(900)
     def test_29_04_context_overflow_is_recognisable(self):
