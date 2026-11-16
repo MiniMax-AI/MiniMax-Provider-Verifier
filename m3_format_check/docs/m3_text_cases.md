@@ -226,7 +226,7 @@
 | 15_04 | `test_15_04_extreme_agent_thinking_fc` | 极端 agent:thinking+FC+4 轮 | HTTP 200 |
 | 15_05 | `test_15_05_system_thinking_tools_combo` | system + thinking + tools 三件套 | get_weather + Tokyo |
 | 15_06 | `test_15_06_tool_roundtrip` | 完整 tool roundtrip | 已有 tool result 后用户提问直接回答 |
-| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\| M3.1-Flash: 历史中工具轮和普通轮混合 | 受理;返回文本,或只调用已声明的函数 | 受理并返回文本,不再调用工具 |
+| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\|stream]` | M3.1-Flash: 历史中工具轮和普通轮混合 | 受理;返回文本,或只调用已声明的函数 |
 | 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: 第一轮由提示词要求调用 echo,用真实返回的 id 和 arguments 回填字符串结果 | 第二轮返回文本,或只调用已声明的函数 |
 | 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: 历史 assistant 带 tool_calls,content 为空串 / 文字(非流式 / 流式) | 受理;返回文本,或只调用已声明的函数 |
 
@@ -249,9 +249,9 @@
 | 16_12 | `test_16_12_invalid_json_arguments` | tool_calls.arguments 非法 JSON | HTTP 400 |
 | 16_13 | `test_16_13_long_arguments_10k` | 10K 字符的 arguments | HTTP 200 |
 | 16_14 | `test_16_14_tool_choice_nonexistent_tool` | tool_choice 指定不存在的工具 | 200 或 400;模型不应捏造调用 |
-| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\| M3.1-Flash: 真实回填,tool.content 为空串 / text 数组 | 受理;返回文本,或只调用已声明的函数 | 受理并返回文本 |
-| 16_18 | `test_16_18_tool_content_array_variants[empty_array\| M3.1-Flash: 真实回填,tool.content 为空数组 / 含图片 part | 受理;返回文本,或只调用已声明的函数 | 受理并返回文本 |
-| 16_19 | `test_16_19_tool_result_json_string[non_stream\| M3.1-Flash: tool.content 是 JSON 字符串 | 受理;返回文本,或只调用已声明的函数 | 受理并返回文本 |
+| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\|text_parts]` | M3.1-Flash: 真实回填,tool.content 为空串 / text 数组 | 受理;返回文本,或只调用已声明的函数 |
+| 16_18 | `test_16_18_tool_content_array_variants[empty_array\|image_part]` | M3.1-Flash: 真实回填,tool.content 为空数组 / 含图片 part | 受理;返回文本,或只调用已声明的函数 |
+| 16_19 | `test_16_19_tool_result_json_string[non_stream\|stream]` | M3.1-Flash: tool.content 是 JSON 字符串 | 受理;返回文本,或只调用已声明的函数 |
 
 ## 17 param_stress — 参数压力(长对话 / 长 system)
 
@@ -313,7 +313,7 @@
 |:---:|:---|:---|:---|
 | 29_01 | `test_29_01_prompt_cache_key[empty\|non_empty]` | `prompt_cache_key` 为空串 / 非空 key | `assert_oai_success` |
 | 29_02 | `test_29_02_combined_text[non_stream\|stream]` | 纯文本,同时带 `max_tokens`、`thinking=adaptive`、`prompt_cache_key` | 严格契约 + `finish_reason=stop` |
-| 29_03 | `test_29_03_combined_tool_loop[non_stream\| 同样字段下的工具回环:第 2 轮 assistant `content=""` + tool 结果 | 第 1 轮 `tool_calls`;第 2 轮严格契约 + 返回文本或只调用已声明的函数 | 第 1 轮 `tool_calls`;第 2 轮严格契约 + 文本回答 |
+| 29_03 | `test_29_03_combined_tool_loop[non_stream\|stream]` | 同样字段下的工具回环:第 2 轮 assistant `content=""` + tool 结果 | 第 1 轮 `tool_calls`;第 2 轮严格契约 + 返回文本或只调用已声明的函数 |
 | 29_04 | `test_29_04_context_overflow_is_recognisable` | 超出上下文窗口的输入 | 413,或 400 且报错点明上下文上限(`maximum context length` / `context window`);能处理时 skip |
 
 ---

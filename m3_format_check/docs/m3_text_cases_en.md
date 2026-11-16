@@ -227,7 +227,7 @@
 | 15_04 | `test_15_04_extreme_agent_thinking_fc` | Extreme agent: thinking+FC+4 rounds | HTTP 200 |
 | 15_05 | `test_15_05_system_thinking_tools_combo` | system + thinking + tools combo | get_weather + Tokyo |
 | 15_06 | `test_15_06_tool_roundtrip` | Full tool roundtrip | With tool result, user follow-up answered directly |
-| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\| M3.1-Flash: History mixing tool turns and plain turns | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer and no new tool call |
+| 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\|stream]` | M3.1-Flash: History mixing tool turns and plain turns | Accepted with a text answer, or calls to declared functions only |
 | 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: Turn 1 asks for echo in the prompt; replay the real turn-1 id and arguments with a string tool result | Turn 2 answers with text, or calls declared functions only |
 | 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: History assistant with tool_calls and content "" or text (non-stream / stream) | Accepted with a text answer, or calls to declared functions only |
 
@@ -250,9 +250,9 @@
 | 16_12 | `test_16_12_invalid_json_arguments` | tool_calls.arguments invalid JSON | HTTP 400 |
 | 16_13 | `test_16_13_long_arguments_10k` | 10K char arguments | HTTP 200 |
 | 16_14 | `test_16_14_tool_choice_nonexistent_tool` | tool_choice specifies nonexistent tool | 200 or 400; model must not invent call |
-| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\| M3.1-Flash: Real loop, tool.content "" or a text-parts array | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
-| 16_18 | `test_16_18_tool_content_array_variants[empty_array\| M3.1-Flash: Real loop, tool.content an empty array / an image part | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
-| 16_19 | `test_16_19_tool_result_json_string[non_stream\| M3.1-Flash: tool.content is a JSON string | Accepted with a text answer, or calls to declared functions only | Accepted with a text answer |
+| 16_16 | `test_16_16_real_loop_tool_content_variants[empty_string\|text_parts]` | M3.1-Flash: Real loop, tool.content "" or a text-parts array | Accepted with a text answer, or calls to declared functions only |
+| 16_18 | `test_16_18_tool_content_array_variants[empty_array\|image_part]` | M3.1-Flash: Real loop, tool.content an empty array / an image part | Accepted with a text answer, or calls to declared functions only |
+| 16_19 | `test_16_19_tool_result_json_string[non_stream\|stream]` | M3.1-Flash: tool.content is a JSON string | Accepted with a text answer, or calls to declared functions only |
 
 ## 17 param_stress — Parameter stress (long conversation / long system)
 
@@ -314,7 +314,7 @@
 |:---:|:---|:---|:---|
 | 29_01 | `test_29_01_prompt_cache_key[empty\|non_empty]` | `prompt_cache_key` empty / a non-empty key | `assert_oai_success` |
 | 29_02 | `test_29_02_combined_text[non_stream\|stream]` | Plain text with `max_tokens`, `thinking=adaptive` and `prompt_cache_key` together | Strict contract + `finish_reason=stop` |
-| 29_03 | `test_29_03_combined_tool_loop[non_stream\| Tool loop with the same fields: turn-2 assistant `content=""` + tool result | Turn 1 `tool_calls`; turn 2 strict contract + a text answer or calls to declared functions only | Turn 1 `tool_calls`; turn 2 strict contract + text answer |
+| 29_03 | `test_29_03_combined_tool_loop[non_stream\|stream]` | Tool loop with the same fields: turn-2 assistant `content=""` + tool result | Turn 1 `tool_calls`; turn 2 strict contract + a text answer or calls to declared functions only |
 | 29_04 | `test_29_04_context_overflow_is_recognisable` | Input above the context window | 413, or 400 naming the context limit (`maximum context length` / `context window`); skip when it fits |
 
 ---
