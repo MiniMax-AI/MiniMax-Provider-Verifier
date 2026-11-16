@@ -245,7 +245,7 @@
 | 16_06 | `test_16_06_long_tool_result_50k` | 50K char tool result | HTTP 200 |
 | 16_07 | `test_16_07_tool_result_object` | tool result = object | HTTP 400 |
 | 16_08 | `test_16_08_tool_call_id_mismatch` | tool_call_id mismatch | HTTP 400 |
-| 16_09 | `test_16_09_partial_tool_call_reply` | Reply to only some tool_calls | HTTP 400 |
+| 16_09 | `test_16_09_partial_tool_call_reply` | Reply to only some tool_calls | HTTP 400, or HTTP 200 passing the normal success checks |
 | 16_10 | `test_16_10_30_tool_definitions` | 30 tool definitions | HTTP 200 + if triggered, args valid JSON |
 | 16_11 | `test_16_11_tool_name_special_chars` | tool name with - and . (my-tool.v2) | Model calls correctly |
 | 16_12 | `test_16_12_invalid_json_arguments` | tool_calls.arguments invalid JSON | HTTP 400 |

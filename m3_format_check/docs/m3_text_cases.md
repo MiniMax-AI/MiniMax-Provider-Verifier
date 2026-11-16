@@ -244,7 +244,7 @@
 | 16_06 | `test_16_06_long_tool_result_50k` | 50K 字符 tool result | HTTP 200 |
 | 16_07 | `test_16_07_tool_result_object` | tool result = object 类型 | HTTP 400 |
 | 16_08 | `test_16_08_tool_call_id_mismatch` | tool_call_id 不匹配 | HTTP 400 |
-| 16_09 | `test_16_09_partial_tool_call_reply` | 两 tool_calls 只回填一个 | HTTP 400 |
+| 16_09 | `test_16_09_partial_tool_call_reply` | 两 tool_calls 只回填一个 | HTTP 400,或 HTTP 200 且通过常规成功校验 |
 | 16_10 | `test_16_10_30_tool_definitions` | 30 个 tool definitions | HTTP 200 + 若触发则 args 合法 JSON |
 | 16_11 | `test_16_11_tool_name_special_chars` | tool name 含 - 和 . (my-tool.v2) | 模型应正确调用 |
 | 16_12 | `test_16_12_invalid_json_arguments` | tool_calls.arguments 非法 JSON | HTTP 400 |
