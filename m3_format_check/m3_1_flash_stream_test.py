@@ -8,6 +8,7 @@ distribution and a binary packet-quality result to a companion jsonl file.
 """
 
 import copy
+import gzip
 import json
 import math
 import os
@@ -894,21 +895,30 @@ def _gzip_large_image_payload() -> dict[str, Any]:
     ]}]}
 
 
+def _stream_prompt_tokens(result: dict[str, Any]) -> Any:
+    """prompt_tokens of the last usage chunk of a stream, or None without one."""
+    usage_chunks = [c for c in result["chunks"] if c.get("usage")]
+    return usage_chunks[-1]["usage"].get("prompt_tokens") if usage_chunks else None
+
+
 def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
     """Send the payload uncompressed and then gzip-compressed, and compare the two.
 
     The gzip request must complete as a normal stream and report the same
     prompt_tokens as the uncompressed one, which shows the server decoded the
-    original body. The full SSE contract is left to 02_12, so stream-format defects
-    unrelated to request encoding do not fail these cases.
+    original body. An endpoint served by several backends may count the same
+    uncompressed body differently, so on a mismatch the uncompressed request is
+    sent once more and either count is accepted. The full SSE contract is left to
+    02_12, so stream-format defects unrelated to request encoding do not fail
+    these cases.
     """
     plain = oai_chat(copy.deepcopy(payload), stream=True)
     assert plain["status"] == 200, (
         f"{case_id} uncompressed baseline failed with HTTP {plain['status']}: "
         f"{str(plain.get('body'))[:300]}"
     )
-    plain_usage = [c for c in plain["chunks"] if c.get("usage")]
-    assert plain_usage, f"{case_id} uncompressed baseline has no usage chunk"
+    plain_tokens = [_stream_prompt_tokens(plain)]
+    assert plain_tokens[0] is not None, f"{case_id} uncompressed baseline has no usage chunk"
     result = oai_chat(copy.deepcopy(payload), stream=True, gzip_body=True)
     context = f"{case_id} trace_id={result.get('trace_id')}, request_encoding={result.get('request_encoding')}"
     assert result["status"] == 200, (
@@ -916,12 +926,14 @@ def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
         f"uncompressed body succeeded: {str(result.get('body'))[:300]}"
     )
     assert_oai_stream_success(result)
-    gzip_usage = [c for c in result["chunks"] if c.get("usage")]
-    assert gzip_usage, f"{context}: no usage chunk in the gzip stream"
-    plain_tokens = plain_usage[-1]["usage"].get("prompt_tokens")
-    gzip_tokens = gzip_usage[-1]["usage"].get("prompt_tokens")
-    assert gzip_tokens == plain_tokens, (
-        f"{context}: prompt_tokens {gzip_tokens} differs from the uncompressed request "
+    gzip_tokens = _stream_prompt_tokens(result)
+    assert gzip_tokens is not None, f"{context}: no usage chunk in the gzip stream"
+    if gzip_tokens != plain_tokens[0]:
+        retry = oai_chat(copy.deepcopy(payload), stream=True)
+        if retry["status"] == 200:
+            plain_tokens.append(_stream_prompt_tokens(retry))
+    assert gzip_tokens in plain_tokens, (
+        f"{context}: prompt_tokens {gzip_tokens} differs from the uncompressed requests "
         f"({plain_tokens}), so the decoded body is not the original"
     )
 
@@ -1175,6 +1187,18 @@ class TestGzipRequestBody:
     def test_02_23_gzip_request_body_large_image(self):
         """~9 MB image that stays large after compression; exercises request-size limits (HTTP 413)."""
         _assert_gzip_matches_plain("02_23", _gzip_large_image_payload())
+
+    def test_02_24_truncated_gzip_request_body_rejected(self):
+        """A truncated gzip body is rejected with a 4xx error, not a 5xx or a 200."""
+        payload = {"messages": oai_simple_messages("Reply only with: hello")}
+        encoded = gzip.compress(json.dumps({"model": helpers.MODEL, **payload}).encode("utf-8"))
+        result = oai_chat_verbatim(
+            payload, body=encoded[: len(encoded) // 2], headers={"Content-Encoding": "gzip"},
+        )
+        assert 400 <= result["status"] < 500, (
+            f"02_24 trace_id={result.get('trace_id')}: a truncated gzip body should be rejected "
+            f"with a 4xx error, got HTTP {result['status']}: {str(result.get('body'))[:300]}"
+        )
 
 
 class TestContentStreamPacketLengthDistribution:

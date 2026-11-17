@@ -1186,17 +1186,23 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
 CONTRACT_PROMPT = "Explain caching in one sentence."
 
 
-def oai_chat_verbatim(payload, timeout=300):
+def oai_chat_verbatim(payload, timeout=300, body=None, headers=None):
     """POST the payload exactly as given (only `model` is filled in) and read the whole body.
 
     oai_chat always overwrites `stream`, so it cannot put `stream: null`, an omitted
     `stream`, or a mistyped value on the wire. Returns the same shape as a non-stream
     oai_chat call, plus the undecoded response `text`.
+
+    `body` sends these bytes instead of the serialized payload (e.g. a malformed
+    encoded body); `headers` are added to the default request headers.
     """
     payload = {"model": MODEL, **payload}
     started = time.time()
     resp = httpx.post(
-        OAI_URL, content=json.dumps(payload).encode("utf-8"), headers=OAI_HEADERS, timeout=timeout,
+        OAI_URL,
+        content=body if body is not None else json.dumps(payload).encode("utf-8"),
+        headers={**OAI_HEADERS, **(headers or {})},
+        timeout=timeout,
     )
     try:
         body = resp.json()
