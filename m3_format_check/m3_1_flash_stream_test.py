@@ -1162,7 +1162,6 @@ class TestSSEStream:
         )
 
 
-@pytest.mark.gzip_request
 class TestGzipRequestBody:
     """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
 
