@@ -1157,6 +1157,10 @@ class TestSSEStream:
             f"02_20 reasoning_tokens outside completion_tokens: {usage!r}"
         )
 
+
+class TestGzipRequestBody:
+    """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
+
     def test_02_21_gzip_request_body_stream(self):
         """Short streaming request: the gzip body succeeds with the same prompt_tokens."""
         _assert_gzip_matches_plain("02_21", {"messages": oai_simple_messages("Reply only with: hello")})
