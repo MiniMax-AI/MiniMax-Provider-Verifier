@@ -31,6 +31,7 @@ from helpers import (
     oai_chat_verbatim,
     oai_simple_messages,
     png_base64,
+    size_fixture_data_url,
     stream_data_chunks,
 )
 from stream_protocol import inspect_stream_tool_calls
@@ -1115,3 +1116,148 @@ class TestToolCallStreamPacketLengthDistribution:
         stats_path = _write_stats_record(record)
         _print_distribution(record, stats_path)
         _assert_packet_quality(record)
+
+
+# Gzip-compressed request bodies (Content-Encoding: gzip). Opt-in because not every
+# endpoint accepts compressed request bodies: set M3_GZIP_REQUEST_CASES=1 to run them.
+GZIP_REQUEST_CASES = os.environ.get("M3_GZIP_REQUEST_CASES", "").strip().lower() in (
+    "1", "true", "yes",
+)
+
+READ_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": "Read a file from the repository and return its content.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Repository-relative path."}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+GZIP_LONG_CONTEXT_MODULES = ("auth", "billing", "search", "storage")
+GZIP_LONG_CONTEXT_HANDLERS = 650
+
+
+def _synthetic_module_source(module: str) -> str:
+    """Deterministic source-like text (~100 KB) used as a tool result."""
+    rows = [f'"""Request handlers for the {module} service."""', "import logging", ""]
+    for i in range(GZIP_LONG_CONTEXT_HANDLERS):
+        rows += [
+            f"def handle_{module}_{i:04d}(request, retries={i % 5}):",
+            f'    logging.info("{module} handler %d", {i})',
+            f'    return dispatch(request, route="/{module}/{i}", retries=retries)',
+            "",
+        ]
+    return "\n".join(rows)
+
+
+def _gzip_long_agent_context_payload() -> dict[str, Any]:
+    """Agent-style request of ~420 KB: tools plus several read_file tool results."""
+    messages = [
+        {"role": "system", "content": "You are a coding assistant working inside a repository."},
+        {"role": "user", "content": "Read the service modules, then wait for my next instruction."},
+    ]
+    for n, module in enumerate(GZIP_LONG_CONTEXT_MODULES):
+        call_id = f"call_read_{n}"
+        messages += [
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": json.dumps({"path": f"services/{module}/handlers.py"}),
+                },
+            }]},
+            {"role": "tool", "tool_call_id": call_id, "content": _synthetic_module_source(module)},
+        ]
+    messages.append({"role": "user", "content": "All files are read. Reply only with: done"})
+    return {"messages": messages, "tools": [READ_FILE_TOOL]}
+
+
+def _gzip_large_image_payload() -> dict[str, Any]:
+    """Multimodal request whose body stays large after compression (~9 MB PNG)."""
+    return {"messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": size_fixture_data_url("image_9mb.png")}},
+        {"type": "text", "text": "What is the dominant color of this image? Answer in one word."},
+    ]}]}
+
+
+GZIP_LARGE_BODY_SCENARIOS = (
+    pytest.param(_gzip_long_agent_context_payload, id="long_agent_context"),
+    pytest.param(_gzip_large_image_payload, id="large_image"),
+)
+
+
+def _stream_prompt_tokens(result: dict) -> Any:
+    usages = [c["usage"] for c in stream_data_chunks(result) if isinstance(c.get("usage"), dict)]
+    return usages[-1].get("prompt_tokens") if usages else None
+
+
+def _gzip_rejection_label(status: int) -> str:
+    if status == 400:
+        return "HTTP 400 client error"
+    if status == 413:
+        return "HTTP 413 payload too large"
+    return f"HTTP {status} (non-400 status)"
+
+
+def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
+    """Send the same payload uncompressed and gzip-compressed, then compare.
+
+    The gzip request must complete as a normal stream and report the same
+    prompt_tokens as the uncompressed request, which shows the server decoded
+    exactly the bytes that were sent. The full SSE contract is left to 02_12, so
+    stream-format defects unrelated to request encoding do not fail these cases.
+    """
+    plain = oai_chat(copy.deepcopy(payload), stream=True)
+    assert plain["status"] == 200, (
+        f"{case_id}: uncompressed baseline request failed with HTTP {plain['status']}, "
+        f"so the gzip request cannot be compared: {str(plain.get('body'))[:300]}"
+    )
+    compressed = oai_chat(copy.deepcopy(payload), stream=True, content_encoding="gzip")
+    encoding = compressed.get("request_encoding") or {}
+    context = (
+        f"{case_id}: trace_id={compressed.get('trace_id')}, "
+        f"raw_bytes={encoding.get('raw_bytes')}, wire_bytes={encoding.get('wire_bytes')}"
+    )
+    assert compressed["status"] == 200, (
+        f"{context}: gzip request body rejected with {_gzip_rejection_label(compressed['status'])} "
+        f"while the same uncompressed body succeeded: {str(compressed.get('body'))[:300]}"
+    )
+    assert_oai_stream_success(compressed)
+    plain_tokens = _stream_prompt_tokens(plain)
+    gzip_tokens = _stream_prompt_tokens(compressed)
+    assert gzip_tokens is not None, f"{context}: gzip stream reported no usage.prompt_tokens"
+    assert plain_tokens == gzip_tokens, (
+        f"{context}: prompt_tokens differ between the uncompressed ({plain_tokens}) and gzip "
+        f"({gzip_tokens}) requests, so the decoded body is not identical to the original"
+    )
+
+
+@pytest.mark.skipif(
+    not GZIP_REQUEST_CASES,
+    reason="gzip request-body cases are opt-in; set M3_GZIP_REQUEST_CASES=1",
+)
+class TestGzipRequestBody:
+    """Request bodies sent with Content-Encoding: gzip must behave like uncompressed ones."""
+
+    def test_02_21_gzip_request_body_stream(self):
+        """Short streaming request: gzip body succeeds with the same prompt_tokens."""
+        _assert_gzip_matches_plain("02_21", {
+            "messages": oai_simple_messages("Reply only with: hello"),
+        })
+
+    @pytest.mark.parametrize("build_payload", GZIP_LARGE_BODY_SCENARIOS)
+    def test_02_22_gzip_request_body_large(self, build_payload):
+        """Large bodies: a highly compressible agent context and a large image.
+
+        long_agent_context (~420 KB) compresses to a small fraction of its size, so a
+        server that limits the decompression ratio or decoded size may reject it.
+        large_image stays about 9 MB after compression and exercises request-size
+        limits (HTTP 413).
+        """
+        _assert_gzip_matches_plain("02_22", build_payload())

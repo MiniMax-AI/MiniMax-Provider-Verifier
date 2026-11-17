@@ -52,6 +52,7 @@ export M3_API_KEY="sk-xxx"
 | `M3_EXTRA_HEADERS` | (empty) | JSON string of extra request headers to inject, e.g. `'{"X-Custom-Header": "value"}'` |
 | `M3_SKIP_REASONING_SPLIT` | `0` | Set to `1` to skip cases that depend on `reasoning_split` (some implementations do not pass through this OAI extension) |
 | `M3_LONG_VIDEO_DIR` | `fixtures/m3_test_videos` | Long-video (D_*s.mp4) directory. Defaults to the in-repo fixtures; override to point at a different set. |
+| `M3_GZIP_REQUEST_CASES` | `0` | Set to `1` to run the gzip request-body (`Content-Encoding: gzip`) cases `02_21` and `02_22` in `m3_1_flash_stream_test.py`; skipped by default |
 
 ## Running
 

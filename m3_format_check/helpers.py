@@ -6,6 +6,7 @@ the full request and full response (or per-chunk stream array). conftest.py
 sets RUN_LOG_PATH at session start.
 """
 import base64
+import gzip
 import json
 import os
 import struct
@@ -711,12 +712,32 @@ def _extract_trace_id(response_headers: Optional[dict],
     return None
 
 
-def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
+REQUEST_CONTENT_ENCODINGS = ("gzip",)
+
+
+def _encode_request(payload, content_encoding):
+    """Serialize the payload and compress it with the given content coding.
+
+    Returns (body bytes, uncompressed byte count).
+    """
+    if content_encoding not in REQUEST_CONTENT_ENCODINGS:
+        raise ValueError(
+            f"unsupported request content_encoding {content_encoding!r}; "
+            f"expected one of {REQUEST_CONTENT_ENCODINGS}"
+        )
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return gzip.compress(raw), len(raw)
+
+
+def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT, content_encoding=None):
     """Send OAI chat completion request, log full request+response to jsonl.
 
     Returns the same shape as before:
       non-stream → {"status": int, "body": dict, "stream": False}
       stream     → {"status": int, "chunks": [dict, ...], "stream": True}
+
+    content_encoding="gzip" sends the JSON body gzip-compressed with
+    ``Content-Encoding: gzip``; the default sends it uncompressed.
 
     Logging is best-effort and runs in a finally block so failed/raising calls
     still leave a trace on disk.
@@ -738,6 +759,18 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
     if stream:
         payload.setdefault("stream_options", {"include_usage": True})
 
+    send_kwargs = {"json": payload}
+    request_encoding = None
+    if content_encoding is not None:
+        body_bytes, raw_bytes = _encode_request(payload, content_encoding)
+        hdrs = {**hdrs, "Content-Encoding": content_encoding}
+        send_kwargs = {"content": body_bytes}
+        request_encoding = {
+            "content_encoding": content_encoding,
+            "raw_bytes": raw_bytes,
+            "wire_bytes": len(body_bytes),
+        }
+
     started = time.time()
     status = 0
     body = None
@@ -748,7 +781,7 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
         if stream:
             chunks = []
             with httpx.Client(timeout=timeout) as c:
-                with c.stream("POST", OAI_URL, json=payload, headers=hdrs) as resp:
+                with c.stream("POST", OAI_URL, headers=hdrs, **send_kwargs) as resp:
                     status = resp.status_code
                     response_headers = dict(resp.headers)
                     # Error responses are usually not SSE but plain JSON; read the body directly and skip iter_lines
@@ -779,9 +812,10 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                         "body": body,
                         "response_headers": response_headers,
                         "trace_id": _extract_trace_id(response_headers, body, chunks),
+                        "request_encoding": request_encoding,
                     }
         else:
-            resp = httpx.post(OAI_URL, json=payload, headers=hdrs, timeout=timeout)
+            resp = httpx.post(OAI_URL, headers=hdrs, timeout=timeout, **send_kwargs)
             status = resp.status_code
             response_headers = dict(resp.headers)
             try:
@@ -794,6 +828,7 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                 "stream": False,
                 "response_headers": response_headers,
                 "trace_id": _extract_trace_id(response_headers, body, None),
+                "request_encoding": request_encoding,
             }
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
@@ -814,6 +849,8 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
             "chunks": chunks,
             "response_headers": response_headers,
         }
+        if request_encoding is not None:
+            record["request_encoding"] = request_encoding
         if error is not None:
             record["error"] = error
         try:
