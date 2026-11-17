@@ -712,32 +712,15 @@ def _extract_trace_id(response_headers: Optional[dict],
     return None
 
 
-REQUEST_CONTENT_ENCODINGS = ("gzip",)
-
-
-def _encode_request(payload, content_encoding):
-    """Serialize the payload and compress it with the given content coding.
-
-    Returns (body bytes, uncompressed byte count).
-    """
-    if content_encoding not in REQUEST_CONTENT_ENCODINGS:
-        raise ValueError(
-            f"unsupported request content_encoding {content_encoding!r}; "
-            f"expected one of {REQUEST_CONTENT_ENCODINGS}"
-        )
-    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return gzip.compress(raw), len(raw)
-
-
-def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT, content_encoding=None):
+def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT, gzip_body=False):
     """Send OAI chat completion request, log full request+response to jsonl.
 
     Returns the same shape as before:
       non-stream → {"status": int, "body": dict, "stream": False}
       stream     → {"status": int, "chunks": [dict, ...], "stream": True}
 
-    content_encoding="gzip" sends the JSON body gzip-compressed with
-    ``Content-Encoding: gzip``; the default sends it uncompressed.
+    gzip_body=True sends the JSON body gzip-compressed with ``Content-Encoding: gzip``
+    and records the byte counts in ``request_encoding``.
 
     Logging is best-effort and runs in a finally block so failed/raising calls
     still leave a trace on disk.
@@ -761,15 +744,12 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT, content_encod
 
     send_kwargs = {"json": payload}
     request_encoding = None
-    if content_encoding is not None:
-        body_bytes, raw_bytes = _encode_request(payload, content_encoding)
-        hdrs = {**hdrs, "Content-Encoding": content_encoding}
-        send_kwargs = {"content": body_bytes}
-        request_encoding = {
-            "content_encoding": content_encoding,
-            "raw_bytes": raw_bytes,
-            "wire_bytes": len(body_bytes),
-        }
+    if gzip_body:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        compressed = gzip.compress(raw)
+        hdrs = {**hdrs, "Content-Encoding": "gzip"}
+        send_kwargs = {"content": compressed}
+        request_encoding = {"content_encoding": "gzip", "raw_bytes": len(raw), "wire_bytes": len(compressed)}
 
     started = time.time()
     status = 0
