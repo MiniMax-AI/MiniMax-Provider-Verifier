@@ -907,6 +907,8 @@ def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
         f"{case_id} uncompressed baseline failed with HTTP {plain['status']}: "
         f"{str(plain.get('body'))[:300]}"
     )
+    plain_usage = [c for c in plain["chunks"] if c.get("usage")]
+    assert plain_usage, f"{case_id} uncompressed baseline has no usage chunk"
     result = oai_chat(copy.deepcopy(payload), stream=True, gzip_body=True)
     context = f"{case_id} trace_id={result.get('trace_id')}, request_encoding={result.get('request_encoding')}"
     assert result["status"] == 200, (
@@ -914,9 +916,10 @@ def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
         f"uncompressed body succeeded: {str(result.get('body'))[:300]}"
     )
     assert_oai_stream_success(result)
-    plain_tokens = helpers._stream_usage(plain).get("prompt_tokens")
-    gzip_tokens = helpers._stream_usage(result).get("prompt_tokens")
-    assert gzip_tokens is not None, f"{context}: no usage.prompt_tokens in the gzip stream"
+    gzip_usage = [c for c in result["chunks"] if c.get("usage")]
+    assert gzip_usage, f"{context}: no usage chunk in the gzip stream"
+    plain_tokens = plain_usage[-1]["usage"].get("prompt_tokens")
+    gzip_tokens = gzip_usage[-1]["usage"].get("prompt_tokens")
     assert gzip_tokens == plain_tokens, (
         f"{context}: prompt_tokens {gzip_tokens} differs from the uncompressed request "
         f"({plain_tokens}), so the decoded body is not the original"
@@ -1153,10 +1156,6 @@ class TestSSEStream:
         assert 0 <= reasoning_tokens <= usage["completion_tokens"], (
             f"02_20 reasoning_tokens outside completion_tokens: {usage!r}"
         )
-
-
-class TestGzipRequestBody:
-    """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
 
     def test_02_21_gzip_request_body_stream(self):
         """Short streaming request: the gzip body succeeds with the same prompt_tokens."""
