@@ -79,6 +79,14 @@ pytest m3_text_tests.py -n 8
 pytest m3_image_tests.py::TestImageBase64::test_01_01_base64_image -v
 ```
 
+**概率性用例(M3.1-Flash 套件):** 断言模型输出内容或行为(数张数、识图、是否调用工具、是否思考、缓存命中)的用例带 `probabilistic` 标记,结果在多次运行之间会变化。格式巡检排除它们:
+
+```bash
+pytest m3_1_flash_text_test.py m3_1_flash_stream_test.py m3_1_flash_image_test.py m3_1_flash_reasoning_effort_tests.py -m "not probabilistic"
+```
+
+当前标记:文本 10_04、14_06、14_07、14_08、16_11;图像 03_01、07_04、11_04、`test_12_01_count_at_max_acknowledged`、`test_12_02_count_over_max_acknowledged`;reasoning_effort `test_01_01_valid_effort_thinking`、`test_01_09_effort_with_image_thinking`。
+
 ## 输出
 
 - **stdout**: pytest 标准输出,每次运行开头会打印 jsonl 路径,如:

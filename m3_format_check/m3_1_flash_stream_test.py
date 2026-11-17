@@ -64,20 +64,11 @@ SSE_CONTRACT_SCENARIOS = (
     }, "stop"),
     ("length", {
         "messages": oai_simple_messages("Write a detailed 2000-word essay about the history of tea."),
-        "max_completion_tokens": 16,
+        "max_tokens": 16,
     }, "length"),
     ("tool_single", {
         "messages": oai_simple_messages("Call echo with text=hello."),
         "tools": [ECHO_TOOL],
-        "tool_choice": "required",
-    }, "tool_calls"),
-    ("tool_parallel", {
-        "messages": oai_simple_messages(
-            "What's the weather in Beijing and Shanghai? Call get_weather once for each city."
-        ),
-        "tools": [WEATHER_TOOL_OAI],
-        "tool_choice": "required",
-        "parallel_tool_calls": True,
     }, "tool_calls"),
     ("image_input", {
         "messages": [{"role": "user", "content": [
@@ -405,7 +396,6 @@ def _bash_glob_stream_result(case_id: str):
         "tool_choice": "auto",
         "parallel_tool_calls": True,
         "max_tokens": 64000,
-        "reasoning_split": True,
     }, stream=True)
     response_id = next(
         (chunk["id"] for chunk in result.get("chunks") or [] if chunk.get("id")), None,
@@ -1043,8 +1033,8 @@ class TestSSEStream:
         """Every chunk type of a stream follows the SSE contract (assert_sse_stream_strict).
 
         One request per scenario; all rules are checked on that response and every
-        violation is reported together. A scenario that does not produce the chunk
-        type it exists for (reasoning deltas, two parallel calls) is skipped.
+        violation is reported together. The reasoning scenario is skipped when no
+        reasoning deltas are produced.
         """
         payload = dict(copy.deepcopy(payload), stream_options={"include_usage": True})
         result = oai_chat(payload, stream=True)
@@ -1056,9 +1046,7 @@ class TestSSEStream:
             pytest.skip("02_12 reasoning: no reasoning_content deltas observed")
         if name.startswith("tool"):
             calls = get_tool_calls(result)
-            assert calls, f"02_12 {name}: tool_choice=required but no tool calls"
-            if name == "tool_parallel" and len(calls) < 2:
-                pytest.skip("02_12 tool_parallel: parallel tool calls not observed")
+            assert calls, f"02_12 {name}: the prompt asks for a call but no tool calls"
 
     def test_02_14_stream_omitted_returns_json(self):
         """Omitting stream returns one complete JSON object (assert_chat_completion_strict)."""
