@@ -360,10 +360,6 @@ CONTENT_SCENARIO_RUNS = int(os.environ.get("M3_STREAM_CONTENT_RUNS", "5"))
 if CONTENT_SCENARIO_RUNS < 1:
     raise ValueError("M3_STREAM_CONTENT_RUNS must be at least 1")
 
-# Gzip request-body cases are opt-in because not every endpoint accepts compressed
-# request bodies. Set M3_GZIP_REQUEST_CASES=1 to run them.
-GZIP_REQUEST_CASES = os.environ.get("M3_GZIP_REQUEST_CASES", "").strip() in ("1", "true", "True", "yes")
-
 
 def _bash_glob_stream_result(case_id: str):
     """Send one parallel bash/glob request and retain its response context."""
@@ -1166,7 +1162,7 @@ class TestSSEStream:
         )
 
 
-@pytest.mark.skipif(not GZIP_REQUEST_CASES, reason="gzip request-body cases are opt-in; set M3_GZIP_REQUEST_CASES=1")
+@pytest.mark.gzip_request
 class TestGzipRequestBody:
     """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
 

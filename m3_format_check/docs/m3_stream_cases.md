@@ -14,7 +14,7 @@
 - 分包质量场景只关注分包质量，不校验正文长度、JSON 合法性、工具名称、参数内容、工具数量等功能正确性。
 - 分包质量场景的结果严格为 `PASS` 或 `FAIL`，不使用 `WARN`。`02_09`、`02_10` 未覆盖并行调用时记为 `SKIP`；已观察到的协议违规仍记为 `FAIL`。
 - `assert_sse_stream_strict`（`helpers.py`）在一次响应上检查全部规则，并把所有违规项一起报出：每个 data 帧都是 JSON 且单行不超过 1 MiB、`[DONE]` 之后不再有数据帧、流内没有 `error` 对象、`created` 为整数且 `object=chat.completion.chunk`；`content` / `reasoning_content` 为字符串或 null，工具调用分片的 `index` 为整数、`arguments` 为字符串；工具调用分片通过 `stream_protocol.inspect_stream_tool_calls`（index 从 0 连续、id 唯一且不变），每个调用的首个分片带 `id`、`type=function` 和 `name`，拼接后的参数可解析为 JSON 对象；每个 choice 恰好一个结束分片且 `finish_reason` 取值合法，结束后不再有该 choice 的分片，`stop` 结束时正文非空；带 `include_usage` 的请求至少有一个 usage 对象，取最后一个校验 token 计数。
-- `TestGzipRequestBody`（`02_21`、`02_22`）：同一请求体先以明文发送，再以 gzip 压缩发送（`Content-Encoding: gzip`，`oai_chat(..., gzip_body=True)`）。gzip 请求必须返回 200、作为流正常结束（`assert_oai_stream_success`），且 `prompt_tokens` 存在并与明文请求相等，以此确认服务端解压出的内容与原文一致；完整 SSE 协议由 `02_12` 校验，与请求编码无关的流格式问题不在此判定。gzip 请求被拒时，失败信息给出 HTTP 状态码和响应体。明文基线请求失败时直接 `FAIL`，不做比较。并非所有 endpoint 都接受压缩请求体，因此默认跳过，设置 `M3_GZIP_REQUEST_CASES=1` 后运行。jsonl 日志的 `request_encoding` 字段记录压缩前后字节数。
+- `TestGzipRequestBody`（`02_21`、`02_22`）：同一请求体先以明文发送，再以 gzip 压缩发送（`Content-Encoding: gzip`，`oai_chat(..., gzip_body=True)`）。gzip 请求必须返回 200、作为流正常结束（`assert_oai_stream_success`），且 `prompt_tokens` 存在并与明文请求相等，以此确认服务端解压出的内容与原文一致；完整 SSE 协议由 `02_12` 校验，与请求编码无关的流格式问题不在此判定。gzip 请求被拒时，失败信息给出 HTTP 状态码和响应体。明文基线请求失败时直接 `FAIL`，不做比较。用例带 `gzip_request` 标记，默认运行；目标 endpoint 不接受压缩请求体时用 `-m "not gzip_request"` 排除。jsonl 日志的 `request_encoding` 字段记录压缩前后字节数。
 
 ## 分档与判定
 
@@ -61,8 +61,8 @@
 | 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个工具调用分片、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送，返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_strict`） | 独立协议校验，不属于分包质量规则 |
 | 02_20 | `test_02_20_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true`，`0 <= reasoning_tokens <= completion_tokens`；未返回该字段时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
-| 02_21 | `test_02_21_gzip_request_body_stream` | 短文本流式请求分别以明文和 gzip 请求体发送；gzip 请求返回 200、流正常结束，`prompt_tokens` 与明文相等。需 `M3_GZIP_REQUEST_CASES=1` | 独立请求编码校验，不属于分包质量规则 |
-| 02_22 | `test_02_22_gzip_request_body_large[long_agent_context\|large_image]` | 大请求体的 gzip 版本，判定同 `02_21`：`long_agent_context` 为约 420 KB 的 agent 请求（tools + 4 段 `read_file` 工具结果，压缩比高，覆盖服务端对解压比例或解压后大小的限制）；`large_image` 为约 9 MB PNG 的 base64 图片（压缩后仍约 9 MB，覆盖请求体大小限制，不应返回 413）。需 `M3_GZIP_REQUEST_CASES=1` | 独立请求编码校验，不属于分包质量规则 |
+| 02_21 | `test_02_21_gzip_request_body_stream` | 短文本流式请求分别以明文和 gzip 请求体发送；gzip 请求返回 200、流正常结束，`prompt_tokens` 与明文相等。标记 `gzip_request` | 独立请求编码校验，不属于分包质量规则 |
+| 02_22 | `test_02_22_gzip_request_body_large[long_agent_context\|large_image]` | 大请求体的 gzip 版本，判定同 `02_21`：`long_agent_context` 为约 420 KB 的 agent 请求（tools + 4 段 `read_file` 工具结果，压缩比高，覆盖服务端对解压比例或解压后大小的限制）；`large_image` 为约 9 MB PNG 的 base64 图片（压缩后仍约 9 MB，覆盖请求体大小限制，不应返回 413）。标记 `gzip_request` | 独立请求编码校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |

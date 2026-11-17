@@ -51,7 +51,6 @@ export M3_API_KEY="sk-xxx"
 | `M3_EXTRA_HEADERS` | (空) | JSON 串,额外注入请求头,例如 `'{"X-Custom-Header": "value"}'` |
 | `M3_SKIP_REASONING_SPLIT` | `0` | `1` 时跳过依赖 `reasoning_split` 的 case(部分实现不放行该 OAI extension) |
 | `M3_LONG_VIDEO_DIR` | `fixtures/m3_test_videos` | 长视频(D_*s.mp4)目录,默认走仓内 fixtures;需要换一组时改这里 |
-| `M3_GZIP_REQUEST_CASES` | `0` | `1` 时运行 `m3_1_flash_stream_test.py` 中 gzip 压缩请求体(`Content-Encoding: gzip`)的 case(`02_21`、`02_22`),默认跳过 |
 
 ## 运行
 
