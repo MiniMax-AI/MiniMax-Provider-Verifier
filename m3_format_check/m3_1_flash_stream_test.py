@@ -894,13 +894,6 @@ def _gzip_large_image_payload() -> dict[str, Any]:
     ]}]}
 
 
-# Payloads are built per test so the 9 MB fixture is only loaded when the case runs.
-GZIP_LARGE_BODY_SCENARIOS = (
-    pytest.param(_gzip_long_agent_context_payload, id="long_agent_context"),
-    pytest.param(_gzip_large_image_payload, id="large_image"),
-)
-
-
 def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
     """Send the payload uncompressed and then gzip-compressed, and compare the two.
 
@@ -1169,15 +1162,16 @@ class TestGzipRequestBody:
         """Short streaming request: the gzip body succeeds with the same prompt_tokens."""
         _assert_gzip_matches_plain("02_21", {"messages": oai_simple_messages("Reply only with: hello")})
 
-    @pytest.mark.parametrize("build_payload", GZIP_LARGE_BODY_SCENARIOS)
-    def test_02_22_gzip_request_body_large(self, build_payload):
-        """Large bodies, judged like 02_21.
+    def test_02_22_gzip_request_body_long_agent_context(self):
+        """~420 KB agent request that compresses to a small fraction of its size.
 
-        long_agent_context compresses to a small fraction of its size, so a server that
-        limits the decompression ratio or decoded size may reject it. large_image stays
-        about 9 MB after compression and exercises request-size limits (HTTP 413).
+        A server that limits the decompression ratio or the decoded size may reject it.
         """
-        _assert_gzip_matches_plain("02_22", build_payload())
+        _assert_gzip_matches_plain("02_22", _gzip_long_agent_context_payload())
+
+    def test_02_23_gzip_request_body_large_image(self):
+        """~9 MB image that stays large after compression; exercises request-size limits (HTTP 413)."""
+        _assert_gzip_matches_plain("02_23", _gzip_large_image_payload())
 
 
 class TestContentStreamPacketLengthDistribution:
