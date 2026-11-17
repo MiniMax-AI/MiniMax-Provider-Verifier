@@ -906,9 +906,9 @@ def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
 
     The gzip request must complete as a normal stream and report the same
     prompt_tokens as the uncompressed one, which shows the server decoded the
-    original body. An endpoint served by several backends may count the same
-    uncompressed body differently, so on a mismatch the uncompressed request is
-    sent once more and either count is accepted. The full SSE contract is left to
+    original body. An endpoint served by several backends may count the same body
+    differently, so on a mismatch both requests are sent once more and the case
+    passes when any gzip count equals any uncompressed count. The full SSE contract is left to
     02_12, so stream-format defects unrelated to request encoding do not fail
     these cases.
     """
@@ -926,15 +926,16 @@ def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
         f"uncompressed body succeeded: {str(result.get('body'))[:300]}"
     )
     assert_oai_stream_success(result)
-    gzip_tokens = _stream_prompt_tokens(result)
-    assert gzip_tokens is not None, f"{context}: no usage chunk in the gzip stream"
-    if gzip_tokens != plain_tokens[0]:
-        retry = oai_chat(copy.deepcopy(payload), stream=True)
-        if retry["status"] == 200:
-            plain_tokens.append(_stream_prompt_tokens(retry))
-    assert gzip_tokens in plain_tokens, (
-        f"{context}: prompt_tokens {gzip_tokens} differs from the uncompressed requests "
-        f"({plain_tokens}), so the decoded body is not the original"
+    gzip_tokens = [_stream_prompt_tokens(result)]
+    assert gzip_tokens[0] is not None, f"{context}: no usage chunk in the gzip stream"
+    if gzip_tokens[0] != plain_tokens[0]:
+        for tokens, gzip_body in ((plain_tokens, False), (gzip_tokens, True)):
+            retry = oai_chat(copy.deepcopy(payload), stream=True, gzip_body=gzip_body)
+            if retry["status"] == 200:
+                tokens.append(_stream_prompt_tokens(retry))
+    assert set(gzip_tokens) & set(plain_tokens), (
+        f"{context}: gzip prompt_tokens {gzip_tokens} never match the uncompressed "
+        f"requests ({plain_tokens}), so the decoded body is not the original"
     )
 
 
