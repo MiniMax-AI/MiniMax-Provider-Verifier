@@ -8,6 +8,7 @@ distribution and a binary packet-quality result to a companion jsonl file.
 """
 
 import copy
+import gzip
 import json
 import math
 import os
@@ -31,6 +32,7 @@ from helpers import (
     oai_chat_verbatim,
     oai_simple_messages,
     png_base64,
+    size_fixture_data_url,
     stream_data_chunks,
 )
 from stream_protocol import inspect_stream_tool_calls
@@ -216,6 +218,20 @@ PARALLEL_TOOLS = tuple({
 
 LONG_TOOL_PAYLOAD = "".join(f"{index:04x}" for index in range(2500))
 assert len(LONG_TOOL_PAYLOAD) == 10000
+
+READ_FILE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": "Read a file from the repository and return its content.",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Repository-relative path."}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -843,6 +859,86 @@ def _build_payload(scenario: StreamScenario) -> dict[str, Any]:
     return payload
 
 
+def _gzip_long_agent_context_payload() -> dict[str, Any]:
+    """Agent-style request of ~420 KB: tools plus four read_file tool results."""
+    messages = [
+        {"role": "system", "content": "You are a coding assistant working inside a repository."},
+        {"role": "user", "content": "Read the service modules, then wait for my next instruction."},
+    ]
+    for n, module in enumerate(("auth", "billing", "search", "storage")):
+        source = "\n".join(
+            f"def handle_{module}_{i:04d}(request, retries={i % 5}):\n"
+            f'    logging.info("{module} handler %d", {i})\n'
+            f'    return dispatch(request, route="/{module}/{i}", retries=retries)\n'
+            for i in range(650)
+        )
+        messages += [
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": f"call_read_{n}",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": json.dumps({"path": f"services/{module}/handlers.py"}),
+                },
+            }]},
+            {"role": "tool", "tool_call_id": f"call_read_{n}", "content": source},
+        ]
+    messages.append({"role": "user", "content": "All files are read. Reply only with: done"})
+    return {"messages": messages, "tools": [READ_FILE_TOOL]}
+
+
+def _gzip_large_image_payload() -> dict[str, Any]:
+    """Multimodal request whose body stays ~9 MB after compression."""
+    return {"messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": size_fixture_data_url("image_9mb.png")}},
+        {"type": "text", "text": "What is the dominant color of this image? Answer in one word."},
+    ]}]}
+
+
+def _stream_prompt_tokens(result: dict[str, Any]) -> Any:
+    """prompt_tokens of the last usage chunk of a stream, or None without one."""
+    usage_chunks = [c for c in result["chunks"] if c.get("usage")]
+    return usage_chunks[-1]["usage"].get("prompt_tokens") if usage_chunks else None
+
+
+def _assert_gzip_matches_plain(case_id: str, payload: dict[str, Any]) -> None:
+    """Send the payload uncompressed and then gzip-compressed, and compare the two.
+
+    The gzip request must complete as a normal stream and report the same
+    prompt_tokens as the uncompressed one, which shows the server decoded the
+    original body. An endpoint served by several backends may count the same body
+    differently, so on a mismatch both requests are sent once more and the case
+    passes when any gzip count equals any uncompressed count. The full SSE contract is left to
+    02_12, so stream-format defects unrelated to request encoding do not fail
+    these cases.
+    """
+    plain = oai_chat(copy.deepcopy(payload), stream=True)
+    assert plain["status"] == 200, (
+        f"{case_id} uncompressed baseline failed with HTTP {plain['status']}: "
+        f"{str(plain.get('body'))[:300]}"
+    )
+    plain_tokens = [_stream_prompt_tokens(plain)]
+    assert plain_tokens[0] is not None, f"{case_id} uncompressed baseline has no usage chunk"
+    result = oai_chat(copy.deepcopy(payload), stream=True, gzip_body=True)
+    context = f"{case_id} trace_id={result.get('trace_id')}, request_encoding={result.get('request_encoding')}"
+    assert result["status"] == 200, (
+        f"{context}: gzip request body rejected with HTTP {result['status']} while the "
+        f"uncompressed body succeeded: {str(result.get('body'))[:300]}"
+    )
+    assert_oai_stream_success(result)
+    gzip_tokens = [_stream_prompt_tokens(result)]
+    assert gzip_tokens[0] is not None, f"{context}: no usage chunk in the gzip stream"
+    if gzip_tokens[0] != plain_tokens[0]:
+        for tokens, gzip_body in ((plain_tokens, False), (gzip_tokens, True)):
+            retry = oai_chat(copy.deepcopy(payload), stream=True, gzip_body=gzip_body)
+            if retry["status"] == 200:
+                tokens.append(_stream_prompt_tokens(retry))
+    assert set(gzip_tokens) & set(plain_tokens), (
+        f"{context}: gzip prompt_tokens {gzip_tokens} never match the uncompressed "
+        f"requests ({plain_tokens}), so the decoded body is not the original"
+    )
+
+
 class TestSSEStream:
     """SSE streaming protocol validation."""
 
@@ -1075,6 +1171,37 @@ class TestSSEStream:
         )
 
 
+class TestGzipRequestBody:
+    """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
+
+    def test_02_21_gzip_request_body_stream(self):
+        """Short streaming request: the gzip body succeeds with the same prompt_tokens."""
+        _assert_gzip_matches_plain("02_21", {"messages": oai_simple_messages("Reply only with: hello")})
+
+    def test_02_22_gzip_request_body_long_agent_context(self):
+        """~420 KB agent request that compresses to a small fraction of its size.
+
+        A server that limits the decompression ratio or the decoded size may reject it.
+        """
+        _assert_gzip_matches_plain("02_22", _gzip_long_agent_context_payload())
+
+    def test_02_23_gzip_request_body_large_image(self):
+        """~9 MB image that stays large after compression; exercises request-size limits (HTTP 413)."""
+        _assert_gzip_matches_plain("02_23", _gzip_large_image_payload())
+
+    def test_02_24_truncated_gzip_request_body_rejected(self):
+        """A truncated gzip body is rejected with a 4xx error, not a 5xx or a 200."""
+        payload = {"messages": oai_simple_messages("Reply only with: hello")}
+        encoded = gzip.compress(json.dumps({"model": helpers.MODEL, **payload}).encode("utf-8"))
+        result = oai_chat_verbatim(
+            payload, body=encoded[: len(encoded) // 2], headers={"Content-Encoding": "gzip"},
+        )
+        assert 400 <= result["status"] < 500, (
+            f"02_24 trace_id={result.get('trace_id')}: a truncated gzip body should be rejected "
+            f"with a 4xx error, got HTTP {result['status']}: {str(result.get('body'))[:300]}"
+        )
+
+
 class TestContentStreamPacketLengthDistribution:
     """Run pure-content scenarios repeatedly, then aggregate packet statistics."""
 
@@ -1115,3 +1242,4 @@ class TestToolCallStreamPacketLengthDistribution:
         stats_path = _write_stats_record(record)
         _print_distribution(record, stats_path)
         _assert_packet_quality(record)
+

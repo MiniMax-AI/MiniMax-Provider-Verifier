@@ -6,6 +6,7 @@ the full request and full response (or per-chunk stream array). conftest.py
 sets RUN_LOG_PATH at session start.
 """
 import base64
+import gzip
 import json
 import os
 import struct
@@ -711,12 +712,15 @@ def _extract_trace_id(response_headers: Optional[dict],
     return None
 
 
-def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
+def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT, gzip_body=False):
     """Send OAI chat completion request, log full request+response to jsonl.
 
     Returns the same shape as before:
       non-stream → {"status": int, "body": dict, "stream": False}
       stream     → {"status": int, "chunks": [dict, ...], "stream": True}
+
+    gzip_body=True sends the JSON body gzip-compressed with ``Content-Encoding: gzip``
+    and records the byte counts in ``request_encoding``.
 
     Logging is best-effort and runs in a finally block so failed/raising calls
     still leave a trace on disk.
@@ -738,6 +742,15 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
     if stream:
         payload.setdefault("stream_options", {"include_usage": True})
 
+    send_kwargs = {"json": payload}
+    request_encoding = None
+    if gzip_body:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        compressed = gzip.compress(raw)
+        hdrs = {**hdrs, "Content-Encoding": "gzip"}
+        send_kwargs = {"content": compressed}
+        request_encoding = {"content_encoding": "gzip", "raw_bytes": len(raw), "wire_bytes": len(compressed)}
+
     started = time.time()
     status = 0
     body = None
@@ -748,7 +761,7 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
         if stream:
             chunks = []
             with httpx.Client(timeout=timeout) as c:
-                with c.stream("POST", OAI_URL, json=payload, headers=hdrs) as resp:
+                with c.stream("POST", OAI_URL, headers=hdrs, **send_kwargs) as resp:
                     status = resp.status_code
                     response_headers = dict(resp.headers)
                     # Error responses are usually not SSE but plain JSON; read the body directly and skip iter_lines
@@ -779,9 +792,10 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                         "body": body,
                         "response_headers": response_headers,
                         "trace_id": _extract_trace_id(response_headers, body, chunks),
+                        "request_encoding": request_encoding,
                     }
         else:
-            resp = httpx.post(OAI_URL, json=payload, headers=hdrs, timeout=timeout)
+            resp = httpx.post(OAI_URL, headers=hdrs, timeout=timeout, **send_kwargs)
             status = resp.status_code
             response_headers = dict(resp.headers)
             try:
@@ -794,6 +808,7 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
                 "stream": False,
                 "response_headers": response_headers,
                 "trace_id": _extract_trace_id(response_headers, body, None),
+                "request_encoding": request_encoding,
             }
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
@@ -814,6 +829,8 @@ def oai_chat(payload, stream=False, headers=None, timeout=TIMEOUT):
             "chunks": chunks,
             "response_headers": response_headers,
         }
+        if request_encoding is not None:
+            record["request_encoding"] = request_encoding
         if error is not None:
             record["error"] = error
         try:
@@ -1169,17 +1186,23 @@ def assert_chat_completion_strict(result, msg: str = "", finish=None):
 CONTRACT_PROMPT = "Explain caching in one sentence."
 
 
-def oai_chat_verbatim(payload, timeout=300):
+def oai_chat_verbatim(payload, timeout=300, body=None, headers=None):
     """POST the payload exactly as given (only `model` is filled in) and read the whole body.
 
     oai_chat always overwrites `stream`, so it cannot put `stream: null`, an omitted
     `stream`, or a mistyped value on the wire. Returns the same shape as a non-stream
     oai_chat call, plus the undecoded response `text`.
+
+    `body` sends these bytes instead of the serialized payload (e.g. a malformed
+    encoded body); `headers` are added to the default request headers.
     """
     payload = {"model": MODEL, **payload}
     started = time.time()
     resp = httpx.post(
-        OAI_URL, content=json.dumps(payload).encode("utf-8"), headers=OAI_HEADERS, timeout=timeout,
+        OAI_URL,
+        content=body if body is not None else json.dumps(payload).encode("utf-8"),
+        headers={**OAI_HEADERS, **(headers or {})},
+        timeout=timeout,
     )
     try:
         body = resp.json()
