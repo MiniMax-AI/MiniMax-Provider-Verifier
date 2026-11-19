@@ -3290,8 +3290,8 @@ class TestCombinedRequest:
     @pytest.mark.timeout(900)
     def test_29_04_context_overflow_is_recognisable(self):
         """29_04 — Input above the context window is rejected with 413, or with 400 whose
-        body names the context limit ("maximum context length" / "context window"), so the
-        caller can tell overflow from other errors."""
+        body names the context limit ("maximum context length" / "context length" /
+        "context window"), so the caller can tell overflow from other errors."""
         fixture = os.path.join(os.path.dirname(__file__), "fixtures", "xiyouji_1m_long_context.txt")
         assert os.path.exists(fixture), f"fixture missing: {fixture}"
         with open(fixture, "r", encoding="utf-8") as f:
@@ -3302,7 +3302,9 @@ class TestCombinedRequest:
         if r["status"] == 200:
             pytest.skip("29_04 input fits this endpoint's context window")
         body = str(r.get("body")).lower()
-        named = "maximum context length" in body or "context window" in body
+        # Some servers word it as "The input (N tokens) is longer than the model's context length (M tokens)."
+        named = ("maximum context length" in body or "context length" in body
+                 or "context window" in body)
         assert r["status"] == 413 or (r["status"] == 400 and named), (
             f"29_04 expected 413, or 400 naming the context limit, got {r['status']}: {body[:300]}"
         )
