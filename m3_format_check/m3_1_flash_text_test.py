@@ -33,6 +33,7 @@ collects text cases only.
 All cases go through helpers.oai_chat() against /v1/chat/completions; jsonl is
 written to RUN_LOG_PATH (injected by conftest).
 """
+import copy
 import json
 import os
 import re
@@ -2572,6 +2573,48 @@ class TestToolCallCombo:
         r = oai_chat({"messages": echo_history(assistant_content=assistant_content), "tools": tools}, stream=stream)
         assert_oai_success(r)
         assert_text_or_declared_calls(r, tools, f"15_13 content={assistant_content!r} stream={stream}")
+
+    # Answer sheet for 15_14: never executed, only used to read the model's answer as structured arguments.
+    _ANSWER_TOOL = tool_fn("submit_answer", description="Submit the final answer: the temperature of each city in Celsius.", parameters={
+        "type": "object", "properties": {"tokyo_celsius": {"type": "integer"}, "beijing_celsius": {"type": "integer"}},
+        "required": ["tokyo_celsius", "beijing_celsius"]})
+
+    @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
+    @pytest.mark.parametrize("reverse", [False, True], ids=["ordered", "reversed"])
+    def test_15_14_tool_results_matched_by_id(self, reverse, stream):
+        """Two get_weather results (Tokyo 5°C, Beijing 30°C) are written back in call order or
+        reversed, each with the correct tool_call_id. They must be matched by id, not position:
+        the forced submit_answer call (an answer sheet, never executed) carries tokyo_celsius=5 and
+        beijing_celsius=30.
+        Swapped values fail at once in the reversed case. Other wrong or missing
+        temperatures are retried once."""
+        calls = [{"id": cid, "type": "function", "function": {"name": "get_weather", "arguments": f'{{"location":"{city}"}}'}}
+                 for cid, city in (("call_a1", "Tokyo"), ("call_b2", "Beijing"))]
+        results = [{"role": "tool", "tool_call_id": "call_a1", "content": "5°C, snow"},
+                   {"role": "tool", "tool_call_id": "call_b2", "content": "30°C, sunny"}]
+        messages = [{"role": "user", "content": "What's the weather in Tokyo and Beijing?"},
+                    {"role": "assistant", "content": None, "tool_calls": calls},
+                    *(results[::-1] if reverse else results),
+                    {"role": "user", "content": "Call submit_answer with the temperature of each city."}]
+        tools = [WEATHER_TOOL_OAI, self._ANSWER_TOOL]
+        msg = f"15_14 {'reversed' if reverse else 'ordered'} stream={stream}"
+        seen = []
+        for _ in range(2):
+            r = oai_chat({"messages": copy.deepcopy(messages), "tools": tools,
+                          "tool_choice": named_choice("submit_answer")}, stream=stream)
+            (assert_oai_stream_success if stream else assert_oai_success)(r)
+            trace_id = r.get("trace_id")
+            request_msg = f"{msg} trace_id={trace_id}"
+            answers = _assert_calls(r, [self._ANSWER_TOOL], request_msg, schema_check=False)
+            assert answers, f"{request_msg}: submit_answer was not called"
+            values = [(c["arguments_obj"].get("tokyo_celsius"), c["arguments_obj"].get("beijing_celsius"))
+                      for c in answers]
+            seen.append({"trace_id": trace_id, "values": values})
+            if reverse and (30, 5) in values:
+                pytest.fail(f"{msg}: reversed results produced swapped temperatures. Observed {seen}")
+            if all(pair == (5, 30) for pair in values):
+                return
+        pytest.fail(f"{msg}: expected (tokyo_celsius, beijing_celsius)=(5, 30), got {seen}")
 
 
 # ============================================================
