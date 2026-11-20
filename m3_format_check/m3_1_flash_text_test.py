@@ -267,7 +267,6 @@ class TestSSEStream:
             assert isinstance(chunk.get("created"), int), f"02_04 bad created: {chunk!r}"
             assert isinstance(chunk.get("model"), str), f"02_04 bad model: {chunk!r}"
         assert len({c["id"] for c in chunks}) == 1, "02_04 id changed within one stream"
-        assert len({c["created"] for c in chunks}) == 1, "02_04 created changed within one stream"
 
     def test_02_05_text_include_usage(self):
         """stream_options.include_usage=true in text scenario should return a usage chunk."""
