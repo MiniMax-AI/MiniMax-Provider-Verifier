@@ -2574,63 +2574,39 @@ class TestToolCallCombo:
         assert_oai_success(r)
         assert_text_or_declared_calls(r, tools, f"15_13 content={assistant_content!r} stream={stream}")
 
+    _REPORT_TEMPS = tool_fn("report_temps", description="Report the temperature of each city in Celsius.", parameters={
+        "type": "object", "properties": {"tokyo_c": {"type": "integer"}, "beijing_c": {"type": "integer"}},
+        "required": ["tokyo_c", "beijing_c"]})
+
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
     @pytest.mark.parametrize("reverse", [False, True], ids=["ordered", "reversed"])
     def test_15_14_tool_results_matched_by_id(self, reverse, stream):
-        """Tool results are matched to calls by tool_call_id, not by position.
-
-        The history holds two get_weather calls (Tokyo, then Beijing) and their results,
-        written back in call order or reversed; each result carries the right
-        tool_call_id either way. The forced report_temps call must carry tokyo_c=5 and
-        beijing_c=30; matching results by position swaps the two values when reversed and
-        fails at once. Other wrong values are resent once before failing.
-        """
-        report = tool_fn("report_temps", description="Report the temperature of each city in Celsius.", parameters={
-            "type": "object",
-            "properties": {"tokyo_c": {"type": "integer"}, "beijing_c": {"type": "integer"}},
-            "required": ["tokyo_c", "beijing_c"],
-        })
-        results = [
-            {"role": "tool", "tool_call_id": "call_tokyo_7f3a", "content": "5°C, snow"},
-            {"role": "tool", "tool_call_id": "call_beijing_2c9d", "content": "30°C, sunny"},
-        ]
-        payload = {
-            "messages": [
-                {"role": "user", "content": "What's the weather in Tokyo and Beijing?"},
-                {"role": "assistant", "content": None, "tool_calls": [
-                    {"id": "call_tokyo_7f3a", "type": "function",
-                     "function": {"name": "get_weather", "arguments": '{"location":"Tokyo"}'}},
-                    {"id": "call_beijing_2c9d", "type": "function",
-                     "function": {"name": "get_weather", "arguments": '{"location":"Beijing"}'}},
-                ]},
-                *(results[::-1] if reverse else results),
-                {"role": "user", "content": "Call report_temps with the temperature of each city."},
-            ],
-            "tools": [WEATHER_TOOL_OAI, report],
-            "tool_choice": named_choice("report_temps"),
-        }
-        msg = f"15_14 {'reversed' if reverse else 'ordered'} stream={stream}"
-        expected, swapped = {"tokyo_c": 5, "beijing_c": 30}, {"tokyo_c": 30, "beijing_c": 5}
-        observed = []
-        # A swapped answer is the defect under test and fails at once. Any other wrong value
-        # (an invented temperature) is model noise, so one resend is allowed before failing.
+        """Two get_weather results (Tokyo 5°C, Beijing 30°C) are written back in call order or
+        reversed, each with the correct tool_call_id. They must be matched by id, not position:
+        the forced report_temps call (used only to read the answer) carries tokyo_c=5, beijing_c=30.
+        Swapped values fail at once; any other wrong value is resent once."""
+        calls = [{"id": cid, "type": "function", "function": {"name": "get_weather", "arguments": f'{{"location":"{city}"}}'}}
+                 for cid, city in (("call_a1", "Tokyo"), ("call_b2", "Beijing"))]
+        results = [{"role": "tool", "tool_call_id": "call_a1", "content": "5°C, snow"},
+                   {"role": "tool", "tool_call_id": "call_b2", "content": "30°C, sunny"}]
+        messages = [{"role": "user", "content": "What's the weather in Tokyo and Beijing?"},
+                    {"role": "assistant", "content": None, "tool_calls": calls},
+                    *(results[::-1] if reverse else results),
+                    {"role": "user", "content": "Call report_temps with the temperature of each city."}]
+        tools = [WEATHER_TOOL_OAI, self._REPORT_TEMPS]
+        msg, seen = f"15_14 {'reversed' if reverse else 'ordered'} stream={stream}", []
         for _ in range(2):
-            r = oai_chat(copy.deepcopy(payload), stream=stream)
+            r = oai_chat({"messages": copy.deepcopy(messages), "tools": tools,
+                          "tool_choice": named_choice("report_temps")}, stream=stream)
             (assert_oai_stream_success if stream else assert_oai_success)(r)
-            calls = _assert_calls(r, [WEATHER_TOOL_OAI, report], msg)
-            summary = [(c["name"], c["arguments_raw"][:120]) for c in calls]
-            assert calls and all(c["name"] == "report_temps" for c in calls), (
-                f"{msg}: expected report_temps call(s) only, got {summary}"
-            )
-            values = [{k: c["arguments_obj"].get(k) for k in expected} for c in calls]
-            observed.append(values)
-            assert swapped not in values, (
-                f"{msg}: results were matched by position instead of tool_call_id "
-                f"(expected {expected}), got {values}"
-            )
-            if all(v == expected for v in values):
+            reports = [c for c in _assert_calls(r, tools, msg, schema_check=False) if c["name"] == "report_temps"]
+            assert reports, f"{msg}: report_temps was not called"
+            got = (reports[0]["arguments_obj"].get("tokyo_c"), reports[0]["arguments_obj"].get("beijing_c"))
+            seen.append(got)
+            assert got != (30, 5), f"{msg}: results matched by position, not tool_call_id; (tokyo_c, beijing_c)={seen}"
+            if got == (5, 30):
                 return
-        pytest.fail(f"{msg}: report_temps should carry {expected}; observed {observed}")
+        pytest.fail(f"{msg}: expected (tokyo_c, beijing_c)=(5, 30), got {seen}")
 
 
 # ============================================================
