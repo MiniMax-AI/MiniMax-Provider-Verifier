@@ -12,7 +12,7 @@ Organized into 14 modules by what they validate:
   08 image_stream_usage    — image + streaming usage chunk
   09 image_param           — image-related params (image_format / detail value validation / usage math / compat)
   10 resolution_tier       — detail tier + max_long_side_pixel + max_total_pixels + aspect ratio
-  11 image_size_limit      — single-image size limit (10MB / 30MB / 65MB request-body limit / size gradient)
+  11 image_size_limit      — single-image size limit (10MB / 30MB / 64 MiB request-body limit / size gradient)
   12 image_count_limit     — multi-image count upper bound (spec 1.3.6: 200 images per request, URL form)
   13 base64_compat         — base64 edge-case tolerance (linebreaks / no padding / uppercase MIME / extra data URI params)
   14 image_usage           — image tokens counted in prompt_tokens
@@ -26,6 +26,7 @@ RUN_LOG_PATH (injected by conftest).
 import base64
 import hashlib
 import io
+import json
 import tempfile
 import zipfile
 from pathlib import Path
@@ -1164,13 +1165,59 @@ class TestImageResolutionTier:
 # 11 image_size_limit — single-image size limit / request-body limit / size gradient
 # ============================================================
 
+MIB = 1024 * 1024
+# Each image stays well under the 10 MiB per-image cap, so only the total request
+# body size decides whether a request is accepted.
+_BODY_IMAGE_RAW_BYTES = 7 * MIB
+_BODY_IMAGE_PREFIX = "data:image/jpeg;base64,"
+# Room left for the request fields that oai_chat adds later (model, max_tokens, stream).
+_BODY_ENVELOPE_RESERVE = 1024
+
+
+def _b64_len(raw_len):
+    return 4 * ((raw_len + 2) // 3)
+
+
+def request_body_content(target_bytes, text):
+    """User content whose serialized request body is close to `target_bytes`.
+
+    Uses several copies of a real JPEG (sx1.jpg) zero-padded to at most 7 MiB each,
+    so no single image approaches the 10 MiB per-image cap. Returns (content, body_bytes),
+    where body_bytes is the size of the serialized messages payload plus a small reserve
+    for the fields oai_chat fills in.
+    """
+    fixture = Path(__file__).parent / "fixtures" / "m3_test_images" / "real" / "sx1.jpg"
+    if not fixture.exists():
+        raise FileNotFoundError(f"missing real image fixture: {fixture}")
+    jpeg = fixture.read_bytes()
+
+    def block(raw_len):
+        data = jpeg + b"\x00" * max(0, raw_len - len(jpeg))
+        return {"type": "image_url", "image_url": {"url": _BODY_IMAGE_PREFIX + base64.b64encode(data).decode()}}
+
+    def body_size(content):
+        return len(json.dumps({"messages": [{"role": "user", "content": content}]}).encode()) + _BODY_ENVELOPE_RESERVE
+
+    text_block = {"type": "text", "text": text}
+    full = body_size([block(len(jpeg)), text_block]) - _b64_len(len(jpeg))  # body size without any image data
+    per_image = _b64_len(_BODY_IMAGE_RAW_BYTES) + len(json.dumps(block(0)).encode()) - _b64_len(len(jpeg)) + 2
+    sizes = []
+    remaining = target_bytes - full
+    while remaining > per_image:
+        sizes.append(_BODY_IMAGE_RAW_BYTES)
+        remaining -= per_image
+    sizes.append(max(len(jpeg), remaining * 3 // 4 - 64))
+    content = [block(n) for n in sizes] + [text_block]
+    return content, body_size(content)
+
+
 class TestImageSizeLimit:
     """Image size limits: legacy M2 10MB regression (URL/base64) / M3 aligned with OAI 30MB / request-body 64MB limit / size gradient.
 
     Contract notes (2026-06-02):
       - Legacy M2 contract: image ≤ 10MB (11_01~11_04 regression guard)
       - New M3 contract: image ≤ 30MB (11_06 boundary point)
-      - Request body ≤ 64MB (11_07, easier to trigger via the base64 path)
+      - Request body ≤ 64 MiB (11_08 just above the cap, 11_10 just below it)
     """
 
     @pytest.mark.parametrize("stream", [False, True], ids=["non_stream", "stream"])
@@ -1324,20 +1371,22 @@ class TestImageSizeLimit:
 
     @pytest.mark.timeout(600)
     def test_11_08_request_body_over_64mb(self):
-        """11_08 — Base64 ~67MB PNG → request body >> 64MB, HTTP 200 or 4xx are both acceptable.
+        """11_08 — Request body of ~65 MiB, just above the 64 MiB cap → HTTP 200 or 4xx.
 
-        2026-06-04 revision: assertion relaxed from 4xx to 200/4xx, aligned with 11_02 / 11_07.
-           Providers enforcing the 64MB request-body cap → 4xx (commonly 400/413); providers relaxing
-           and accepting the request, going through vision recognition → 200. Both behaviors are legal in the M3 phase.
+        Several real images, each under the 10 MiB per-image cap, so the total body size
+        is the only limit in play. Providers enforcing the cap → 4xx (commonly 413);
+        providers accepting larger bodies → 200. A dropped connection without an HTTP
+        response fails the case.
+
+        Earlier revisions sent one ~67 MiB PNG, which made the body ~89 MiB once base64
+        encoded; that measured behavior far above the cap rather than at it.
         """
-        r = oai_chat({
-            "messages": [{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": size_fixture_data_url("image_65mb.png")}},
-                {"type": "text", "text": "What?"},
-            ]}],
-        }, timeout=300)
+        content, body_bytes = request_body_content(65 * MIB, "How many images are in this message?")
+        assert body_bytes > 64 * MIB, f"11_08 body is {body_bytes} bytes, not above 64 MiB"
+        r = oai_chat({"messages": [{"role": "user", "content": content}], "max_tokens": 256}, timeout=300)
         assert r["status"] == 200 or 400 <= r["status"] < 500, (
-            f"11_08 request body >64MB expected 200 or 4xx, got {r['status']}"
+            f"11_08 request body {body_bytes / MIB:.2f} MiB (>64 MiB) expected 200 or 4xx, "
+            f"got {r['status']}: {str(r.get('body'))[:300]}"
         )
 
     @pytest.mark.parametrize("size_mb", [1, 3, 5, 8],
@@ -1368,6 +1417,22 @@ class TestImageSizeLimit:
                 f"11_09 size={size_mb}MB unexpected status {r['status']}: "
                 f"{str(r.get('body'))[:300]}"
             )
+
+    @pytest.mark.timeout(600)
+    def test_11_10_request_body_under_64mb(self):
+        """11_10 — Request body of ~63 MiB, just below the 64 MiB cap → HTTP 200.
+
+        Same construction as 11_08 (real images, each under the 10 MiB per-image cap),
+        so a request near but within the body cap must be served normally.
+        """
+        content, body_bytes = request_body_content(63 * MIB, "How many images are in this message?")
+        assert 62 * MIB < body_bytes < 64 * MIB, f"11_10 body is {body_bytes} bytes, not just below 64 MiB"
+        r = oai_chat({"messages": [{"role": "user", "content": content}], "max_tokens": 256}, timeout=300)
+        assert r["status"] == 200, (
+            f"11_10 request body {body_bytes / MIB:.2f} MiB (<64 MiB) expected 200, "
+            f"got {r['status']}: {str(r.get('body'))[:300]}"
+        )
+        assert_oai_success(r)
 
 
 # ============================================================
