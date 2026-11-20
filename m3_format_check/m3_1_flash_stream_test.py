@@ -76,7 +76,8 @@ SSE_CONTRACT_SCENARIOS = (
     ("tool_after_reasoning", {
         "messages": oai_simple_messages(
             "Think step by step: which planet in the solar system has the most known moons? "
-            "Then call echo with text set to that planet's name."
+            "Then call echo with text set to that planet's name. "
+            "Do not write any text before or after the tool call."
         ),
         "tools": [ECHO_TOOL],
         "reasoning_effort": "high",
