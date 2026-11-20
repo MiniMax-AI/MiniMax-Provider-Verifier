@@ -54,7 +54,8 @@ ECHO_TOOL = {
 
 # 02_12 SSE chunk contract: one request per scenario, each producing a different kind of
 # chunk (content, reasoning, length / tool_calls finish, single and parallel tool-call
-# fragments, multimodal input). Every scenario requests the usage chunk.
+# fragments, a tool call right after reasoning, multimodal input). Every scenario
+# requests the usage chunk.
 # (id, payload, expected finish_reason)
 SSE_CONTRACT_SCENARIOS = (
     ("text", {
@@ -71,6 +72,14 @@ SSE_CONTRACT_SCENARIOS = (
     ("tool_single", {
         "messages": oai_simple_messages("Call echo with text=hello."),
         "tools": [ECHO_TOOL],
+    }, "tool_calls"),
+    ("tool_after_reasoning", {
+        "messages": oai_simple_messages(
+            "Think step by step: which planet in the solar system has the most known moons? "
+            "Then call echo with text set to that planet's name."
+        ),
+        "tools": [ECHO_TOOL],
+        "reasoning_effort": "high",
     }, "tool_calls"),
     ("image_input", {
         "messages": [{"role": "user", "content": [
