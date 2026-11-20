@@ -53,7 +53,7 @@
 | 02_03 | `test_02_03_sse_done_marker` | SSE `[DONE]` end marker | xfail if missing (known BUG) |
 | 02_03 | `test_02_03_sse_done_marker` | M3.1-Flash: Reads raw SSE lines | The last data line is `[DONE]`, followed by a blank line, with no `event: done`; a missing marker fails instead of xfail |
 | 02_04 | `test_02_04_stream_chunk_fields` | Stream chunk required fields | id / choices / object all present |
-| 02_04 | `test_02_04_stream_chunk_fields` | M3.1-Flash: `include_usage=true`; checks every chunk including the usage chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` have the right types, and `id` and `created` stay constant within a stream |
+| 02_04 | `test_02_04_stream_chunk_fields` | M3.1-Flash: `include_usage=true`; checks every chunk including the usage chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` have the right types, and `id` stays constant within a stream (`created` is type-checked only; chunks may carry different values) |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` (text) | Stream should return usage chunk |
 | 02_06 | — | Removed (formerly `test_02_06_stream_usage_only_in_last_chunk`) | Exact duplicate of `m3_stream_tests.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk`; de-duplicated, the ID stays retired |
 | 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | Emoji-dense streaming request run 20 times | No `U+FFFD` (`�`) replacement char in any `delta.content`; guards against a 4-byte emoji being truncated mid-UTF-8-frame |
@@ -315,7 +315,7 @@
 | 29_01 | `test_29_01_prompt_cache_key[empty\|non_empty]` | `prompt_cache_key` empty / a non-empty key | `assert_oai_success` |
 | 29_02 | `test_29_02_combined_text[non_stream\|stream]` | Plain text with `max_tokens`, `thinking=adaptive` and `prompt_cache_key` together | Strict contract + `finish_reason=stop` |
 | 29_03 | `test_29_03_combined_tool_loop[non_stream\|stream]` | Tool loop with the same fields: turn-2 assistant `content=""` + tool result | Turn 1 `tool_calls`; turn 2 strict contract + a text answer or calls to declared functions only |
-| 29_04 | `test_29_04_context_overflow_is_recognisable` | Input above the context window | 413, or 400 naming the context limit (`maximum context length` / `context window`); skip when it fits |
+| 29_04 | `test_29_04_context_overflow_is_recognisable` | Input above the context window | 413, or 400 naming the context limit (contains `context length` or `context window`, e.g. `maximum context length`, `... longer than the model's context length`); skip when it fits |
 
 ---
 

@@ -4,7 +4,7 @@
 > 模块 14 只适用于 `m3_format_check/m3_1_flash_image_test.py`。
 > 场景说明以 `M3.1-Flash:` 开头的行对应 `m3_format_check/m3_1_flash_image_test.py`。
 > 命名规范:`test_<模块编号 2 位>_<模块内顺序编号 2 位>_<场景说明>`
-> 模块数:**13**;case 函数数:**64**;pytest 收集 items 数:**109**
+> 模块数:**13**;case 函数数:**65**;pytest 收集 items 数:**110**
 
 ## 模块总览
 
@@ -20,11 +20,11 @@
 | 08 | image_stream_usage | 图 + 流式 usage chunk | 2 | 3 |
 | 09 | image_param | 图相关参数 / Usage 算术 / 异常容错 | 5 | 8 |
 | 10 | resolution_tier | 档位 / max_long_side_pixel / max_total_pixels / min_short_side_pixel / 宽高比 | 17 | 34 |
-| 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 9 | 13 |
+| 11 | image_size_limit | 单图大小限 / 请求体限 / size 梯度 | 10 | 14 |
 | 12 | image_count_limit | 多图数量上限(spec 1.3.6: ≤20 张) | 2 | 2 |
 | 13 | base64_compat | Base64 边界容错 | 4 | 4 |
 | 14 | image_usage | 图片 token 计入 prompt_tokens(仅 M3.1-Flash) | 1 | 1 |
-| | **合计** | | **64** | **109** |
+| | **合计** | | **65** | **110** |
 
 ---
 
@@ -132,7 +132,7 @@
 
 ## 11 image_size_limit — 单图大小限 / 请求体限 / size 梯度
 
-⚠️ 契约(2026-06-02):旧 M2 ≤ 10MB;新 M3 ≤ 30MB(对齐 OAI);请求体 ≤ 64MB。
+⚠️ 契约(2026-06-02):旧 M2 ≤ 10MB;新 M3 ≤ 30MB(对齐 OAI);请求体 ≤ 64MB。M3.1-Flash 的 11_08 / 11_10 按 64 MiB 上下各取约 1 MiB 构造请求体。
 
 | Case ID | 函数名 | 场景说明 | 主要校验点 |
 |:---:|:---|:---|:---|
@@ -144,7 +144,9 @@
 | 11_06 | `test_11_06_base64_over_10mb` | Base64 方式 ~11.1MB PNG(>10MB 上限) | HTTP 200 或 4xx 均可(2026-06-04 修订:断言由 4xx 放宽为 200/4xx,与 11_02 / 11_07 / 11_08 对齐) |
 | 11_07 | `test_11_07_oversize_31mb_m3_limit` | 31MB 真图 base64(sx1.jpg + zero padding,M3 30MB 上限) | HTTP 200 或 4xx 均可(fixture 改用真图 padding 避免部分实现对纯色 PNG 的 silent drop;断言放宽为 200/4xx) |
 | 11_08 | `test_11_08_request_body_over_64mb` | Base64 ~67MB PNG → 请求体 >> 64MB | HTTP 200 或 4xx 均可(2026-06-04 修订:断言由 4xx 放宽为 200/4xx,与 11_02 / 11_07 对齐) |
+| 11_08 | `test_11_08_request_body_over_64mb` | M3.1-Flash: 多张真图(sx1.jpg + zero padding,每张 ≤ 7 MiB,低于 10 MiB 单图上限)拼成约 65 MiB 请求体,刚超 64 MiB 上限;发送前校验实际 body > 64 MiB | HTTP 200 或 4xx 均可;连接断开、无 HTTP 响应判失败 |
 | 11_09 | `test_11_09_size_gradient[1\|3\|5\|8 MB]` | Image size 梯度 | ≤5 必 200;8MB 允许 200/4xx |
+| 11_10 | `test_11_10_request_body_under_64mb` | M3.1-Flash: 同 11_08 构造,约 63 MiB 请求体,刚低于 64 MiB 上限;发送前校验 62 MiB < body < 64 MiB | HTTP 200 + `assert_oai_success` |
 
 ## 12 image_count_limit — 多图数量上限
 
