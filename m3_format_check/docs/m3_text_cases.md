@@ -229,6 +229,7 @@
 | 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\|stream]` | M3.1-Flash: 历史中工具轮和普通轮混合 | 受理;返回文本,或只调用已声明的函数 |
 | 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: 第一轮由提示词要求调用 echo,用真实返回的 id 和 arguments 回填字符串结果 | 第二轮返回文本,或只调用已声明的函数 |
 | 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: 历史 assistant 带 tool_calls,content 为空串 / 文字(非流式 / 流式) | 受理;返回文本,或只调用已声明的函数 |
+| 15_14 | `test_15_14_tool_results_matched_by_id[ordered\|reversed-non_stream\|stream]` | M3.1-Flash: 历史中两次 get_weather(Tokyo、Beijing),工具结果按调用顺序或倒序回填(tool_call_id 都正确),强制调用 report_temps | 工具结果按 tool_call_id 对应而非位置:report_temps 参数为 tokyo_c=5、beijing_c=30;两值对反立即失败,其他错误值补发 1 次 |
 
 ## 16 tool_call_edge — 工具调用边界 / 异常处理
 
