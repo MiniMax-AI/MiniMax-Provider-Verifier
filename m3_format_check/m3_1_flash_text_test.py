@@ -2584,7 +2584,8 @@ class TestToolCallCombo:
         """Two get_weather results (Tokyo 5°C, Beijing 30°C) are written back in call order or
         reversed, each with the correct tool_call_id. They must be matched by id, not position:
         the forced report_temps call (used only to read the answer) carries tokyo_c=5, beijing_c=30.
-        Swapped values fail at once; any other wrong value is resent once."""
+        Swapped values fail at once in the reversed case. Other wrong or missing
+        temperatures are retried once."""
         calls = [{"id": cid, "type": "function", "function": {"name": "get_weather", "arguments": f'{{"location":"{city}"}}'}}
                  for cid, city in (("call_a1", "Tokyo"), ("call_b2", "Beijing"))]
         results = [{"role": "tool", "tool_call_id": "call_a1", "content": "5°C, snow"},
@@ -2594,17 +2595,22 @@ class TestToolCallCombo:
                     *(results[::-1] if reverse else results),
                     {"role": "user", "content": "Call report_temps with the temperature of each city."}]
         tools = [WEATHER_TOOL_OAI, self._REPORT_TEMPS]
-        msg, seen = f"15_14 {'reversed' if reverse else 'ordered'} stream={stream}", []
+        msg = f"15_14 {'reversed' if reverse else 'ordered'} stream={stream}"
+        seen = []
         for _ in range(2):
             r = oai_chat({"messages": copy.deepcopy(messages), "tools": tools,
                           "tool_choice": named_choice("report_temps")}, stream=stream)
             (assert_oai_stream_success if stream else assert_oai_success)(r)
-            reports = [c for c in _assert_calls(r, tools, msg, schema_check=False) if c["name"] == "report_temps"]
-            assert reports, f"{msg}: report_temps was not called"
-            got = (reports[0]["arguments_obj"].get("tokyo_c"), reports[0]["arguments_obj"].get("beijing_c"))
-            seen.append(got)
-            assert got != (30, 5), f"{msg}: results matched by position, not tool_call_id; (tokyo_c, beijing_c)={seen}"
-            if got == (5, 30):
+            trace_id = r.get("trace_id")
+            request_msg = f"{msg} trace_id={trace_id}"
+            reports = _assert_calls(r, [self._REPORT_TEMPS], request_msg, schema_check=False)
+            assert reports, f"{request_msg}: report_temps was not called"
+            values = [(c["arguments_obj"].get("tokyo_c"), c["arguments_obj"].get("beijing_c"))
+                      for c in reports]
+            seen.append({"trace_id": trace_id, "values": values})
+            if reverse and (30, 5) in values:
+                pytest.fail(f"{msg}: reversed results produced swapped temperatures. Observed {seen}")
+            if all(pair == (5, 30) for pair in values):
                 return
         pytest.fail(f"{msg}: expected (tokyo_c, beijing_c)=(5, 30), got {seen}")
 
