@@ -53,7 +53,7 @@
 | 02_03 | `test_02_03_sse_done_marker` | SSE 结束 `[DONE]` 标记 | 缺失则 xfail(已知 BUG) |
 | 02_03 | `test_02_03_sse_done_marker` | M3.1-Flash: 读取原始 SSE 行 | 最后一个 data 行是 `[DONE]`,其后紧跟空行,不出现 `event: done`;缺失直接失败,不再 xfail |
 | 02_04 | `test_02_04_stream_chunk_fields` | 流式 chunk 必带字段 | id / choices / object 全部存在 |
-| 02_04 | `test_02_04_stream_chunk_fields` | M3.1-Flash: `include_usage=true`,遍历含 usage 尾块在内的全部 chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` 类型正确,且同一条流内 `id`、`created` 不变 |
+| 02_04 | `test_02_04_stream_chunk_fields` | M3.1-Flash: `include_usage=true`,遍历含 usage 尾块在内的全部 chunk | `id` / `choices` / `object=chat.completion.chunk` / `created` / `model` 类型正确,且同一条流内 `id` 不变(`created` 只校验类型,不要求各 chunk 相同) |
 | 02_05 | `test_02_05_text_include_usage` | `stream_options.include_usage=true` 文本场景 | 流应正常返回 usage chunk |
 | 02_06 | — | 已移出(原 `test_02_06_stream_usage_only_in_last_chunk`) | 与 `m3_stream_tests.py::TestSSEStream::test_02_06_stream_usage_only_in_last_chunk` 完全重复,已去重;编号保留空位不回收 |
 | 02_07 | `test_02_07_stream_no_utf8_replacement_char_in_emoji` | 高密度 emoji 流式请求连续执行 20 次 | 任意 `delta.content` 中都不出现 `U+FFFD`（`�`）替换字符;防止四字节 emoji 被 UTF-8 分帧从中间截断 |
@@ -314,7 +314,7 @@
 | 29_01 | `test_29_01_prompt_cache_key[empty\|non_empty]` | `prompt_cache_key` 为空串 / 非空 key | `assert_oai_success` |
 | 29_02 | `test_29_02_combined_text[non_stream\|stream]` | 纯文本,同时带 `max_tokens`、`thinking=adaptive`、`prompt_cache_key` | 严格契约 + `finish_reason=stop` |
 | 29_03 | `test_29_03_combined_tool_loop[non_stream\|stream]` | 同样字段下的工具回环:第 2 轮 assistant `content=""` + tool 结果 | 第 1 轮 `tool_calls`;第 2 轮严格契约 + 返回文本或只调用已声明的函数 |
-| 29_04 | `test_29_04_context_overflow_is_recognisable` | 超出上下文窗口的输入 | 413,或 400 且报错点明上下文上限(`maximum context length` / `context window`);能处理时 skip |
+| 29_04 | `test_29_04_context_overflow_is_recognisable` | 超出上下文窗口的输入 | 413,或 400 且报错点明上下文上限(包含 `context length` 或 `context window`,如 `maximum context length`、`... longer than the model's context length`);能处理时 skip |
 
 ---
 

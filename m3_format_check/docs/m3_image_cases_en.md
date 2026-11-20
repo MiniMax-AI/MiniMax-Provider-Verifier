@@ -4,7 +4,7 @@
 > Module 14 applies to `m3_format_check/m3_1_flash_image_test.py` only.
 > Rows whose scenario starts with `M3.1-Flash:` correspond to `m3_format_check/m3_1_flash_image_test.py`.
 > Naming convention: `test_<2-digit module id>_<2-digit in-module sequence>_<scenario description>`
-> Module count: **13**; case function count: **64**; pytest collected items: **109**
+> Module count: **13**; case function count: **65**; pytest collected items: **110**
 
 ## Module Overview
 
@@ -20,11 +20,11 @@
 | 08 | image_stream_usage | Image + streaming usage chunk | 2 | 3 |
 | 09 | image_param | Image-related params / Usage arithmetic / Error tolerance | 5 | 8 |
 | 10 | resolution_tier | Tier / max_long_side_pixel / max_total_pixels / min_short_side_pixel / aspect ratio | 17 | 34 |
-| 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 9 | 13 |
+| 11 | image_size_limit | Single-image size cap / request-body cap / size gradient | 10 | 14 |
 | 12 | image_count_limit | Multi-image count upper bound (spec 1.3.6: ≤20) | 2 | 2 |
 | 13 | base64_compat | Base64 boundary tolerance | 4 | 4 |
 | 14 | image_usage | Image tokens counted in prompt_tokens (M3.1-Flash only) | 1 | 1 |
-| | **Total** | | **64** | **109** |
+| | **Total** | | **65** | **110** |
 
 ---
 
@@ -132,7 +132,7 @@
 
 ## 11 image_size_limit — Single-image size cap / request-body cap / size gradient
 
-⚠️ Contract (2026-06-02): old M2 ≤ 10MB; new M3 ≤ 30MB (aligned with OAI); request body ≤ 64MB.
+⚠️ Contract (2026-06-02): old M2 ≤ 10MB; new M3 ≤ 30MB (aligned with OAI); request body ≤ 64MB. For M3.1-Flash, 11_08 / 11_10 build bodies about 1 MiB above and below 64 MiB.
 
 | Case ID | Function | Scenario | Assertion |
 |:---:|:---|:---|:---|
@@ -144,7 +144,9 @@
 | 11_06 | `test_11_06_base64_over_10mb` | Base64 path ~11.1MB PNG (> 10MB cap) | HTTP 200 or 4xx both pass (2026-06-04 revision: assertion relaxed from 4xx to "200 or 4xx", aligned with 11_02 / 11_07 / 11_08) |
 | 11_07 | `test_11_07_oversize_31mb_m3_limit` | 31MB real-image base64 (sx1.jpg + zero padding, M3 30MB upper limit) | HTTP 200 or 4xx both pass (switched to real-image padding to avoid silent drop on solid-color PNGs in some implementations; assertion relaxed to "200 or 4xx") |
 | 11_08 | `test_11_08_request_body_over_64mb` | Base64 ~67MB PNG → body >> 64MB | HTTP 200 or 4xx both pass (2026-06-04 revision: assertion relaxed from 4xx to "200 or 4xx", aligned with 11_02 / 11_07) |
+| 11_08 | `test_11_08_request_body_over_64mb` | M3.1-Flash: several real images (sx1.jpg + zero padding, each ≤ 7 MiB, under the 10 MiB per-image cap) make a ~65 MiB body, just above the 64 MiB cap; the body size is asserted before sending | HTTP 200 or 4xx both pass; a dropped connection without an HTTP response fails |
 | 11_09 | `test_11_09_size_gradient[1\|3\|5\|8 MB]` | Image size gradient | ≤5 must 200; 8MB allows 200/4xx |
+| 11_10 | `test_11_10_request_body_under_64mb` | M3.1-Flash: same construction as 11_08, a ~63 MiB body just below the 64 MiB cap; 62 MiB < body < 64 MiB is asserted before sending | HTTP 200 + `assert_oai_success` |
 
 ## 12 image_count_limit — Multi-image count upper bound
 
