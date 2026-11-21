@@ -1176,8 +1176,8 @@ class TestSSEStream:
         The prompt asks for reasoning followed directly by a tool call, so the stream
         crosses the reasoning-to-tool-call boundary. A reasoning tail merged into a
         tool-call delta only appears on some responses, so the request is sent 10 times
-        and the first violating run fails the case. As in assert_sse_stream_strict,
-        reasoning_content must be absent or null; an empty string counts as present.
+        and the first violating run fails the case. reasoning_content must be absent or
+        null; an empty string counts as present.
         """
         payload = {
             "messages": oai_simple_messages(

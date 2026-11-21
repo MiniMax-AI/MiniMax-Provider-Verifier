@@ -1014,8 +1014,7 @@ def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = F
     Frames: every data frame is JSON and no longer than SSE_MAX_DATA_LINE_BYTES, no data
     frame follows [DONE], no error object, integer created and object=chat.completion.chunk.
     Deltas: content / reasoning_content are strings or null; tool call fragments have an
-    integer index and string arguments; a delta with tool_calls carries no
-    reasoning_content (absent or null; an empty string counts as present).
+    integer index and string arguments.
     Tool calls: indexes and ids pass inspect_stream_tool_calls, the first fragment of each
     call carries id, type=function and name, and the joined arguments parse as a JSON object.
     Finish: exactly one finish chunk per choice with a known finish_reason (equal to
@@ -1075,8 +1074,6 @@ def assert_sse_stream_strict(result, msg: str = "", finish=None, usage: bool = F
                 args = (tc.get("function") or {}).get("arguments")
                 if args is not None and not isinstance(args, str):
                     failures.append(f"chunk {n}: tool_calls[].function.arguments should be a string: {tc}")
-            if delta.get("tool_calls") and delta.get("reasoning_content") is not None:
-                failures.append(f"chunk {n}: a delta with tool_calls should not carry reasoning_content: {delta}")
             if reason is not None:
                 finished[i] = reason
                 if reason not in FINISH_REASONS:
