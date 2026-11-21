@@ -1140,19 +1140,22 @@ class TestSSEStream:
 
         One request per scenario; all rules are checked on that response and every
         violation is reported together. The reasoning scenario is skipped when no
-        reasoning deltas are produced.
+        reasoning deltas are produced. tool_after_reasoning is sent 10 times and fails on
+        the first violating response: a reasoning tail merged into a tool-call delta only
+        shows up on some responses.
         """
-        payload = dict(copy.deepcopy(payload), stream_options={"include_usage": True})
-        result = oai_chat(payload, stream=True)
-        assert_sse_stream_strict(result, msg=f"02_12 {name}", finish=finish, usage=True)
+        runs = 10 if name == "tool_after_reasoning" else 1
+        for run in range(1, runs + 1):
+            result = oai_chat(dict(copy.deepcopy(payload), stream_options={"include_usage": True}), stream=True)
+            msg = f"02_12 {name} run {run}/{runs} trace_id={result.get('trace_id')}"
+            assert_sse_stream_strict(result, msg=msg, finish=finish, usage=True)
+            if name.startswith("tool"):
+                assert get_tool_calls(result), f"{msg}: the prompt asks for a call but no tool calls"
         if name == "reasoning" and not any(
             (choice.get("delta") or {}).get("reasoning_content")
             for chunk in stream_data_chunks(result) for choice in chunk.get("choices") or []
         ):
             pytest.skip("02_12 reasoning: no reasoning_content deltas observed")
-        if name.startswith("tool"):
-            calls = get_tool_calls(result)
-            assert calls, f"02_12 {name}: the prompt asks for a call but no tool calls"
 
     def test_02_14_stream_omitted_returns_json(self):
         """Omitting stream returns one complete JSON object (assert_chat_completion_strict)."""
