@@ -1170,6 +1170,53 @@ class TestSSEStream:
             f"02_20 reasoning_tokens outside completion_tokens: {usage!r}"
         )
 
+    def test_02_25_reasoning_content_and_tool_calls_not_coexist_in_chunk(self):
+        """A delta with tool_calls carries no reasoning_content, checked over 10 runs.
+
+        The prompt asks for reasoning followed directly by a tool call, so the stream
+        crosses the reasoning-to-tool-call boundary. A reasoning tail merged into a
+        tool-call delta only appears on some responses, so the request is sent 10 times
+        and the first violating run fails the case. reasoning_content must be absent or
+        null; an empty string counts as present.
+        """
+        payload = {
+            "messages": oai_simple_messages(
+                "Think step by step: which planet in the solar system has the most known moons? "
+                "Then call echo with text set to that planet's name. "
+                "Do not write any text before or after the tool call."
+            ),
+            "tools": [ECHO_TOOL],
+            "reasoning_effort": "high",
+        }
+        run_count = 10
+        first_failure = None
+        for run_idx in range(1, run_count + 1):
+            result = oai_chat(copy.deepcopy(payload), stream=True)
+            assert_oai_stream_success(result)
+
+            offenders = []
+            for idx, chunk in enumerate(stream_data_chunks(result)):
+                for choice in chunk.get("choices") or []:
+                    delta = choice.get("delta") or {}
+                    if delta.get("tool_calls") and delta.get("reasoning_content") is not None:
+                        offenders.append({"chunk_index": idx, "delta": delta})
+
+            if offenders:
+                first_failure = {
+                    "run": run_idx,
+                    "trace_id": result.get("trace_id"),
+                    "offender_count": len(offenders),
+                    "samples": offenders[:3],
+                }
+                break
+
+        assert first_failure is None, (
+            f"02_25 run {first_failure['run']} of {run_count} "
+            f"(trace_id={first_failure['trace_id']}): {first_failure['offender_count']} "
+            f"delta(s) carry tool_calls together with reasoning_content, "
+            f"samples: {first_failure['samples']}"
+        )
+
 
 class TestGzipRequestBody:
     """Request bodies sent with Content-Encoding: gzip behave like uncompressed ones."""
