@@ -54,8 +54,7 @@ ECHO_TOOL = {
 
 # 02_12 SSE chunk contract: one request per scenario, each producing a different kind of
 # chunk (content, reasoning, length / tool_calls finish, single and parallel tool-call
-# fragments, a tool call right after reasoning, multimodal input). Every scenario
-# requests the usage chunk.
+# fragments, multimodal input). Every scenario requests the usage chunk.
 # (id, payload, expected finish_reason)
 SSE_CONTRACT_SCENARIOS = (
     ("text", {
@@ -72,15 +71,6 @@ SSE_CONTRACT_SCENARIOS = (
     ("tool_single", {
         "messages": oai_simple_messages("Call echo with text=hello."),
         "tools": [ECHO_TOOL],
-    }, "tool_calls"),
-    ("tool_after_reasoning", {
-        "messages": oai_simple_messages(
-            "Think step by step: which planet in the solar system has the most known moons? "
-            "Then call echo with text set to that planet's name. "
-            "Do not write any text before or after the tool call."
-        ),
-        "tools": [ECHO_TOOL],
-        "reasoning_effort": "high",
     }, "tool_calls"),
     ("image_input", {
         "messages": [{"role": "user", "content": [
@@ -1140,22 +1130,19 @@ class TestSSEStream:
 
         One request per scenario; all rules are checked on that response and every
         violation is reported together. The reasoning scenario is skipped when no
-        reasoning deltas are produced. tool_after_reasoning is sent 10 times and fails on
-        the first violating response: a reasoning tail merged into a tool-call delta only
-        shows up on some responses.
+        reasoning deltas are produced.
         """
-        runs = 10 if name == "tool_after_reasoning" else 1
-        for run in range(1, runs + 1):
-            result = oai_chat(dict(copy.deepcopy(payload), stream_options={"include_usage": True}), stream=True)
-            msg = f"02_12 {name} run {run}/{runs} trace_id={result.get('trace_id')}"
-            assert_sse_stream_strict(result, msg=msg, finish=finish, usage=True)
-            if name.startswith("tool"):
-                assert get_tool_calls(result), f"{msg}: the prompt asks for a call but no tool calls"
+        payload = dict(copy.deepcopy(payload), stream_options={"include_usage": True})
+        result = oai_chat(payload, stream=True)
+        assert_sse_stream_strict(result, msg=f"02_12 {name}", finish=finish, usage=True)
         if name == "reasoning" and not any(
             (choice.get("delta") or {}).get("reasoning_content")
             for chunk in stream_data_chunks(result) for choice in chunk.get("choices") or []
         ):
             pytest.skip("02_12 reasoning: no reasoning_content deltas observed")
+        if name.startswith("tool"):
+            calls = get_tool_calls(result)
+            assert calls, f"02_12 {name}: the prompt asks for a call but no tool calls"
 
     def test_02_14_stream_omitted_returns_json(self):
         """Omitting stream returns one complete JSON object (assert_chat_completion_strict)."""
@@ -1181,6 +1168,53 @@ class TestSSEStream:
             pytest.skip("02_20: reasoning_tokens not reported")
         assert 0 <= reasoning_tokens <= usage["completion_tokens"], (
             f"02_20 reasoning_tokens outside completion_tokens: {usage!r}"
+        )
+
+    def test_02_25_reasoning_content_and_tool_calls_not_coexist_in_chunk(self):
+        """A delta with tool_calls carries no reasoning_content, checked over 10 runs.
+
+        The prompt asks for reasoning followed directly by a tool call, so the stream
+        crosses the reasoning-to-tool-call boundary. A reasoning tail merged into a
+        tool-call delta only appears on some responses, so the request is sent 10 times
+        and the first violating run fails the case. As in assert_sse_stream_strict,
+        reasoning_content must be absent or null; an empty string counts as present.
+        """
+        payload = {
+            "messages": oai_simple_messages(
+                "Think step by step: which planet in the solar system has the most known moons? "
+                "Then call echo with text set to that planet's name. "
+                "Do not write any text before or after the tool call."
+            ),
+            "tools": [ECHO_TOOL],
+            "reasoning_effort": "high",
+        }
+        run_count = 10
+        first_failure = None
+        for run_idx in range(1, run_count + 1):
+            result = oai_chat(copy.deepcopy(payload), stream=True)
+            assert_oai_stream_success(result)
+
+            offenders = []
+            for idx, chunk in enumerate(stream_data_chunks(result)):
+                for choice in chunk.get("choices") or []:
+                    delta = choice.get("delta") or {}
+                    if delta.get("tool_calls") and delta.get("reasoning_content") is not None:
+                        offenders.append({"chunk_index": idx, "delta": delta})
+
+            if offenders:
+                first_failure = {
+                    "run": run_idx,
+                    "trace_id": result.get("trace_id"),
+                    "offender_count": len(offenders),
+                    "samples": offenders[:3],
+                }
+                break
+
+        assert first_failure is None, (
+            f"02_25 run {first_failure['run']} of {run_count} "
+            f"(trace_id={first_failure['trace_id']}): {first_failure['offender_count']} "
+            f"delta(s) carry tool_calls together with reasoning_content, "
+            f"samples: {first_failure['samples']}"
         )
 
 

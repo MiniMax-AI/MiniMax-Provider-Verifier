@@ -2,11 +2,11 @@
 
 > 对应文件：`m3_format_check/m3_stream_tests.py`
 > `02_09`、`02_10`、`02_11` 同样适用于 `m3_format_check/m3_1_flash_stream_test.py`。
-> `02_12`、`02_14`、`02_20`、`02_21`、`02_22`、`02_23`、`02_24` 只适用于 `m3_format_check/m3_1_flash_stream_test.py`。
+> `02_12`、`02_14`、`02_20`、`02_21`、`02_22`、`02_23`、`02_24`、`02_25` 只适用于 `m3_format_check/m3_1_flash_stream_test.py`。
 
 ## 测试范围
 
-- `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk（`02_06` 纯文本、`02_11` 带图多模态，两条共用同一断言但走不同的 usage 组装路径），以及连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`。原 `m3_text_tests.py::02_06` 与本文件 `02_06` 完全重复已删除，原 `m3_image_tests.py::08_03` 迁入本文件并按本文件 `02_xx` 序号续编为 `02_11`。
+- `TestSSEStream`：校验 `stream_options.include_usage=true` 时 usage 仅出现在最后一个 chunk（`02_06` 纯文本、`02_11` 带图多模态，两条共用同一断言但走不同的 usage 组装路径），以及连续 20 次请求中任一 `delta` 不会同时包含非空 `content` 和 `reasoning_content`；`02_25` 连续 10 次请求思考后直接调用工具，任一带 `tool_calls` 的 `delta` 不能带 `reasoning_content`。原 `m3_text_tests.py::02_06` 与本文件 `02_06` 完全重复已删除，原 `m3_image_tests.py::08_03` 迁入本文件并按本文件 `02_xx` 序号续编为 `02_11`。
 - `02_09`、`02_10` 各执行一次 `bash` + `glob` 并行工具调用请求：要求 `bash` 检查仓库状态和提交记录、`glob` 在 `/app` 下查找 `**/AGENTS.md`。使用 `tool_choice="auto"`、`parallel_tool_calls=true`、`max_tokens=64000`，直接检查完整响应的原始分片。协议违规立即 `FAIL`，报告 response/trace ID 和异常分片位置；未观察到并行调用时 `SKIP`，不重试。只接收模型工具调用，不执行 shell 命令或文件搜索。
 - 两项协议规则分别只由 `02_09`、`02_10` 断言；`oai_chat`、通用成功断言和工具参数提取不执行身份校验，避免同一协议问题使其他功能用例连带失败。
 - `TestContentStreamPacketLengthDistribution`：纯 content 场景默认执行 5 次，将 5 次的所有非空 `delta.content` 分包合并后统一判定。可通过 `M3_STREAM_CONTENT_RUNS` 调整次数。
@@ -58,13 +58,14 @@
 | 02_09 | `test_02_09_tool_call_index_unique_in_chunk` | 单次 `bash` + `glob` 并行工具调用，检查响应中每个 chunk、每个 choice 的 `delta.tool_calls` 内 `index` 不重复 | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_10 | `test_02_10_tool_call_identity_stable` | 单次 `bash` + `glob` 并行工具调用，在合并前检查全部原始 `delta.tool_calls`：每个 choice 的新 `index` 首次出现时从 0 连续递增；每个调用最终具有非空 `id`；同一调用的 `id` 稳定，且不被其他调用复用（后续分片允许省略 `id`） | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_11 | `test_02_11_image_stream_usage_only_in_last_chunk` | `stream_options.include_usage=true` + 672×672 base64 图片的多模态场景（由原图片套件 `08_03` 迁入） | 独立 SSE 协议校验，不属于分包质量规则 |
-| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|tool_after_reasoning\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个工具调用分片、思考后紧接工具调用（`reasoning_effort=high`，连续发 10 次，任一次违规即失败）、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
+| 02_12 | `test_02_12_stream_chunk_contract[text\|reasoning\|length\|tool_single\|image_input]` | 每个场景一次请求（均带 `include_usage=true`），覆盖不同类型的包：普通文本、reasoning 增量、`finish_reason=length`、单个工具调用分片、图片输入；全部通过 `assert_sse_stream_strict`。reasoning 场景未出现 `reasoning_content`时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_14 | `test_02_14_stream_omitted_returns_json` | 请求体不含 `stream` 键，经 `oai_chat_verbatim` 原样发送，返回单个 JSON 的 ChatCompletion，不是 SSE（`assert_chat_completion_strict`） | 独立协议校验，不属于分包质量规则 |
 | 02_20 | `test_02_20_stream_reasoning_tokens_within_completion` | `reasoning_effort="high"`，`include_usage=true`，`0 <= reasoning_tokens <= completion_tokens`；未返回该字段时记为 `SKIP` | 独立 SSE 协议校验，不属于分包质量规则 |
 | 02_21 | `test_02_21_gzip_request_body_stream` | 短文本流式请求分别以明文和 gzip 请求体发送；gzip 请求返回 200、流正常结束，`prompt_tokens` 与明文相等 | 独立请求编码校验，不属于分包质量规则 |
 | 02_22 | `test_02_22_gzip_request_body_long_agent_context` | 约 420 KB 的 agent 请求（tools + 4 段 `read_file` 工具结果）以明文和 gzip 分别发送，判定同 `02_21`。压缩比高，覆盖服务端对解压比例或解压后大小的限制 | 独立请求编码校验，不属于分包质量规则 |
 | 02_23 | `test_02_23_gzip_request_body_large_image` | 约 9 MB PNG 的 base64 图片以明文和 gzip 分别发送，判定同 `02_21`。压缩后仍约 9 MB，覆盖请求体大小限制，不应返回 413 | 独立请求编码校验，不属于分包质量规则 |
 | 02_24 | `test_02_24_truncated_gzip_request_body_rejected` | 发送截断一半的 gzip 请求体（`Content-Encoding: gzip`，经 `oai_chat_verbatim(..., body=..., headers=...)`）；必须返回 4xx，不能是 5xx 或 200 | 独立请求编码校验，不属于分包质量规则 |
+| 02_25 | `test_02_25_reasoning_content_and_tool_calls_not_coexist_in_chunk` | `reasoning_effort=high` 加 `echo` 工具，要求先思考再直接调用工具、前后不输出文字；连续执行 10 次，任一次出现带 `tool_calls` 的 `delta` 同时带 `reasoning_content`（只允许缺省或 null）即失败，报出第几次和 trace_id | 独立 SSE 协议校验，不属于分包质量规则 |
 | 01_01 | `01_01_essay_500_chars` | 直接返回约 500 字中文作文，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_02 | `01_02_structured_json_1k` | 返回不少于 1KB 的结构化 JSON，默认执行 5 次 | 合并 5 次 `content` 分包后判定 |
 | 01_03 | `01_03_tool_content_string_500_chars` | 调用仅有 `content: string` 参数的 `save_content`，保存约 500 字作文 | `arguments` 分包 |
