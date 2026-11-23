@@ -47,8 +47,11 @@ The evaluation results below are computed using our initial release of test prom
 | Metric | Query-Success-Rate | ToolCalls-Match-Rate | ToolCalls-Schema-Accuracy | Error-Only-Reasoning-Rate | Language-Following-Success-Rate | Scenario-Check-Pass-Rate |
 |--------|--------------------|-----------------------------|--------------------|--------------------------------------------|----------------------------------|--------------------------|
 | MiniMax-M3.1-Flash | 100.00% | 98.70% | 99.64% | 0.00% | 85.00% | 90.00% |
+| MiniMax-M3.1-Flash-a | 100.00% | 98.70% | 100.00% | 0.00% | 100.00% | 100.00% |
 
 > Baseline results: official MiniMax-M3.1-Flash deployment, `pass@10` mean. Result folder: `output-dir/MiniMax-M3.1-Flash/`.
+>
+> `MiniMax-M3.1-Flash-a` deployment result,  `pass@10` mean. Result folder: `output-dir/MiniMax-M3.1-Flash-a/`.
 
 
 ### MiniMax-M3 Model – June 2026 Data

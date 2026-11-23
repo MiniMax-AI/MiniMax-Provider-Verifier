@@ -1,0 +1,135 @@
+{
+    "summary": {
+        "total_files": 10,
+        "average_metrics": {
+            "1. Query-Success-Rate": 1.0,
+            "2. ToolCalls-Match-Rate": 0.9869999999999999,
+            "4. ToolCalls-Schema-Accuracy": 1.0,
+            "5. Error-Only-Reasoning-Rate": 0.0,
+            "6. Language-Following-Success-Rate": 1.0,
+            "7. Scenario-Check-Pass-Rate": 1.0
+        }
+    },
+    "results": [
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_01/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_02/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_03/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_04/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_05/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_06/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_07/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.98,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_08/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_09/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        },
+        {
+            "file": "output-dir/MiniMax-M3.1-Flash-a/loop_10/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+            "model": "minimax-M3.1-Flash-a",
+            "metrics": {
+                "1. Query-Success-Rate": 1.0,
+                "2. ToolCalls-Match-Rate": 0.99,
+                "4. ToolCalls-Schema-Accuracy": 1.0,
+                "5. Error-Only-Reasoning-Rate": 0.0,
+                "6. Language-Following-Success-Rate": 1.0,
+                "7. Scenario-Check-Pass-Rate": 1.0
+            }
+        }
+    ]
+}
