@@ -1,0 +1,52 @@
+{
+  "test_file": "output-dir/minimax-M3.1-Flash-a/loop_07/minimax-m3-1-flash-a/test_data.jsonl",
+  "total_providers": 1,
+  "successful_providers": 1,
+  "failed_providers": 0,
+  "provider_results": [
+    {
+      "provider": "minimax-m3-1-flash-a",
+      "status": "success",
+      "summary": {
+        "model": "minimax-M3.1-Flash-a",
+        "success_count": 102,
+        "failure_count": 0,
+        "all_count": 102,
+        "tool_calls_finish_tool_calls": 84,
+        "tool_calls_finish_stop": 0,
+        "stop_finish_tool_calls": 1,
+        "stop_finish_stop": 14,
+        "tool_calls_finish_others": 0,
+        "tool_calls_finish_others_detail": {},
+        "expected_tool_call_total_count": 100,
+        "tool_calls_schema_validation_error_count": 0,
+        "tool_calls_successful_count": 84,
+        "tool_calls_total_count": 199,
+        "tool_calls_count_distribution": {
+          "1": 32,
+          "2": 18,
+          "3": 20,
+          "4": 9,
+          "5": 3,
+          "9": 2
+        },
+        "scenario_check_checked_count": 1,
+        "scenario_check_valid_count": 1,
+        "scenario_check_invalid_count": 0,
+        "scenario_check_pass_rate": 1.0,
+        "language_following_checked_count": 2,
+        "language_following_valid_count": 2,
+        "language_following_invalid_count": 0,
+        "error_only_reasoning_checked_count": 102,
+        "error_only_reasoning_count": 0,
+        "error_only_reasoning_rate": 0.0,
+        "success_rate": 1.0,
+        "tool_calls_match_rate": 0.98
+      },
+      "output_file": "output-dir/minimax-M3.1-Flash-a/loop_07/minimax-m3-1-flash-a/minimax-m3-1-flash-a_results.jsonl",
+      "summary_file": "output-dir/minimax-M3.1-Flash-a/loop_07/minimax-m3-1-flash-a/minimax-m3-1-flash-a_summary.json",
+      "completed_at": "2026-11-21T16:14:18.315361"
+    }
+  ],
+  "generated_at": "2026-11-21T16:14:18.317258"
+}
