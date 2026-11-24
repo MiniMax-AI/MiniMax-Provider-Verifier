@@ -211,10 +211,11 @@
 | 14_04 | `test_14_04_multi_required_fields` | 多 required 字段 | from_city/to_city/date 都填 + date 前缀正确 |
 | 14_05 | `test_14_05_nested_object_array` | 嵌套 array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4 层深嵌套 schema | nested_tool 触发 + 合法 JSON |
-| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: OpenAI 支持的复杂 schema 关键字(不带 strict):anyOf、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败 |
+| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: OpenAI 支持的复杂 schema 关键字(不带 strict):anyOf(含 5 类型混合)、`type` 数组(含 5 类型混合)、enum、nullable、多层嵌套、`$ref`、递归、注解、长度、format、空 properties、中文属性名、转义值,由提示词要求调用 | 至少一个调用、函数名已声明、arguments 为 JSON 对象;schema 符合度和提示词指定取值只记录不判失败 |
 | 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: 属性级 allOf | 受理(由提示词要求调用);arguments 是 JSON 对象,不校验取值 |
 | 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: 属性级 oneOf | 受理;arguments 是 JSON 对象,不校验取值 |
 | 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: 省略 required 和 additionalProperties | 受理;arguments 是 JSON 对象,不校验取值 |
+| 14_21 | `test_14_21_string_union_type_handled` | M3.1-Flash: `type` 写成 `"string \| number \| boolean \| object \| array"` 单个字符串(非法写法) | 返回 4xx,或按未知类型处理并返回 200 且响应结构正常;不允许 5xx |
 
 ## 15 tool_call_combo — 工具调用与其他特性组合
 
