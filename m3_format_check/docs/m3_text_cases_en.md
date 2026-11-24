@@ -212,10 +212,11 @@
 | 14_04 | `test_14_04_multi_required_fields` | Multiple required fields | from_city/to_city/date filled + date prefix correct |
 | 14_05 | `test_14_05_nested_object_array` | Nested array-of-objects | guests=[{Alice 30}, {Bob 25}] |
 | 14_06 | `test_14_06_nested_schema_4_levels` | 4-level deep nested schema | nested_tool fires + valid JSON |
-| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: Complex schema keywords OpenAI supports (no strict): anyOf, enum, nullable, nesting, `$ref`, recursion, annotations, length, format, empty properties, non-ASCII property names, escaped values; call requested by the prompt | At least one call to the declared function with JSON-object arguments; schema conformance and prompt-fixed values are recorded, not asserted |
+| 14_12 | `test_14_12_complex_schema_keywords[...]` | M3.1-Flash: Complex schema keywords OpenAI supports (no strict): anyOf (including a five-type mix), `type` arrays (including a five-type mix), enum, nullable, nesting, `$ref`, recursion, annotations, length, format, empty properties, non-ASCII property names, escaped values; call requested by the prompt | At least one call to the declared function with JSON-object arguments; schema conformance and prompt-fixed values are recorded, not asserted |
 | 14_16 | `test_14_16_schema_capability_negative[allof]` | M3.1-Flash: Property-level allOf | Accepted (call requested by the prompt); arguments are a JSON object, values not checked |
 | 14_18 | `test_14_18_non_strict_property_oneof_accepted` | M3.1-Flash: Property-level oneOf | Accepted; arguments are a JSON object, values not checked |
 | 14_20 | `test_14_20_non_strict_omit_required_and_additional` | M3.1-Flash: required and additionalProperties omitted | Accepted; arguments are a JSON object, values not checked |
+| 14_21 | `test_14_21_string_union_type_handled` | M3.1-Flash: `type` written as the single string `"string \| number \| boolean \| object \| array"` (invalid form) | 4xx, or handled as an unknown type with 200 and a well-formed response; 5xx is not allowed |
 
 ## 15 tool_call_combo — Tool call combined with other features
 

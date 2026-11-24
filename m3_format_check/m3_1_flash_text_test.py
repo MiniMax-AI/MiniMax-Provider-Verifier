@@ -2284,6 +2284,15 @@ class TestToolCallSchema:
                 {"type": "object", "properties": {"kind": {"type": "string", "enum": ["org"]}, "url": {"type": "string"}},
                  "required": ["kind", "url"], "additionalProperties": False}]}},
             "required": ["item"], "additionalProperties": False}),
+        "anyof_multi_type": ("调用 f，value 传字符串 hello。", {
+            "type": "object", "properties": {"value": {"anyOf": [
+                {"type": "string"}, {"type": "number"}, {"type": "boolean"},
+                {"type": "object"}, {"type": "array"}]}},
+            "required": ["value"], "additionalProperties": False}),
+        "multi_type_array": ("调用 f，value 传字符串 hello。", {
+            "type": "object",
+            "properties": {"value": {"type": ["string", "number", "boolean", "object", "array"]}},
+            "required": ["value"], "additionalProperties": False}),
         "enum_string": ("调用 f，unit 用摄氏度。", {
             "type": "object", "properties": {"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}},
             "required": ["unit"], "additionalProperties": False}),
@@ -2352,7 +2361,7 @@ class TestToolCallSchema:
 
     @pytest.mark.parametrize("case", list(_SCHEMA_CASES), ids=list(_SCHEMA_CASES))
     def test_14_12_complex_schema_keywords(self, case):
-        """Function schemas using the keywords OpenAI supports (anyOf, enum, nullable, nesting,
+        """Function schemas using the keywords OpenAI supports (anyOf, type arrays, enum, nullable, nesting,
         $ref, recursion, annotations, length, format, empty properties, non-ASCII names) are
         accepted: finish_reason=tool_calls, at least one call to the declared function,
         arguments a JSON object. Schema conformance and prompt-fixed values are recorded."""
@@ -2414,6 +2423,23 @@ class TestToolCallSchema:
         _assert_required_calls_loose(r, "f", "14_20")
         for i, tc in enumerate(message_tool_calls(r)):
             parse_arguments(tc["function"]["arguments"], f"14_20 tool_calls[{i}]")
+
+    def test_14_21_string_union_type_handled(self):
+        """`type` written as one "a | b" string is not a JSON Schema type. The request is either
+        rejected with 4xx or handled as an unknown type with a well-formed reply; never a 5xx."""
+        tool = tool_fn("f", description="回显参数", parameters={
+            "type": "object",
+            "properties": {"value": {"type": "string | number | boolean | object | array",
+                                     "description": "待回显的值"}},
+            "required": ["value"]})
+        r = oai_chat({"messages": oai_simple_messages("调用 f，value 传字符串 hello。"), "tools": [tool]})
+        assert r["status"] == 200 or 400 <= r["status"] < 500, (
+            f"14_21 expected 200 or 4xx, got {r['status']} trace_id={r.get('trace_id')}: "
+            f"{str(r.get('body'))[:300]}"
+        )
+        if r["status"] == 200:
+            assert_oai_success(r)
+            assert_text_or_declared_calls(r, [tool], "14_21")
 
 # ============================================================
 # 15 tool_call_combo — tool call combined with other features
