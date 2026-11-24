@@ -822,6 +822,33 @@ def _assert_basic_ok(r: dict, msg: str = ""):
     assert pt > 0, f"{msg}: prompt_tokens should be positive, got {pt}"
 
 
+def _assert_same_prompt_tokens(payload_a: dict, payload_b: dict, msg: str):
+    """Two non-stream requests that should cost the same input report equal prompt_tokens.
+
+    An endpoint served by several backends may count the same body differently, so on a
+    mismatch both requests are sent once more and the case passes when any count of the
+    first request equals any count of the second."""
+    counts = ([], [])
+
+    def send(payload, seen):
+        r = oai_chat(json.loads(json.dumps(payload)))
+        assert r["status"] == 200, (
+            f"{msg}: expected 200, got {r['status']} trace_id={r.get('trace_id')}: {str(r.get('body'))[:300]}"
+        )
+        tokens = _get_prompt_tokens(r)
+        assert tokens > 0, f"{msg}: prompt_tokens should be positive, got {tokens} trace_id={r.get('trace_id')}"
+        seen.append(tokens)
+
+    for payload, seen in zip((payload_a, payload_b), counts):
+        send(payload, seen)
+    if counts[0][0] != counts[1][0]:
+        for payload, seen in zip((payload_a, payload_b), counts):
+            send(payload, seen)
+    assert set(counts[0]) & set(counts[1]), (
+        f"{msg}: prompt_tokens never match: first request {counts[0]}, second request {counts[1]}"
+    )
+
+
 class TestImageResolutionTier:
     """
     Image detail tier + max_long_side_pixel + max_total_pixels + aspect ratio tests.
@@ -1159,6 +1186,24 @@ class TestImageResolutionTier:
             ]}],
         })
         _assert_basic_ok(r, f"10_17 scale_down {orient} {width}x{height}")
+
+    # -------------------- 10_18: default long-side cap --------------------
+    # Without detail or max_long_side_pixel, the long side is capped at 2016. The
+    # 252/504/1008 values in 10_11~10_14 are max_long_side_pixel samples.
+
+    def test_10_18_default_long_side_cap(self):
+        """10_18 — A 5000x3000 PNG sent without detail or max_long_side_pixel reports the same
+        prompt_tokens as the same image with max_long_side_pixel=2016."""
+        img = make_png_base64(5000, 3000)
+
+        def payload(image_url):
+            return {"messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": image_url},
+                {"type": "text", "text": self._COLOR_PROMPT},
+            ]}]}
+
+        _assert_same_prompt_tokens(payload({"url": img}), payload({"url": img, "max_long_side_pixel": 2016}),
+                                   "10_18 default vs max_long_side_pixel=2016")
 
 
 # ============================================================

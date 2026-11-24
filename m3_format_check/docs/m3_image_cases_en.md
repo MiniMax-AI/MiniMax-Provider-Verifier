@@ -129,6 +129,7 @@
 | 10_15 | `test_10_15_min_short_side_upscale[landscape_400x40\|300x80\|112x20 / portrait_40x400\|80x300]` | rule b: long side ≤ tier and short side < 112, upscale short side to 112 (landscape "too flat" + portrait "too narrow") | HTTP 200 + prompt_tokens > 0 |
 | 10_16 | `test_10_16_min_short_side_upscale_monotonic` | rule b monotonic: fixed long side 400, original short 90/40/20 (all < 112) all upscaled to 112 | smaller original short side never reduces prompt_tokens |
 | 10_17 | `test_10_17_max_long_side_scale_down_orientation[portrait_2000x3000\|landscape_3000x2000]` | rule a: long side > tier triggers scale-down (portrait "too tall" + landscape "too wide") | HTTP 200 + prompt_tokens > 0 |
+| 10_18 | `test_10_18_default_long_side_cap` | M3.1-Flash: Default long-side cap: a 5000×3000 PNG sent without detail or max_long_side_pixel, compared with max_long_side_pixel=2016 | Both requests report equal prompt_tokens (on a mismatch each is sent once more and any equal pair passes) |
 
 ## 11 image_size_limit — Single-image size cap / request-body cap / size gradient
 

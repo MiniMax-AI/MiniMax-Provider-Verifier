@@ -129,6 +129,7 @@
 | 10_15 | `test_10_15_min_short_side_upscale[landscape_400x40\|300x80\|112x20 / portrait_40x400\|80x300]` | 规则 b:长边≤档位且短边<112,放大至短边=112(横向"太扁"+纵向"太窄"两方向) | HTTP 200 + prompt_tokens > 0 |
 | 10_16 | `test_10_16_min_short_side_upscale_monotonic` | 规则 b 单调:固定长边 400,原短边 90/40/20(均<112)均放大至 112 | 原短边越小 prompt_tokens 不减 |
 | 10_17 | `test_10_17_max_long_side_scale_down_orientation[portrait_2000x3000\|landscape_3000x2000]` | 规则 a:长边>档位触发缩小(纵向"过长"+横向"过宽"两方向) | HTTP 200 + prompt_tokens > 0 |
+| 10_18 | `test_10_18_default_long_side_cap` | M3.1-Flash: 默认长边上限:5000×3000 PNG 不传 detail 和 max_long_side_pixel,与 max_long_side_pixel=2016 对比 | 两个请求 prompt_tokens 相等(不一致时各补发一次,任一组相等即通过) |
 
 ## 11 image_size_limit — 单图大小限 / 请求体限 / size 梯度
 
