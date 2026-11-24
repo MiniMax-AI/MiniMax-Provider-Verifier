@@ -919,25 +919,32 @@ class TestImageResolutionTier:
     # -------------------- 10_07: detail omitted vs explicit default equivalence --------------------
 
     def test_10_07_detail_default_when_omitted(self):
-        """10_07 — 1500x1000 PNG, omitting detail / explicit detail="default" → both HTTP 200."""
-        img = make_png_base64(1500, 1000)
+        """10_07 — 5000x3000 PNG (long side above every tier), omitting detail / explicit
+        detail="default" → both HTTP 200 with equal prompt_tokens, so an omitted detail is
+        default. On a token mismatch both requests are sent once more and any equal pair passes."""
+        img = make_png_base64(5000, 3000)
         prompt_text = "What color?"
+        omitted = {"messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": img}},
+            {"type": "text", "text": prompt_text},
+        ]}]}
+        explicit = {"messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": img, "detail": "default"}},
+            {"type": "text", "text": prompt_text},
+        ]}]}
 
-        r1 = oai_chat({
-            "messages": [{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": img}},
-                {"type": "text", "text": prompt_text},
-            ]}],
-        })
-        r2 = oai_chat({
-            "messages": [{"role": "user", "content": [
-                {"type": "image_url", "image_url": {"url": img, "detail": "default"}},
-                {"type": "text", "text": prompt_text},
-            ]}],
-        })
-        assert r1["status"] == 200, f"10_07 omitted HTTP={r1['status']}"
-        assert_oai_success(r1)
-        assert r2["status"] == 200, f"10_07 explicit HTTP={r2['status']}"
+        tokens = {"omitted": [], "explicit": []}
+        for attempt in range(2):
+            r1 = oai_chat(json.loads(json.dumps(omitted)))
+            r2 = oai_chat(json.loads(json.dumps(explicit)))
+            assert r1["status"] == 200, f"10_07 omitted HTTP={r1['status']} trace_id={r1.get('trace_id')}"
+            assert_oai_success(r1)
+            assert r2["status"] == 200, f"10_07 explicit HTTP={r2['status']} trace_id={r2.get('trace_id')}"
+            tokens["omitted"].append(_get_prompt_tokens(r1))
+            tokens["explicit"].append(_get_prompt_tokens(r2))
+            if set(tokens["omitted"]) & set(tokens["explicit"]):
+                return
+        pytest.fail(f"10_07 omitted detail should cost the same as detail=default, prompt_tokens {tokens}")
 
     # -------------------- 10_08: max_total_pixels exceeded / boundary --------------------
 

@@ -118,7 +118,7 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG (long side > 2016, triggers scale) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG (long side > 2016) boundary smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | Omit detail vs explicit detail="default" comparison | Both HTTP 200 |
-| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: detail omitted | Existing checks + `assert_oai_success` |
+| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: 5000×3000 PNG with detail omitted / explicit detail="default" | Existing checks + `assert_oai_success`; both requests report equal prompt_tokens (on a mismatch each is sent once more and any equal pair passes) |
 | 10_08 | `test_10_08_max_total_pixels_exceeded` | zn6.jpg real photo 4284×5712 = 24.5M pixels (> 12,845,056 cap, rule c) | 200 (auto-scale, answer contains fish/aquarium/water etc., prompt_tokens>0) or 400/413/422 (reject) |
 | 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056 (= cap, rule c boundary) | HTTP 200 + prompt_tokens > 0 (=cap must accept) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500 (8:1 aspect ratio) acceptance | HTTP 200 + prompt_tokens > 0 |

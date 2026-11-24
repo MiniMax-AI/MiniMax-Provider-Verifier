@@ -118,7 +118,7 @@
 | 10_05 | `test_10_05_tier_high_scale_down[non_stream\|stream]` | 5000×3000 PNG(>2016 长边,触发缩放) | HTTP 200 + prompt_tokens > 0 |
 | 10_06 | `test_10_06_tier_at_boundary` | 4000×2000 PNG(>2016 长边)边界 smoke | HTTP 200 + prompt_tokens > 0 |
 | 10_07 | `test_10_07_detail_default_when_omitted` | 不传 detail / 显式 detail="default" 两次对比 | 两次都 HTTP 200 |
-| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: 省略 detail | 原有校验 + `assert_oai_success` |
+| 10_07 | `test_10_07_detail_default_when_omitted` | M3.1-Flash: 5000×3000 PNG 省略 detail / 显式 detail="default" | 原有校验 + `assert_oai_success`;两次 prompt_tokens 相等(不一致时各补发一次,任一组相等即通过) |
 | 10_08 | `test_10_08_max_total_pixels_exceeded` | zn6.jpg 真图 4284×5712 = 24.5M 像素(> 12,845,056 上限,规则 c) | 200(自动缩放且答案含 fish/aquarium/water 等真图关键词、prompt_tokens>0)或 400/413/422(拒绝) |
 | 10_09 | `test_10_09_max_total_pixels_at_boundary` | 3584×3584 = 12,845,056(=上限,规则 c 边界) | HTTP 200 + prompt_tokens > 0(=上限应接受) |
 | 10_10 | `test_10_10_aspect_ratio_preserved` | 4000×500(宽高比 8:1)接受性 | HTTP 200 + prompt_tokens > 0 |
