@@ -230,6 +230,7 @@
 | 15_10 | `test_15_10_mixed_tool_and_plain_turns[non_stream\|stream]` | M3.1-Flash: History mixing tool turns and plain turns | Accepted with a text answer, or calls to declared functions only |
 | 15_11 | `test_15_11_real_call_string_roundtrip` | M3.1-Flash: Turn 1 asks for echo in the prompt; replay the real turn-1 id and arguments with a string tool result | Turn 2 answers with text, or calls declared functions only |
 | 15_13 | `test_15_13_assistant_tool_call_content_variants[...]` | M3.1-Flash: History assistant with tool_calls and content "" or text (non-stream / stream) | Accepted with a text answer, or calls to declared functions only |
+| 15_14 | `test_15_14_tool_results_matched_by_id[ordered\|reversed-non_stream\|stream]` | M3.1-Flash: Tool results matched by tool_call_id (non-stream / stream). The history holds one assistant turn with two get_weather calls (Tokyo, Beijing); the results 5°C / 30°C are written back in call order or reversed, each with the correct tool_call_id. Finally the model is forced to call submit_answer (an answer sheet, never executed) with each city's temperature in tokyo_celsius / beijing_celsius | Every returned call is submit_answer with tokyo_celsius=5 and beijing_celsius=30; swapped values in the reversed variant mean results were matched by position instead of tool_call_id and fail at once; other wrong or missing values (including swapped values in the ordered variant) are resent once |
 
 ## 16 tool_call_edge — Tool call boundary / exception handling
 
